@@ -17,7 +17,7 @@ if (usePostgres) {
   });
   
   db = {
-    query: async (text, params) => {
+    query: async (text, params = []) => {
       try {
         const result = await pool.query(text, params);
         return result.rows;
@@ -27,7 +27,7 @@ if (usePostgres) {
       }
     },
     
-    run: async (text, params) => {
+    run: async (text, params = []) => {
       try {
         const result = await pool.query(text, params);
         return {
@@ -40,7 +40,7 @@ if (usePostgres) {
       }
     },
     
-    get: async (text, params) => {
+    get: async (text, params = []) => {
       try {
         const result = await pool.query(text, params);
         return result.rows[0] || null;
@@ -50,7 +50,7 @@ if (usePostgres) {
       }
     },
     
-    all: async (text, params) => {
+    all: async (text, params = []) => {
       try {
         const result = await pool.query(text, params);
         return result.rows;
@@ -67,7 +67,7 @@ if (usePostgres) {
   const sqliteDb = new sqlite3.Database(dbPath);
   
   db = {
-    query: (text, params) => {
+    query: (text, params = []) => {
       return new Promise((resolve, reject) => {
         sqliteDb.all(text, params, (err, rows) => {
           if (err) reject(err);
@@ -76,7 +76,7 @@ if (usePostgres) {
       });
     },
     
-    run: (text, params) => {
+    run: (text, params = []) => {
       return new Promise((resolve, reject) => {
         sqliteDb.run(text, params, function(err) {
           if (err) reject(err);
@@ -85,7 +85,7 @@ if (usePostgres) {
       });
     },
     
-    get: (text, params) => {
+    get: (text, params = []) => {
       return new Promise((resolve, reject) => {
         sqliteDb.get(text, params, (err, row) => {
           if (err) reject(err);
@@ -94,22 +94,13 @@ if (usePostgres) {
       });
     },
     
-    all: (text, params) => {
+    all: (text, params = []) => {
       return new Promise((resolve, reject) => {
         sqliteDb.all(text, params, (err, rows) => {
           if (err) reject(err);
           else resolve(rows);
         });
       });
-    },
-    
-    // Специальный метод для SQLite serialize
-    serialize: (callback) => {
-      if (sqliteDb.serialize) {
-        sqliteDb.serialize(callback);
-      } else {
-        callback();
-      }
     }
   };
 }
