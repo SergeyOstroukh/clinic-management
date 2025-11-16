@@ -32,10 +32,10 @@ const LoginPage = ({ onLoginSuccess }) => {
       });
 
       // Сохраняем данные пользователя в localStorage
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+      localStorage.setItem('user', JSON.stringify(response.data));
       
       // Вызываем callback для перехода в приложение
-      onLoginSuccess(response.data.user);
+      onLoginSuccess(response.data);
     } catch (error) {
       if (error.response && error.response.status === 401) {
         setError('Неверный логин или пароль');

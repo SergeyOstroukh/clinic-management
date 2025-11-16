@@ -97,6 +97,7 @@ function App() {
 
   // Функции авторизации
   const handleLogin = (user) => {
+    localStorage.setItem('user', JSON.stringify(user));
     setCurrentUser(user);
     setIsAuthenticated(true);
   };
