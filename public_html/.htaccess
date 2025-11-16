@@ -1,0 +1,11 @@
+RewriteEngine On
+
+# API запросы проксируем на сервер Node.js
+RewriteCond %{REQUEST_URI} ^/api
+RewriteRule ^(.*)$ http://localhost:3001/api/$1 [P,L]
+
+# Остальные запросы - на React приложение (index.html)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.html [L]
+
