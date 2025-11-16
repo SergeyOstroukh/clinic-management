@@ -1,0 +1,199 @@
+.appointments-table {
+  overflow-x: auto;
+  margin-top: 15px;
+}
+
+.appointments-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.appointments-table th {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.appointments-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9rem;
+}
+
+.appointments-table tr:hover {
+  background: rgba(102, 126, 234, 0.05);
+}
+
+/* Подсветка записей готовых к оплате */
+.appointments-table tr.ready-for-payment {
+  background: rgba(255, 152, 0, 0.1);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    background: rgba(255, 152, 0, 0.1);
+  }
+  50% {
+    background: rgba(255, 152, 0, 0.2);
+  }
+}
+
+.number-column {
+  width: 50px;
+  text-align: center;
+}
+
+.number-cell {
+  font-weight: 700;
+  color: #667eea;
+  text-align: center;
+  font-size: 1rem;
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.time-cell {
+  font-weight: 600;
+  color: #667eea;
+  white-space: nowrap;
+}
+
+.client-name-link {
+  color: #667eea;
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.client-name-link:hover {
+  color: #764ba2;
+  transform: scale(1.02);
+}
+
+.phone-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-icon {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+  padding: 4px;
+  outline: none;
+}
+
+.phone-icon:hover {
+  transform: scale(1.2);
+}
+
+.phone-icon:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.phone-icon.not-called {
+  filter: grayscale(100%) brightness(0.8);
+  opacity: 0.4;
+}
+
+.phone-icon.called {
+  filter: hue-rotate(90deg) saturate(2) brightness(1.2);
+  opacity: 1;
+}
+
+.status-select {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s;
+  outline: none;
+}
+
+.status-select:hover {
+  filter: brightness(1.1);
+  transform: scale(1.05);
+}
+
+.status-select option {
+  background: white;
+  color: #333;
+  padding: 8px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: white;
+  text-align: center;
+}
+
+.payment-cell {
+  text-align: center;
+}
+
+.payment-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.payment-badge.paid {
+  background: linear-gradient(135deg, #52c234 0%, #0caa41 100%);
+  color: white;
+}
+
+.payment-badge.not-paid {
+  background: linear-gradient(135deg, #ffa751 0%, #ff9022 100%);
+  color: white;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+  .appointments-table th,
+  .appointments-table td {
+    padding: 8px 6px;
+    font-size: 0.8rem;
+  }
+
+  .number-column {
+    width: 40px;
+  }
+
+  .number-cell {
+    font-size: 0.85rem;
+  }
+
+  .phone-with-icon {
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+

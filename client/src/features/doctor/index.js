@@ -1,0 +1,2 @@
+export { CreateDoctorForm } from './CreateDoctorForm';
+

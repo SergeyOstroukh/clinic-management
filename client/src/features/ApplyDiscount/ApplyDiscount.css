@@ -1,0 +1,136 @@
+.discount-section {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.1) 0%, rgba(255, 87, 34, 0.1) 100%);
+  padding: 20px;
+  border-radius: 12px;
+  margin: 15px 0;
+  border: 2px solid #ff9800;
+}
+
+.discount-section h4 {
+  margin: 0 0 15px 0;
+  color: #ff9800;
+  font-size: 1.2rem;
+}
+
+.discount-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.discount-type-select {
+  display: flex;
+  gap: 20px;
+}
+
+.discount-type-select label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #555;
+}
+
+.discount-type-select input[type="radio"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.discount-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.discount-input {
+  flex: 1;
+  padding: 12px;
+  border: 2px solid #ff9800;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.discount-input:focus {
+  outline: none;
+  border-color: #f57c00;
+  box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
+}
+
+.btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
+}
+
+.discount-result {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+.discount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 1.1rem;
+}
+
+.discount-row span {
+  color: #666;
+}
+
+.discount-amount {
+  color: #ff9800;
+  font-size: 1.3rem;
+}
+
+.discount-row.final-price {
+  border-top: 2px solid #ff9800;
+  margin-top: 10px;
+  padding-top: 15px;
+}
+
+.discount-row.final-price strong {
+  color: #4caf50;
+  font-size: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .discount-type-select {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .discount-input-row {
+    flex-direction: column;
+  }
+
+  .discount-input-row .btn {
+    width: 100%;
+  }
+}
+

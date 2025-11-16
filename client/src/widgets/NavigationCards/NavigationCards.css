@@ -1,0 +1,71 @@
+.navigation-cards {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.nav-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(102, 126, 234, 0.3);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.nav-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.nav-card-materials {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.nav-card-reports {
+  background: linear-gradient(135deg, #ffa751 0%, #ffe259 100%);
+}
+
+.nav-card-doctors {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.nav-card-icon {
+  font-size: 1.2rem;
+  margin-bottom: 0;
+}
+
+.nav-card h3 {
+  font-size: 0.75rem;
+  margin: 0;
+  color: white;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .navigation-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  
+  .nav-card {
+    padding: 5px 8px;
+    gap: 5px;
+  }
+  
+  .nav-card-icon {
+    font-size: 1rem;
+  }
+  
+  .nav-card h3 {
+    font-size: 0.7rem;
+  }
+}
+

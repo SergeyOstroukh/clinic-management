@@ -1,0 +1,1056 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Middleware
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || '*',
+  credentials: true
+};
+app.use(cors(corsOptions));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Инициализация базы данных
+// Используем переменную окружения для пути к БД (для Railway Volume)
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'clinic.db');
+console.log('📂 Путь к базе данных:', dbPath);
+const db = new sqlite3.Database(dbPath);
+
+// Создание таблиц
+db.serialize(() => {
+  // Таблица клиентов
+  db.run(`CREATE TABLE IF NOT EXISTS clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lastName TEXT,
+    firstName TEXT,
+    middleName TEXT,
+    phone TEXT,
+    address TEXT,
+    email TEXT,
+    notes TEXT,
+    name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Миграция: добавляем новые поля если их нет
+  db.run(`ALTER TABLE clients ADD COLUMN lastName TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления lastName:', err.message);
+    }
+  });
+  db.run(`ALTER TABLE clients ADD COLUMN firstName TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления firstName:', err.message);
+    }
+  });
+  db.run(`ALTER TABLE clients ADD COLUMN middleName TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления middleName:', err.message);
+    }
+  });
+  db.run(`ALTER TABLE clients ADD COLUMN address TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления address:', err.message);
+    }
+  });
+
+  // Таблица услуг
+  db.run(`CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    description TEXT,
+    category TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Миграция: добавляем поле category (раздел/категория услуги)
+  db.run(`ALTER TABLE services ADD COLUMN category TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления category:', err.message);
+    }
+  });
+
+  // Таблица врачей
+  db.run(`CREATE TABLE IF NOT EXISTS doctors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lastName TEXT NOT NULL,
+    firstName TEXT NOT NULL,
+    middleName TEXT,
+    specialization TEXT,
+    phone TEXT,
+    email TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Таблица записей
+  db.run(`CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    appointment_date DATETIME NOT NULL,
+    doctor TEXT,
+    status TEXT DEFAULT 'scheduled',
+    called_today INTEGER DEFAULT 0,
+    notes TEXT,
+    total_price REAL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id)
+  )`);
+
+  // Миграция: добавляем поле doctor если его нет (старое текстовое поле, оставим для обратной совместимости)
+  db.run(`ALTER TABLE appointments ADD COLUMN doctor TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления doctor:', err.message);
+    }
+  });
+
+  // Миграция: добавляем поле doctor_id для связи с таблицей doctors
+  db.run(`ALTER TABLE appointments ADD COLUMN doctor_id INTEGER`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления doctor_id:', err.message);
+    }
+  });
+  
+  // Миграция: добавляем поле called_today если его нет
+  db.run(`ALTER TABLE appointments ADD COLUMN called_today INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления called_today:', err.message);
+    }
+  });
+
+  // Миграция: добавляем поле diagnosis (диагноз)
+  db.run(`ALTER TABLE appointments ADD COLUMN diagnosis TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления diagnosis:', err.message);
+    }
+  });
+
+  // Миграция: добавляем поле discount_amount (сумма скидки)
+  db.run(`ALTER TABLE appointments ADD COLUMN discount_amount REAL DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления discount_amount:', err.message);
+    }
+  });
+
+  // Миграция: добавляем поле paid (оплачено/не оплачено)
+  db.run(`ALTER TABLE appointments ADD COLUMN paid INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column')) {
+      console.error('Ошибка добавления paid:', err.message);
+    }
+  });
+
+  // Таблица материалов
+  db.run(`CREATE TABLE IF NOT EXISTS materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    unit TEXT,
+    price REAL NOT NULL,
+    stock REAL DEFAULT 0,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Таблица связи записей и услуг (многие ко многим)
+  db.run(`CREATE TABLE IF NOT EXISTS appointment_services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER NOT NULL,
+    service_id INTEGER NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id),
+    FOREIGN KEY (service_id) REFERENCES services(id)
+  )`);
+
+  // Таблица связи записей и материалов
+  db.run(`CREATE TABLE IF NOT EXISTS appointment_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER NOT NULL,
+    material_id INTEGER NOT NULL,
+    quantity REAL DEFAULT 1,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id),
+    FOREIGN KEY (material_id) REFERENCES materials(id)
+  )`);
+
+  // Таблица пользователей (для авторизации)
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL,
+    doctor_id INTEGER,
+    full_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+  )`, (err) => {
+    if (err) {
+      console.error('Ошибка создания таблицы users:', err.message);
+    } else {
+      // Проверяем, есть ли пользователи, если нет - создаем начальных
+      db.get("SELECT COUNT(*) as count FROM users", (err, row) => {
+        if (!err && row.count === 0) {
+          console.log('Создаем начальных пользователей...');
+          
+          // Главный админ
+          db.run("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)",
+            ['Admin', 'admin', 'superadmin', 'Главный администратор']);
+          
+          // Администратор
+          db.run("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)",
+            ['Administrator', 'administrator', 'administrator', 'Администратор']);
+          
+          // Врач (создадим врача, если его нет)
+          db.get("SELECT id FROM doctors WHERE lastName = 'Doctor' AND firstName = 'Test'", (err, doctor) => {
+            if (!doctor) {
+              // Создаем тестового врача
+              db.run("INSERT INTO doctors (lastName, firstName, specialization) VALUES (?, ?, ?)",
+                ['Doctor', 'Test', 'Терапевт'], function(err) {
+                  if (!err) {
+                    // Привязываем пользователя к врачу
+                    db.run("INSERT INTO users (username, password, role, doctor_id, full_name) VALUES (?, ?, ?, ?, ?)",
+                      ['Doctor1', 'doctor', 'doctor', this.lastID, 'Врач Тестовый']);
+                  }
+                });
+            } else {
+              // Если врач уже есть, привязываем к нему
+              db.run("INSERT INTO users (username, password, role, doctor_id, full_name) VALUES (?, ?, ?, ?, ?)",
+                ['Doctor1', 'doctor', 'doctor', doctor.id, 'Врач Тестовый']);
+            }
+          });
+          
+          console.log('Начальные пользователи созданы');
+        }
+      });
+    }
+  });
+
+  // Добавляем тестовые данные, если база пустая
+  db.get("SELECT COUNT(*) as count FROM services", (err, row) => {
+    if (row.count === 0) {
+      const defaultServices = [
+        ['Консультация', 1500, 'Первичная консультация врача'],
+        ['Осмотр', 2000, 'Полный осмотр пациента'],
+        ['Анализы', 3000, 'Лабораторные анализы'],
+        ['Процедура', 2500, 'Лечебная процедура']
+      ];
+      const stmt = db.prepare("INSERT INTO services (name, price, description) VALUES (?, ?, ?)");
+      defaultServices.forEach(service => {
+        stmt.run(service);
+      });
+      stmt.finalize();
+    }
+  });
+
+  // Добавляем тестовые материалы, если база пустая
+  db.get("SELECT COUNT(*) as count FROM materials", (err, row) => {
+    if (!err && row.count === 0) {
+      const defaultMaterials = [
+        ['Бинт стерильный', 'шт', 50, 100, 'Стерильный медицинский бинт'],
+        ['Вата медицинская', 'упак', 30, 50, 'Медицинская вата 100г'],
+        ['Шприц одноразовый 5мл', 'шт', 20, 200, 'Одноразовый шприц'],
+        ['Перчатки латексные', 'пара', 15, 500, 'Медицинские перчатки'],
+        ['Маска медицинская', 'шт', 10, 300, 'Одноразовая маска'],
+        ['Спирт медицинский', 'мл', 5, 1000, 'Этиловый спирт 96%'],
+        ['Йод', 'флакон', 80, 20, 'Раствор йода 5%'],
+        ['Перекись водорода', 'флакон', 60, 30, 'Раствор перекиси 3%']
+      ];
+      const stmt = db.prepare("INSERT INTO materials (name, unit, price, stock, description) VALUES (?, ?, ?, ?, ?)");
+      defaultMaterials.forEach(material => {
+        stmt.run(material);
+      });
+      stmt.finalize();
+      console.log('Тестовые материалы добавлены');
+    }
+  });
+});
+
+// ========== API ROUTES ==========
+
+// ===== АВТОРИЗАЦИЯ =====
+// Вход в систему
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  db.get(
+    "SELECT u.*, d.lastName as doctor_lastName, d.firstName as doctor_firstName, d.middleName as doctor_middleName FROM users u LEFT JOIN doctors d ON u.doctor_id = d.id WHERE u.username = ? AND u.password = ?",
+    [username, password],
+    (err, user) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (!user) {
+        res.status(401).json({ error: 'Неверный логин или пароль' });
+        return;
+      }
+      
+      // Формируем данные пользователя
+      const userData = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        full_name: user.full_name,
+        doctor_id: user.doctor_id,
+        doctor_name: user.doctor_lastName ? 
+          `${user.doctor_lastName} ${user.doctor_firstName} ${user.doctor_middleName || ''}`.trim() : null
+      };
+      
+      res.json({ 
+        message: 'Авторизация успешна',
+        user: userData
+      });
+    }
+  );
+});
+
+// Получить текущего пользователя (проверка сессии)
+app.get('/api/auth/me', (req, res) => {
+  // В реальном проекте здесь проверялся бы токен из заголовка
+  // Для простоты пока возвращаем просто статус
+  res.json({ message: 'Используйте localStorage на клиенте' });
+});
+
+// Выход из системы
+app.post('/api/auth/logout', (req, res) => {
+  res.json({ message: 'Выход выполнен' });
+});
+
+// ===== КЛИЕНТЫ =====
+// Получить всех клиентов
+app.get('/api/clients', (req, res) => {
+  db.all("SELECT * FROM clients ORDER BY created_at DESC", (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Создать клиента
+app.post('/api/clients', (req, res) => {
+  const { lastName, firstName, middleName, phone, address, email, notes, name } = req.body;
+  
+  // Поддержка старого формата (если передано только name)
+  const finalLastName = lastName || '';
+  const finalFirstName = firstName || '';
+  const finalMiddleName = middleName || '';
+  const legacyName = name || `${lastName} ${firstName} ${middleName}`.trim();
+  
+  db.run(
+    `INSERT INTO clients (lastName, firstName, middleName, phone, address, email, notes, name) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      finalLastName,
+      finalFirstName, 
+      finalMiddleName,
+      phone || null,
+      address || null,
+      email || null,
+      notes || null,
+      legacyName
+    ],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ 
+        id: this.lastID, 
+        lastName: finalLastName,
+        firstName: finalFirstName,
+        middleName: finalMiddleName,
+        phone, 
+        address,
+        email, 
+        notes,
+        name: legacyName
+      });
+    }
+  );
+});
+
+// Получить все услуги
+app.get('/api/services', (req, res) => {
+  db.all("SELECT * FROM services ORDER BY name", (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Создать услугу
+app.post('/api/services', (req, res) => {
+  const { name, price, description, category } = req.body;
+  db.run(
+    "INSERT INTO services (name, price, description, category) VALUES (?, ?, ?, ?)",
+    [name, price, description || null, category || null],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ id: this.lastID, name, price, description, category });
+    }
+  );
+});
+
+// Обновить услугу
+app.put('/api/services/:id', (req, res) => {
+  const { name, price, description, category } = req.body;
+  db.run(
+    "UPDATE services SET name = ?, price = ?, description = ?, category = ? WHERE id = ?",
+    [name, price, description || null, category || null, req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ message: 'Услуга обновлена', changes: this.changes });
+    }
+  );
+});
+
+// Удалить услугу
+app.delete('/api/services/:id', (req, res) => {
+  db.run("DELETE FROM services WHERE id = ?", [req.params.id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Услуга удалена', changes: this.changes });
+  });
+});
+
+// ===== МАТЕРИАЛЫ (MATERIALS) =====
+
+// Получить все материалы
+app.get('/api/materials', (req, res) => {
+  db.all("SELECT * FROM materials ORDER BY name", (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Создать материал
+app.post('/api/materials', (req, res) => {
+  const { name, unit, price, stock, description } = req.body;
+  db.run(
+    "INSERT INTO materials (name, unit, price, stock, description) VALUES (?, ?, ?, ?, ?)",
+    [name, unit || '', price, stock || 0, description || ''],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ id: this.lastID, message: 'Материал создан' });
+    }
+  );
+});
+
+// Обновить материал
+app.put('/api/materials/:id', (req, res) => {
+  const { name, unit, price, stock, description } = req.body;
+  db.run(
+    "UPDATE materials SET name = ?, unit = ?, price = ?, stock = ?, description = ? WHERE id = ?",
+    [name, unit, price, stock, description, req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ message: 'Материал обновлен', changes: this.changes });
+    }
+  );
+});
+
+// Удалить материал
+app.delete('/api/materials/:id', (req, res) => {
+  db.run("DELETE FROM materials WHERE id = ?", [req.params.id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Материал удален', changes: this.changes });
+  });
+});
+
+// ===== ВРАЧИ (DOCTORS) =====
+
+// Получить всех врачей
+app.get('/api/doctors', (req, res) => {
+  db.all("SELECT * FROM doctors ORDER BY lastName, firstName", (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Создать врача
+app.post('/api/doctors', (req, res) => {
+  const { lastName, firstName, middleName, specialization, phone, email } = req.body;
+  db.run(
+    "INSERT INTO doctors (lastName, firstName, middleName, specialization, phone, email) VALUES (?, ?, ?, ?, ?, ?)",
+    [lastName, firstName, middleName || null, specialization || null, phone || null, email || null],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ id: this.lastID, lastName, firstName, middleName, specialization, phone, email });
+    }
+  );
+});
+
+// Обновить врача
+app.put('/api/doctors/:id', (req, res) => {
+  const { lastName, firstName, middleName, specialization, phone, email } = req.body;
+  db.run(
+    "UPDATE doctors SET lastName = ?, firstName = ?, middleName = ?, specialization = ?, phone = ?, email = ? WHERE id = ?",
+    [lastName, firstName, middleName || null, specialization || null, phone || null, email || null, req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ message: 'Врач обновлен', changes: this.changes });
+    }
+  );
+});
+
+// Удалить врача
+app.delete('/api/doctors/:id', (req, res) => {
+  db.run("DELETE FROM doctors WHERE id = ?", [req.params.id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Врач удален', changes: this.changes });
+  });
+});
+
+// ===== ЗАПИСИ (APPOINTMENTS) =====
+
+// Получить все записи с информацией о клиентах и услугах
+app.get('/api/appointments', (req, res) => {
+  // Получаем все записи с информацией о враче
+  db.all(
+    `SELECT 
+      a.*,
+      d.lastName as doctor_lastName,
+      d.firstName as doctor_firstName,
+      d.middleName as doctor_middleName,
+      d.specialization as doctor_specialization
+    FROM appointments a
+    LEFT JOIN doctors d ON a.doctor_id = d.id
+    ORDER BY a.id ASC`,
+    (err, appointments) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      // Для каждой записи получаем её услуги
+      const appointmentsWithServices = [];
+      let processed = 0;
+      
+      if (appointments.length === 0) {
+        return res.json([]);
+      }
+      
+      appointments.forEach(appointment => {
+        db.all(
+          `SELECT aps.service_id, aps.quantity, s.name, s.price 
+           FROM appointment_services aps
+           JOIN services s ON aps.service_id = s.id
+           WHERE aps.appointment_id = ?`,
+          [appointment.id],
+          (err, services) => {
+            if (err) {
+              console.error('Ошибка получения услуг:', err);
+              services = [];
+            }
+            
+            // Формируем массив услуг в нужном формате
+            const servicesArray = services.map(s => ({
+              service_id: s.service_id,
+              quantity: s.quantity
+            }));
+            
+            // Формируем объект врача
+            const doctorInfo = appointment.doctor_lastName ? {
+              lastName: appointment.doctor_lastName,
+              firstName: appointment.doctor_firstName,
+              middleName: appointment.doctor_middleName,
+              specialization: appointment.doctor_specialization
+            } : null;
+            
+            appointmentsWithServices.push({
+              ...appointment,
+              doctor: doctorInfo,
+              services: servicesArray
+            });
+            
+            processed++;
+            if (processed === appointments.length) {
+              res.json(appointmentsWithServices);
+            }
+          }
+        );
+      });
+    }
+  );
+});
+
+// Создать запись
+app.post('/api/appointments', (req, res) => {
+  const { client_id, appointment_date, doctor_id, services, notes } = req.body;
+  
+  // Сначала создаем запись
+  db.run(
+    "INSERT INTO appointments (client_id, appointment_date, doctor_id, notes) VALUES (?, ?, ?, ?)",
+    [client_id, appointment_date, doctor_id || null, notes || null],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      const appointmentId = this.lastID;
+      let totalPrice = 0;
+      
+      // Добавляем услуги и считаем общую стоимость
+      if (services && services.length > 0) {
+        const stmt = db.prepare("INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)");
+        let completed = 0;
+        
+        services.forEach(({ service_id, quantity = 1 }) => {
+          // Получаем цену услуги
+          db.get("SELECT price FROM services WHERE id = ?", [service_id], (err, service) => {
+            if (!err && service) {
+              totalPrice += service.price * quantity;
+            }
+            
+            stmt.run([appointmentId, service_id, quantity], (err) => {
+              if (err) {
+                console.error('Ошибка добавления услуги:', err);
+              }
+              
+              completed++;
+              if (completed === services.length) {
+                stmt.finalize();
+                
+                // Обновляем общую стоимость записи
+                db.run(
+                  "UPDATE appointments SET total_price = ? WHERE id = ?",
+                  [totalPrice, appointmentId],
+                  (err) => {
+                    if (err) {
+                      console.error('Ошибка обновления стоимости:', err);
+                    }
+                    res.json({ 
+                      id: appointmentId, 
+                      client_id, 
+                      appointment_date, 
+                      total_price: totalPrice,
+                      message: 'Запись создана успешно' 
+                    });
+                  }
+                );
+              }
+            });
+          });
+        });
+      } else {
+        res.json({ 
+          id: appointmentId, 
+          client_id, 
+          appointment_date, 
+          total_price: 0,
+          message: 'Запись создана успешно' 
+        });
+      }
+    }
+  );
+});
+
+// Обновить запись
+app.put('/api/appointments/:id', (req, res) => {
+  const { appointment_date, services, notes, status } = req.body;
+  
+  db.run(
+    "UPDATE appointments SET appointment_date = ?, notes = ?, status = ? WHERE id = ?",
+    [appointment_date, notes || null, status || 'scheduled', req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      // Если обновляются услуги, пересчитываем стоимость
+      if (services) {
+        // Удаляем старые услуги
+        db.run("DELETE FROM appointment_services WHERE appointment_id = ?", [req.params.id], () => {
+          // Добавляем новые услуги
+          let totalPrice = 0;
+          if (services.length > 0) {
+            const stmt = db.prepare("INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)");
+            let completed = 0;
+            
+            services.forEach(({ service_id, quantity = 1 }) => {
+              db.get("SELECT price FROM services WHERE id = ?", [service_id], (err, service) => {
+                if (!err && service) {
+                  totalPrice += service.price * quantity;
+                }
+                
+                stmt.run([req.params.id, service_id, quantity], () => {
+                  completed++;
+                  if (completed === services.length) {
+                    stmt.finalize();
+                    db.run("UPDATE appointments SET total_price = ? WHERE id = ?", [totalPrice, req.params.id]);
+                    res.json({ message: 'Запись обновлена', total_price: totalPrice });
+                  }
+                });
+              });
+            });
+          } else {
+            db.run("UPDATE appointments SET total_price = 0 WHERE id = ?", [req.params.id]);
+            res.json({ message: 'Запись обновлена', total_price: 0 });
+          }
+        });
+      } else {
+        res.json({ message: 'Запись обновлена' });
+      }
+    }
+  );
+});
+
+// Удалить запись
+app.delete('/api/appointments/:id', (req, res) => {
+  db.run("DELETE FROM appointment_services WHERE appointment_id = ?", [req.params.id], () => {
+    db.run("DELETE FROM appointments WHERE id = ?", [req.params.id], function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ message: 'Запись удалена', changes: this.changes });
+    });
+  });
+});
+
+// Получить записи на определенную дату
+app.get('/api/appointments/date/:date', (req, res) => {
+  const date = req.params.date;
+  const query = `
+    SELECT 
+      a.*,
+      c.name as client_name,
+      c.phone as client_phone
+    FROM appointments a
+    LEFT JOIN clients c ON a.client_id = c.id
+    WHERE DATE(a.appointment_date) = DATE(?)
+    ORDER BY a.appointment_date
+  `;
+  
+  db.all(query, [date], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json(rows);
+  });
+});
+
+// Обновить статус звонка
+app.patch('/api/appointments/:id/call-status', (req, res) => {
+  const { called_today } = req.body;
+  
+  db.run(
+    "UPDATE appointments SET called_today = ? WHERE id = ?",
+    [called_today ? 1 : 0, req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ 
+        message: 'Статус звонка обновлен', 
+        called_today: called_today ? 1 : 0,
+        changes: this.changes 
+      });
+    }
+  );
+});
+
+// Обновить статус записи
+app.patch('/api/appointments/:id/status', (req, res) => {
+  const { status, discount_amount } = req.body;
+  
+  const updateFields = ['status = ?'];
+  const updateValues = [status];
+  
+  if (discount_amount !== undefined) {
+    updateFields.push('discount_amount = ?');
+    updateValues.push(discount_amount);
+  }
+  
+  updateValues.push(req.params.id);
+  
+  db.run(
+    `UPDATE appointments SET ${updateFields.join(', ')} WHERE id = ?`,
+    updateValues,
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ 
+        message: 'Статус обновлен', 
+        status,
+        changes: this.changes
+      });
+    }
+  );
+});
+
+// Завершить оплату (администратор)
+app.patch('/api/appointments/:id/complete-payment', (req, res) => {
+  const { discount_amount } = req.body;
+  
+  db.run(
+    "UPDATE appointments SET status = 'completed', paid = 1, discount_amount = ? WHERE id = ?",
+    [discount_amount || 0, req.params.id],
+    function(err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ 
+        message: 'Оплата завершена', 
+        status: 'completed',
+        paid: 1,
+        changes: this.changes
+      });
+    }
+  );
+});
+
+// Завершить прием врачом (обновить диагноз, услуги, материалы)
+app.patch('/api/appointments/:id/complete-visit', (req, res) => {
+  const { diagnosis, services, materials } = req.body;
+  const appointmentId = req.params.id;
+  
+  // Удаляем старые услуги и материалы
+  db.run("DELETE FROM appointment_services WHERE appointment_id = ?", [appointmentId], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    db.run("DELETE FROM appointment_materials WHERE appointment_id = ?", [appointmentId], (err) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      let totalPrice = 0;
+      let servicesProcessed = 0;
+      let materialsProcessed = 0;
+      const totalServicesCount = services ? services.length : 0;
+      const totalMaterialsCount = materials ? materials.length : 0;
+
+      // Обработка услуг
+      if (totalServicesCount > 0) {
+        const servicesStmt = db.prepare("INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)");
+        
+        services.forEach(({ service_id, quantity = 1 }) => {
+          db.get("SELECT price FROM services WHERE id = ?", [service_id], (err, service) => {
+            if (!err && service) {
+              totalPrice += service.price * quantity;
+              servicesStmt.run(appointmentId, service_id, quantity);
+            }
+            
+            servicesProcessed++;
+            
+            if (servicesProcessed === totalServicesCount && materialsProcessed === totalMaterialsCount) {
+              servicesStmt.finalize();
+              updateAppointmentTotal();
+            }
+          });
+        });
+      }
+
+      // Обработка материалов
+      if (totalMaterialsCount > 0) {
+        const materialsStmt = db.prepare("INSERT INTO appointment_materials (appointment_id, material_id, quantity) VALUES (?, ?, ?)");
+        
+        materials.forEach(({ material_id, quantity = 1 }) => {
+          db.get("SELECT price FROM materials WHERE id = ?", [material_id], (err, material) => {
+            if (!err && material) {
+              totalPrice += material.price * quantity;
+              materialsStmt.run(appointmentId, material_id, quantity);
+            }
+            
+            materialsProcessed++;
+            
+            if (servicesProcessed === totalServicesCount && materialsProcessed === totalMaterialsCount) {
+              materialsStmt.finalize();
+              updateAppointmentTotal();
+            }
+          });
+        });
+      }
+
+      // Если нет ни услуг, ни материалов
+      if (totalServicesCount === 0 && totalMaterialsCount === 0) {
+        updateAppointmentTotal();
+      }
+
+      function updateAppointmentTotal() {
+        // Обновляем запись: диагноз, цену и статус "готов к оплате"
+        db.run(
+          "UPDATE appointments SET diagnosis = ?, total_price = ?, status = 'ready_for_payment' WHERE id = ?",
+          [diagnosis || '', totalPrice, appointmentId],
+          function(err) {
+            if (err) {
+              res.status(500).json({ error: err.message });
+              return;
+            }
+            
+            res.json({ 
+              message: 'Прием завершен, запись готова к оплате',
+              appointmentId,
+              totalPrice,
+              status: 'ready_for_payment'
+            });
+          }
+        );
+      }
+    });
+  });
+});
+
+// Получить историю визитов клиента
+app.get('/api/clients/:id/appointments', (req, res) => {
+  db.all(
+    "SELECT * FROM appointments WHERE client_id = ? ORDER BY appointment_date DESC",
+    [req.params.id],
+    (err, appointments) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      // Для каждой записи получаем её услуги и материалы
+      const appointmentsWithData = [];
+      let processed = 0;
+      
+      if (appointments.length === 0) {
+        return res.json([]);
+      }
+      
+      appointments.forEach(appointment => {
+        // Получаем услуги
+        db.all(
+          `SELECT aps.service_id, aps.quantity, s.name, s.price 
+           FROM appointment_services aps
+           JOIN services s ON aps.service_id = s.id
+           WHERE aps.appointment_id = ?`,
+          [appointment.id],
+          (err, services) => {
+            if (err) {
+              console.error('Ошибка получения услуг:', err);
+              services = [];
+            }
+            
+            const servicesArray = services.map(s => ({
+              service_id: s.service_id,
+              name: s.name,
+              price: s.price,
+              quantity: s.quantity
+            }));
+            
+            // Получаем материалы
+            db.all(
+              `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit
+               FROM appointment_materials apm
+               JOIN materials m ON apm.material_id = m.id
+               WHERE apm.appointment_id = ?`,
+              [appointment.id],
+              (err, materials) => {
+                if (err) {
+                  console.error('Ошибка получения материалов:', err);
+                  materials = [];
+                }
+                
+                const materialsArray = materials.map(m => ({
+                  material_id: m.material_id,
+                  name: m.name,
+                  price: m.price,
+                  quantity: m.quantity,
+                  unit: m.unit
+                }));
+                
+                // Получаем информацию о враче
+                db.get(
+                  `SELECT lastName, firstName, middleName, specialization
+                   FROM doctors WHERE id = ?`,
+                  [appointment.doctor_id],
+                  (err, doctor) => {
+                    appointmentsWithData.push({
+                      ...appointment,
+                      services: servicesArray,
+                      materials: materialsArray,
+                      doctor: doctor || null
+                    });
+                    
+                    processed++;
+                    if (processed === appointments.length) {
+                      res.json(appointmentsWithData);
+                    }
+                  }
+                );
+              }
+            );
+          }
+        );
+      });
+    }
+  );
+});
+
+// В продакшене раздаем статические файлы React и SPA роутинг
+if (NODE_ENV === 'production') {
+  // Сначала раздаем статические файлы (CSS, JS, изображения)
+  app.use(express.static(path.join(__dirname, '../client/build')));
+  
+  // Все остальные запросы отправляем на React приложение (для SPA роутинга)
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/build/index.html'));
+  });
+}
+
+// Запуск сервера
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  console.log(`📊 API доступен по адресу http://localhost:${PORT}/api`);
+  if (NODE_ENV === 'production') {
+    console.log(`🌐 Приложение доступно на http://localhost:${PORT}`);
+  }
+});
+
