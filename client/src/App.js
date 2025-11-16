@@ -3,7 +3,7 @@ import './App.css';
 import axios from 'axios';
 
 // FSD imports
-import { formatDate, getTodayDateString, getFullName } from './shared/lib';
+import { getTodayDateString, getFullName } from './shared/lib';
 import { AppointmentTable, ClientCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { LoginPage } from './pages/LoginPage';

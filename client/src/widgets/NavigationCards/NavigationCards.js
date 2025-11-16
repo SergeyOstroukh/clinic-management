@@ -8,8 +8,6 @@ export const NavigationCards = ({
   materialsCount,
   currentUser
 }) => {
-  const isSuperAdmin = currentUser && currentUser.role === 'superadmin';
-  
   const allCards = [
     { id: 'doctors', icon: '👨‍⚕️', title: 'Наши врачи', gradient: 'doctors', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'clients', icon: '👥', title: 'Все клиенты', gradient: 'clients', allowedRoles: ['superadmin', 'administrator'] },

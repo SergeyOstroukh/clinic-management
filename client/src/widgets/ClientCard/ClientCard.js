@@ -27,14 +27,9 @@ const ClientCard = ({
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCompleteVisit, setShowCompleteVisit] = useState(false);
-  const [currentVisit, setCurrentVisit] = useState(null);
   const [discountAmount, setDiscountAmount] = useState(0);
 
   const client = clients.find(c => c.id === clientId);
-
-  useEffect(() => {
-    loadClientHistory();
-  }, [clientId]);
 
   const loadClientHistory = async () => {
     try {
@@ -43,11 +38,15 @@ const ClientCard = ({
       setClientHistory(response.data);
     } catch (error) {
       console.error('Ошибка загрузки истории клиента:', error);
-      alert('Ошибка загрузки истории клиента');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadClientHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
 
   const getDoctorName = (doctor) => {
     if (!doctor) return '-';
@@ -156,10 +155,7 @@ const ClientCard = ({
                 {currentUser.role === 'doctor' && todayVisit.status !== 'ready_for_payment' && (
                   <button 
                     className="btn btn-primary btn-block"
-                    onClick={() => {
-                      setCurrentVisit(todayVisit);
-                      setShowCompleteVisit(true);
-                    }}
+                    onClick={() => setShowCompleteVisit(true)}
                   >
                     ✏️ Заполнить информацию о приеме
                   </button>
