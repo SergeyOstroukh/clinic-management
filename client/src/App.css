@@ -432,10 +432,10 @@
 }
 
 .btn {
-  padding: 8px 16px;
+  padding: 10px 20px !important;
   border: none;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.9rem !important;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -451,6 +451,8 @@
 .btn-primary {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+  padding: 10px 20px !important;
+  font-size: 0.9rem !important;
 }
 
 .btn-primary:hover {
@@ -458,8 +460,7 @@
 }
 
 .btn-small {
-  padding: 6px 12px;
-  font-size: 0.8rem;
+  /* Размеры наследуются от .btn */
 }
 
 .btn-danger {
@@ -930,6 +931,75 @@
   margin-bottom: 10px;
 }
 
+/* Простая таблица услуг */
+.selected-services-table {
+  margin-bottom: 15px;
+}
+
+.selected-services-table label {
+  display: block;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.services-simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.services-simple-table th {
+  background: #f5f5f5;
+  padding: 8px;
+  text-align: left;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 2px solid #e0e0e0;
+  font-size: 0.85rem;
+}
+
+.services-simple-table td {
+  padding: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.services-simple-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.quantity-input-simple {
+  width: 60px;
+  padding: 5px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.quantity-input-simple:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.remove-btn-simple {
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  transition: all 0.2s;
+}
+
+.remove-btn-simple:hover {
+  color: #e74c3c;
+  transform: scale(1.2);
+}
+
 .service-info {
   flex: 1;
 }
@@ -959,8 +1029,8 @@
 }
 
 .service-controls .btn {
-  padding: 6px 12px;
   min-width: 36px;
+  /* Размеры наследуются от .btn */
 }
 
 /* Адаптивность */
@@ -988,6 +1058,7 @@
 
   .section-header > div .btn {
     flex: 1;
+    /* Размеры наследуются от .btn */
   }
 
   .navigation-cards {
@@ -1862,6 +1933,7 @@
 
 .service-actions .btn {
   margin-left: 6px;
+  /* Размеры наследуются от .btn */
 }
 
 /* ============================================ */
@@ -1881,6 +1953,7 @@
 
 .table-actions .btn {
   margin-left: 6px;
+  /* Размеры наследуются от .btn */
 }
 
 .number-cell {
@@ -1917,8 +1990,23 @@
   .service-actions .btn,
   .table-actions .btn {
     margin-left: 0;
-    font-size: 0.8rem;
-    padding: 4px 8px;
+    /* Размеры наследуются от .btn */
   }
 }
 
+/* ГЛОБАЛЬНАЯ ФИКСАЦИЯ РАЗМЕРОВ ВСЕХ КНОПОК */
+button.btn,
+.btn,
+button.btn.btn-primary,
+.btn.btn-primary,
+button.btn.btn-small,
+.btn.btn-small,
+.section-header button.btn,
+.section-header .btn {
+  padding: 10px 20px !important;
+  font-size: 0.9rem !important;
+  height: auto !important;
+  min-height: 40px !important;
+  line-height: 1.4 !important;
+  box-sizing: border-box !important;
+}

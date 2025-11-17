@@ -117,6 +117,34 @@ async function initializePostgreSQL() {
     )
   `);
   
+  // Таблица расписания врачей (регулярное - по дням недели)
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS doctor_schedules (
+      id SERIAL PRIMARY KEY,
+      doctor_id INTEGER NOT NULL,
+      day_of_week INTEGER NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+    )
+  `);
+  
+  // Таблица точечных дат работы врачей
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS doctor_specific_dates (
+      id SERIAL PRIMARY KEY,
+      doctor_id INTEGER NOT NULL,
+      work_date DATE NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+    )
+  `);
+  
   // Таблица пользователей
   await db.run(`
     CREATE TABLE IF NOT EXISTS users (

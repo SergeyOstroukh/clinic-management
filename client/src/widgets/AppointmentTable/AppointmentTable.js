@@ -8,6 +8,7 @@ const AppointmentTable = ({
   onClientClick,
   onCallStatusToggle,
   onStatusChange,
+  onEditAppointment,
   getServiceNames,
   getDoctorName,
   calculateTotal,
@@ -49,6 +50,7 @@ const AppointmentTable = ({
             {showPrice && <th>Стоимость</th>}
             <th>Статус</th>
             {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && <th>Оплата</th>}
+            {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && <th style={{ width: '50px' }}></th>}
           </tr>
         </thead>
         <tbody>
@@ -118,10 +120,29 @@ const AppointmentTable = ({
               </td>
               {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && (
                 <td className="payment-cell">
-                  {apt.paid === 1 ? (
+                  {apt.paid === true || apt.paid === 1 ? (
                     <span className="payment-badge paid">✅ Оплачено</span>
                   ) : (
                     <span className="payment-badge not-paid">⏳ Не оплачено</span>
+                  )}
+                </td>
+              )}
+              {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && (
+                <td className="actions-cell" style={{ textAlign: 'center' }}>
+                  {(apt.paid !== true && apt.paid !== 1) && (
+                    <span
+                      className="edit-icon"
+                      onClick={() => onEditAppointment && onEditAppointment(apt)}
+                      title="Редактировать запись"
+                      style={{ 
+                        cursor: 'pointer', 
+                        fontSize: '18px',
+                        padding: '5px',
+                        display: 'inline-block'
+                      }}
+                    >
+                      ✏️
+                    </span>
                   )}
                 </td>
               )}

@@ -369,6 +369,58 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
+// Обновить запись (редактирование)
+app.put('/api/appointments/:id', async (req, res) => {
+  const { appointment_date, doctor_id, services, notes } = req.body;
+  
+  try {
+    console.log('Обновление записи ID:', req.params.id);
+    console.log('Данные:', { appointment_date, doctor_id, services, notes });
+    
+    // Обновляем основную информацию о записи
+    await db.run(
+      usePostgres
+        ? 'UPDATE appointments SET appointment_date = $1, doctor_id = $2, notes = $3 WHERE id = $4'
+        : 'UPDATE appointments SET appointment_date = ?, doctor_id = ?, notes = ? WHERE id = ?',
+      [appointment_date, doctor_id, notes || '', req.params.id]
+    );
+    
+    // Удаляем старые услуги
+    await db.run(
+      usePostgres
+        ? 'DELETE FROM appointment_services WHERE appointment_id = $1'
+        : 'DELETE FROM appointment_services WHERE appointment_id = ?',
+      [req.params.id]
+    );
+    
+    // Добавляем новые услуги
+    if (services && services.length > 0) {
+      for (const service of services) {
+        console.log('Добавление услуги:', service);
+        await db.run(
+          usePostgres
+            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)'
+            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
+          [req.params.id, service.service_id, service.quantity || 1]
+        );
+      }
+    }
+    
+    console.log('✅ Запись успешно обновлена');
+    res.json({
+      message: 'Запись обновлена',
+      id: req.params.id,
+      appointment_date,
+      doctor_id,
+      services,
+      notes
+    });
+  } catch (error) {
+    console.error('❌ Ошибка обновления записи:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Обновить статус звонка
 app.patch('/api/appointments/:id/call-status', async (req, res) => {
   const { called_today } = req.body;
@@ -637,6 +689,244 @@ app.get('/api/auth/me', async (req, res) => {
 // Логаут
 app.post('/api/auth/logout', (req, res) => {
   res.json({ message: 'Logged out' });
+});
+
+// ======================
+// РАСПИСАНИЕ ВРАЧЕЙ
+// ======================
+
+// Получить расписание всех врачей или конкретного врача
+app.get('/api/schedules', async (req, res) => {
+  try {
+    const { doctor_id } = req.query;
+    let query = `
+      SELECT 
+        ds.id, 
+        ds.doctor_id, 
+        ds.day_of_week, 
+        ds.start_time, 
+        ds.end_time, 
+        ds.is_active,
+        d."firstName" as doctor_first_name,
+        d."lastName" as doctor_last_name,
+        d.specialization
+      FROM doctor_schedules ds
+      JOIN doctors d ON ds.doctor_id = d.id
+      WHERE ds.is_active = ${usePostgres ? 'true' : '1'}
+    `;
+    
+    const params = [];
+    if (doctor_id) {
+      query += usePostgres ? ' AND ds.doctor_id = $1' : ' AND ds.doctor_id = ?';
+      params.push(doctor_id);
+    }
+    
+    query += ' ORDER BY ds.doctor_id, ds.day_of_week, ds.start_time';
+    
+    const schedules = await db.all(query, params);
+    res.json(schedules);
+  } catch (error) {
+    console.error('Ошибка получения расписания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать слот расписания (только для врачей и админов)
+app.post('/api/schedules', async (req, res) => {
+  const { doctor_id, day_of_week, start_time, end_time } = req.body;
+  
+  try {
+    if (usePostgres) {
+      const result = await db.query(
+        'INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4) RETURNING id',
+        [doctor_id, day_of_week, start_time, end_time]
+      );
+      res.json({ 
+        id: result[0].id, 
+        doctor_id, 
+        day_of_week, 
+        start_time, 
+        end_time,
+        is_active: true
+      });
+    } else {
+      const result = await db.run(
+        'INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)',
+        [doctor_id, day_of_week, start_time, end_time]
+      );
+      res.json({ 
+        id: result.lastID, 
+        doctor_id, 
+        day_of_week, 
+        start_time, 
+        end_time,
+        is_active: true
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка создания расписания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить слот расписания
+app.put('/api/schedules/:id', async (req, res) => {
+  const { day_of_week, start_time, end_time, is_active } = req.body;
+  
+  try {
+    await db.run(
+      usePostgres 
+        ? 'UPDATE doctor_schedules SET day_of_week = $1, start_time = $2, end_time = $3, is_active = $4 WHERE id = $5'
+        : 'UPDATE doctor_schedules SET day_of_week = ?, start_time = ?, end_time = ?, is_active = ? WHERE id = ?',
+      [day_of_week, start_time, end_time, is_active, req.params.id]
+    );
+    res.json({ message: 'Расписание обновлено', id: req.params.id });
+  } catch (error) {
+    console.error('Ошибка обновления расписания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить слот расписания
+app.delete('/api/schedules/:id', async (req, res) => {
+  try {
+    await db.run(
+      usePostgres ? 'DELETE FROM doctor_schedules WHERE id = $1' : 'DELETE FROM doctor_schedules WHERE id = ?',
+      [req.params.id]
+    );
+    res.json({ message: 'Расписание удалено' });
+  } catch (error) {
+    console.error('Ошибка удаления расписания:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ======================
+// ТОЧЕЧНЫЕ ДАТЫ РАБОТЫ ВРАЧЕЙ
+// ======================
+
+// Получить точечные даты
+app.get('/api/specific-dates', async (req, res) => {
+  try {
+    const { doctor_id } = req.query;
+    let query = `
+      SELECT 
+        sd.id, 
+        sd.doctor_id, 
+        sd.work_date, 
+        sd.start_time, 
+        sd.end_time, 
+        sd.is_active,
+        d."firstName" as doctor_first_name,
+        d."lastName" as doctor_last_name,
+        d.specialization
+      FROM doctor_specific_dates sd
+      JOIN doctors d ON sd.doctor_id = d.id
+      WHERE sd.is_active = ${usePostgres ? 'true' : '1'}
+    `;
+    
+    const params = [];
+    if (doctor_id) {
+      query += usePostgres ? ' AND sd.doctor_id = $1' : ' AND sd.doctor_id = ?';
+      params.push(doctor_id);
+    }
+    
+    query += ' ORDER BY sd.work_date, sd.start_time';
+    
+    const dates = await db.all(query, params);
+    res.json(dates);
+  } catch (error) {
+    console.error('Ошибка получения точечных дат:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать точечную дату
+app.post('/api/specific-dates', async (req, res) => {
+  const { doctor_id, work_date, start_time, end_time } = req.body;
+  
+  try {
+    if (usePostgres) {
+      const result = await db.query(
+        'INSERT INTO doctor_specific_dates (doctor_id, work_date, start_time, end_time) VALUES ($1, $2, $3, $4) RETURNING id',
+        [doctor_id, work_date, start_time, end_time]
+      );
+      res.json({ 
+        id: result[0].id, 
+        doctor_id, 
+        work_date, 
+        start_time, 
+        end_time,
+        is_active: true
+      });
+    } else {
+      const result = await db.run(
+        'INSERT INTO doctor_specific_dates (doctor_id, work_date, start_time, end_time) VALUES (?, ?, ?, ?)',
+        [doctor_id, work_date, start_time, end_time]
+      );
+      res.json({ 
+        id: result.lastID, 
+        doctor_id, 
+        work_date, 
+        start_time, 
+        end_time,
+        is_active: true
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка создания точечной даты:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить точечную дату
+app.delete('/api/specific-dates/:id', async (req, res) => {
+  try {
+    await db.run(
+      usePostgres ? 'DELETE FROM doctor_specific_dates WHERE id = $1' : 'DELETE FROM doctor_specific_dates WHERE id = ?',
+      [req.params.id]
+    );
+    res.json({ message: 'Точечная дата удалена' });
+  } catch (error) {
+    console.error('Ошибка удаления точечной даты:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить записи врача на месяц
+app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
+  try {
+    const { year, month } = req.query;
+    const doctorId = req.params.id;
+    
+    // Формируем даты начала и конца месяца
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    
+    const query = `
+      SELECT 
+        a.id,
+        a.appointment_date,
+        a.status,
+        a.notes,
+        a.diagnosis,
+        c."firstName" as client_first_name,
+        c."lastName" as client_last_name,
+        c.phone as client_phone
+      FROM appointments a
+      JOIN clients c ON a.client_id = c.id
+      WHERE a.doctor_id = ${usePostgres ? '$1' : '?'}
+        AND DATE(a.appointment_date) >= ${usePostgres ? '$2' : '?'}
+        AND DATE(a.appointment_date) <= ${usePostgres ? '$3' : '?'}
+      ORDER BY a.appointment_date
+    `;
+    
+    const appointments = await db.all(query, [doctorId, startDate, endDate]);
+    res.json(appointments);
+  } catch (error) {
+    console.error('Ошибка получения записей врача:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ======================

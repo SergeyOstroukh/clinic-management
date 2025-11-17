@@ -4,9 +4,10 @@ import axios from 'axios';
 
 // FSD imports
 import { getTodayDateString, getFullName } from './shared/lib';
-import { AppointmentTable, ClientCard, NavigationCards } from './widgets';
+import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { LoginPage } from './pages/LoginPage';
+import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -34,9 +35,11 @@ function App() {
   // Модальные окна
   const [showClientModal, setShowClientModal] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [showClientCardModal, setShowClientCardModal] = useState(false);
+  const [showClientHistoryModal, setShowClientHistoryModal] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState(null);
   
   // Поиск и выбор
@@ -45,6 +48,7 @@ function App() {
   const [serviceSearchQuery, setServiceSearchQuery] = useState('');
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [servicesPageSearch, setServicesPageSearch] = useState('');
+  const [clientsPageSearch, setClientsPageSearch] = useState('');
   
   // Фильтр по дате
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
@@ -52,6 +56,7 @@ function App() {
   // Редактирование
   const [editingService, setEditingService] = useState(null);
   const [editingMaterial, setEditingMaterial] = useState(null);
+  const [editingAppointment, setEditingAppointment] = useState(null);
 
   // Формы
   const [clientForm, setClientForm] = useState({ 
@@ -254,6 +259,65 @@ function App() {
     }
   };
 
+  // Открыть редактирование записи
+  const handleEditAppointment = (appointment) => {
+    setEditingAppointment(appointment);
+    // Найдем клиента для отображения в поиске
+    const client = clients.find(c => c.id === appointment.client_id);
+    if (client) {
+      setClientSearchQuery(getFullName(client.lastName, client.firstName, client.middleName));
+    }
+    // Заполним форму данными текущей записи
+    // Преобразуем services в нужный формат (только service_id и quantity)
+    const servicesForForm = (appointment.services || []).map(s => ({
+      service_id: s.service_id,
+      quantity: s.quantity || 1
+    }));
+    
+    setAppointmentForm({
+      client_id: appointment.client_id,
+      appointment_date: new Date(appointment.appointment_date).toISOString().slice(0, 16),
+      doctor_id: appointment.doctor_id,
+      services: servicesForForm,
+      notes: appointment.notes || ''
+    });
+    setShowEditAppointmentModal(true);
+  };
+
+  // Обновление записи
+  const handleUpdateAppointment = async (e) => {
+    e.preventDefault();
+    if (!appointmentForm.client_id) {
+      alert('Пожалуйста, выберите клиента');
+      return;
+    }
+    if (!appointmentForm.doctor_id) {
+      alert('Пожалуйста, выберите врача');
+      return;
+    }
+    if (appointmentForm.services.length === 0) {
+      alert('Пожалуйста, выберите хотя бы одну услугу');
+      return;
+    }
+    try {
+      console.log('Отправка обновления записи:', appointmentForm);
+      await axios.put(`${API_URL}/appointments/${editingAppointment.id}`, appointmentForm);
+      setAppointmentForm({
+        client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
+      });
+      setEditingAppointment(null);
+      setClientSearchQuery('');
+      setServiceSearchQuery('');
+      setShowEditAppointmentModal(false);
+      loadData();
+      alert('✅ Запись успешно обновлена');
+    } catch (error) {
+      console.error('Ошибка обновления записи:', error);
+      console.error('Детали ошибки:', error.response?.data);
+      alert(`Ошибка обновления записи: ${error.response?.data?.error || error.message}`);
+    }
+  };
+
   // CRUD для услуг
   const handleCreateService = async (e) => {
     e.preventDefault();
@@ -413,6 +477,7 @@ function App() {
           onClientClick={openClientCard}
           onCallStatusToggle={toggleCallStatus}
           onStatusChange={updateAppointmentStatus}
+          onEditAppointment={handleEditAppointment}
           getServiceNames={getServiceNames}
           getDoctorName={getDoctorName}
           calculateTotal={calculateAppointmentTotal}
@@ -464,16 +529,46 @@ function App() {
         {currentView === 'clients' && (currentUser.role === 'superadmin' || currentUser.role === 'administrator') && (
           <div>
             <div className="section-header">
-              <h2>👥 Все клиенты</h2>
+              <h2>👥 Все клиенты ({clients.filter(c => {
+                const search = clientsPageSearch.toLowerCase();
+                const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
+                const phone = (c.phone || '').toLowerCase();
+                return fullName.includes(search) || phone.includes(search);
+              }).length})</h2>
               <div>
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
                 <button className="btn btn-primary" onClick={() => setShowClientModal(true)}>+ Добавить клиента</button>
               </div>
             </div>
+
+            {/* Поиск клиентов */}
+            <div className="page-search-bar">
+              <input
+                type="text"
+                placeholder="🔍 Поиск по ФИО или телефону..."
+                value={clientsPageSearch}
+                onChange={(e) => setClientsPageSearch(e.target.value)}
+                className="page-search-input"
+              />
+              {clientsPageSearch && (
+                <button 
+                  className="btn btn-small"
+                  onClick={() => setClientsPageSearch('')}
+                >
+                  ✕ Очистить
+                </button>
+              )}
+            </div>
+
             <div className="clients-list-wide">
-              {clients.length === 0 ? (
+              {clients.filter(c => {
+                const search = clientsPageSearch.toLowerCase();
+                const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
+                const phone = (c.phone || '').toLowerCase();
+                return fullName.includes(search) || phone.includes(search);
+              }).length === 0 ? (
                 <div className="empty-state">
-                  <p>Нет клиентов</p>
+                  <p>{clientsPageSearch ? 'Клиенты не найдены' : 'Нет клиентов'}</p>
                 </div>
               ) : (
                 <table className="wide-table">
@@ -488,30 +583,43 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {clients.map((client, index) => (
-                      <tr key={client.id}>
-                        <td className="number-cell">{index + 1}</td>
-                        <td>
-                          <span
-                            className="client-name-link"
-                            onClick={() => openClientCard(client.id)}
-                          >
-                            {getFullName(client.lastName, client.firstName, client.middleName)}
-                          </span>
-                        </td>
-                        <td>{client.phone || '-'}</td>
-                        <td>{client.address || '-'}</td>
-                        <td>{client.email || '-'}</td>
-                        <td className="table-actions">
-                          <button 
-                            className="btn btn-small"
-                            onClick={() => openClientCard(client.id)}
-                          >
-                            📋 Карточка
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {clients
+                      .filter(c => {
+                        const search = clientsPageSearch.toLowerCase();
+                        const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
+                        const phone = (c.phone || '').toLowerCase();
+                        return fullName.includes(search) || phone.includes(search);
+                      })
+                      .map((client, index) => (
+                        <tr key={client.id}>
+                          <td className="number-cell">{index + 1}</td>
+                          <td>
+                            <span
+                              className="client-name-link"
+                              onClick={() => {
+                                setSelectedClientId(client.id);
+                                setShowClientHistoryModal(true);
+                              }}
+                            >
+                              {getFullName(client.lastName, client.firstName, client.middleName)}
+                            </span>
+                          </td>
+                          <td>{client.phone || '-'}</td>
+                          <td>{client.address || '-'}</td>
+                          <td>{client.email || '-'}</td>
+                          <td className="table-actions">
+                            <button 
+                              className="btn btn-small"
+                              onClick={() => {
+                                setSelectedClientId(client.id);
+                                setShowClientHistoryModal(true);
+                              }}
+                            >
+                              📋 Карточка
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               )}
@@ -701,6 +809,17 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Расписание врачей - доступно всем */}
+        {currentView === 'schedule' && (
+          <div>
+            <button className="btn" onClick={() => setCurrentView('home')} style={{ marginBottom: '20px' }}>← Назад</button>
+            <DoctorSchedule 
+              currentUser={currentUser}
+              doctors={doctors}
+            />
+          </div>
+        )}
       </div>
 
       {/* Модальное окно карточки клиента */}
@@ -717,13 +836,26 @@ function App() {
         />
       )}
 
+      {/* Модальное окно истории клиента */}
+      {showClientHistoryModal && (
+        <ClientHistoryCard
+          clientId={selectedClientId}
+          clients={clients}
+          onClose={() => setShowClientHistoryModal(false)}
+        />
+      )}
+
       {/* Модальные окна для создания/редактирования (упрощенная версия) */}
       {/* TODO: вынести модальные окна в отдельные компоненты */}
 
       {/* Модальное окно создания записи */}
       {showAppointmentModal && (
-        <div className="modal-overlay" onClick={() => setShowAppointmentModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowAppointmentModal(false);
+          }
+        }}>
+          <div className="modal">
             <h2>Новая запись</h2>
             <form onSubmit={handleCreateAppointment}>
               {/* Выбор клиента с поиском */}
@@ -814,7 +946,6 @@ function App() {
                             onClick={() => !isAdded && toggleServiceInAppointment(service.id)}
                           >
                             <span>{service.name}</span>
-                            <span className="service-price-tag">{service.price} BYN</span>
                             {isAdded && <span className="added-mark">✓</span>}
                           </div>
                         );
@@ -827,35 +958,47 @@ function App() {
               </div>
 
               {appointmentForm.services.length > 0 && (
-                <div className="selected-services">
-                  <h4>Выбранные услуги:</h4>
-                  {appointmentForm.services.map(item => {
-                    const service = services.find(s => s.id === item.service_id);
-                    if (!service) return null;
-                    return (
-                      <div key={item.service_id} className="selected-service-item">
-                        <div className="service-info">
-                          <span>{service.name}</span>
-                          <span className="service-price">{service.price} BYN</span>
-                        </div>
-                        <div className="service-controls">
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="btn btn-small btn-danger"
-                            onClick={() => toggleServiceInAppointment(item.service_id)}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="selected-services-table">
+                  <label>Выбранные услуги ({appointmentForm.services.length}):</label>
+                  <table className="services-simple-table">
+                    <thead>
+                      <tr>
+                        <th>Услуга</th>
+                        <th style={{ width: '80px' }}>Кол-во</th>
+                        <th style={{ width: '50px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {appointmentForm.services.map(item => {
+                        const service = services.find(s => s.id === item.service_id);
+                        if (!service) return null;
+                        return (
+                          <tr key={item.service_id}>
+                            <td>{service.name}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
+                                className="quantity-input-simple"
+                              />
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                className="remove-btn-simple"
+                                onClick={() => toggleServiceInAppointment(item.service_id)}
+                                title="Удалить"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
 
@@ -895,14 +1038,203 @@ function App() {
         </div>
       )}
 
+      {/* Модальное окно редактирования записи */}
+      {showEditAppointmentModal && (
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowEditAppointmentModal(false);
+            setEditingAppointment(null);
+            setClientSearchQuery('');
+            setServiceSearchQuery('');
+          }
+        }}>
+          <div className="modal">
+            <h2>✏️ Редактировать запись</h2>
+            <form onSubmit={handleUpdateAppointment}>
+              {/* Выбор клиента с поиском */}
+              <div className="client-select-group">
+                <label>Клиент *</label>
+                <div className="client-search-wrapper">
+                  <input
+                    type="text"
+                    placeholder="Поиск клиента по ФИО или телефону..."
+                    value={clientSearchQuery}
+                    onChange={(e) => setClientSearchQuery(e.target.value)}
+                    onFocus={() => setShowClientDropdown(true)}
+                    className="client-search-input"
+                  />
+                  {showClientDropdown && (
+                    <div className="client-dropdown">
+                      {getFilteredClients().length > 0 ? (
+                        getFilteredClients().map(client => (
+                          <div
+                            key={client.id}
+                            className="client-dropdown-item"
+                            onClick={() => {
+                              setAppointmentForm({ ...appointmentForm, client_id: client.id });
+                              setClientSearchQuery(getFullName(client.lastName, client.firstName, client.middleName));
+                              setShowClientDropdown(false);
+                            }}
+                          >
+                            <div>{getFullName(client.lastName, client.firstName, client.middleName)}</div>
+                            <div className="client-phone">{client.phone}</div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="client-dropdown-empty">Клиенты не найдены</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <label>Дата и время *</label>
+              <input
+                type="datetime-local"
+                value={appointmentForm.appointment_date}
+                onChange={(e) => setAppointmentForm({ ...appointmentForm, appointment_date: e.target.value })}
+                required
+              />
+
+              <label>Врач *</label>
+              <select
+                value={appointmentForm.doctor_id}
+                onChange={(e) => setAppointmentForm({ ...appointmentForm, doctor_id: e.target.value })}
+                required
+              >
+                <option value="">Выберите врача</option>
+                {doctors.map(doctor => (
+                  <option key={doctor.id} value={doctor.id}>
+                    {getFullName(doctor.lastName, doctor.firstName, doctor.middleName)} - {doctor.specialization}
+                  </option>
+                ))}
+              </select>
+
+              <label>Услуги</label>
+              <div className="service-search-wrapper">
+                <input
+                  type="text"
+                  placeholder="Поиск услуги..."
+                  value={serviceSearchQuery}
+                  onChange={(e) => setServiceSearchQuery(e.target.value)}
+                  onFocus={() => setShowServiceDropdown(true)}
+                  className="service-search-input"
+                />
+                {showServiceDropdown && (
+                  <div className="service-dropdown">
+                    {getFilteredServices().length > 0 ? (
+                      getFilteredServices().map(service => {
+                        const isAdded = appointmentForm.services.find(s => s.service_id === service.id);
+                        return (
+                          <div
+                            key={service.id}
+                            className={`service-dropdown-item ${isAdded ? 'already-added' : ''}`}
+                            onClick={() => !isAdded && toggleServiceInAppointment(service.id)}
+                          >
+                            <span>{service.name}</span>
+                            {isAdded && <span className="added-mark">✓</span>}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="service-dropdown-empty">Услуги не найдены</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {appointmentForm.services.length > 0 && (
+                <div className="selected-services-table">
+                  <label>Выбранные услуги ({appointmentForm.services.length}):</label>
+                  <table className="services-simple-table">
+                    <thead>
+                      <tr>
+                        <th>Услуга</th>
+                        <th style={{ width: '80px' }}>Кол-во</th>
+                        <th style={{ width: '50px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {appointmentForm.services.map(item => {
+                        const service = services.find(s => s.id === item.service_id);
+                        if (!service) return null;
+                        return (
+                          <tr key={item.service_id}>
+                            <td>{service.name}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
+                                className="quantity-input-simple"
+                              />
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                className="remove-btn-simple"
+                                onClick={() => toggleServiceInAppointment(item.service_id)}
+                                title="Удалить"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <label>Заметки</label>
+              <textarea
+                placeholder="Дополнительная информация"
+                value={appointmentForm.notes}
+                onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })}
+                rows={3}
+              />
+
+              <div className="modal-actions">
+                <button 
+                  type="button" 
+                  className="btn" 
+                  onClick={() => {
+                    setShowEditAppointmentModal(false);
+                    setEditingAppointment(null);
+                    setClientSearchQuery('');
+                    setServiceSearchQuery('');
+                    setAppointmentForm({
+                      client_id: '',
+                      appointment_date: new Date().toISOString().slice(0, 16),
+                      doctor_id: '',
+                      services: [],
+                      notes: ''
+                    });
+                  }}
+                >
+                  Отмена
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  💾 Сохранить изменения
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Модальное окно создания/редактирования услуги */}
       {showServiceModal && (
-        <div className="modal-overlay" onClick={() => {
-          setShowServiceModal(false);
-          setEditingService(null);
-          setServiceForm({ name: '', price: '', description: '', category: '' });
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowServiceModal(false);
+            setEditingService(null);
+            setServiceForm({ name: '', price: '', description: '', category: '' });
+          }
         }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal">
             <h2>{editingService ? 'Редактировать услугу' : 'Новая услуга'}</h2>
             <form onSubmit={handleCreateService}>
               <label>Раздел услуги</label>
@@ -964,12 +1296,14 @@ function App() {
 
       {/* Модальное окно создания/редактирования материала */}
       {showMaterialModal && (
-        <div className="modal-overlay" onClick={() => {
-          setShowMaterialModal(false);
-          setEditingMaterial(null);
-          setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '' });
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowMaterialModal(false);
+            setEditingMaterial(null);
+            setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '' });
+          }
         }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal">
             <h2>{editingMaterial ? 'Редактировать материал' : 'Новый материал'}</h2>
             <form onSubmit={handleCreateMaterial}>
               <label>Название материала *</label>

@@ -9,6 +9,7 @@ export const NavigationCards = ({
   currentUser
 }) => {
   const allCards = [
+    { id: 'schedule', icon: '📅', title: 'Расписание врачей', gradient: 'schedule', allowedRoles: ['superadmin', 'administrator', 'doctor'] },
     { id: 'doctors', icon: '👨‍⚕️', title: 'Наши врачи', gradient: 'doctors', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'clients', icon: '👥', title: 'Все клиенты', gradient: 'clients', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'services', icon: '💼', title: 'Все услуги', gradient: 'services', allowedRoles: ['superadmin', 'administrator'] },
