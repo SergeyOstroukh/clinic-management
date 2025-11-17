@@ -43,7 +43,7 @@ function param(index) {
 // Получить всех клиентов
 app.get('/api/clients', async (req, res) => {
   try {
-    const clients = await db.all('SELECT * FROM clients ORDER BY lastName, firstName');
+    const clients = await db.all('SELECT * FROM clients ORDER BY "lastName", "firstName"');
     res.json(clients);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -55,20 +55,13 @@ app.post('/api/clients', async (req, res) => {
   const { lastName, firstName, middleName, phone, address, email, notes } = req.body;
   
   try {
-    if (usePostgres) {
-      const result = await db.query(
-        'INSERT INTO clients (lastName, firstName, middleName, phone, address, email, notes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-        [lastName, firstName, middleName, phone, address, email, notes]
-      );
-      res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes });
-    } else {
-      const result = await db.run(
-        'INSERT INTO clients (lastName, firstName, middleName, phone, address, email, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [lastName, firstName, middleName, phone, address, email, notes]
-      );
-      res.json({ id: result.lastID, lastName, firstName, middleName, phone, address, email, notes });
-    }
+    const result = await db.query(
+      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [lastName, firstName, middleName, phone, address, email, notes]
+    );
+    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes });
   } catch (error) {
+    console.error('Ошибка создания клиента:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -143,7 +136,7 @@ app.delete('/api/services/:id', async (req, res) => {
 // Получить всех врачей
 app.get('/api/doctors', async (req, res) => {
   try {
-    const doctors = await db.all('SELECT * FROM doctors ORDER BY lastName, firstName');
+    const doctors = await db.all('SELECT * FROM doctors ORDER BY "lastName", "firstName"');
     res.json(doctors);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -155,19 +148,11 @@ app.post('/api/doctors', async (req, res) => {
   const { lastName, firstName, middleName, specialization, phone, email } = req.body;
   
   try {
-    if (usePostgres) {
-      const result = await db.query(
-        'INSERT INTO doctors (lastName, firstName, middleName, specialization, phone, email) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [lastName, firstName, middleName, specialization, phone, email]
-      );
-      res.json({ id: result[0].id, lastName, firstName, middleName, specialization, phone, email });
-    } else {
-      const result = await db.run(
-        'INSERT INTO doctors (lastName, firstName, middleName, specialization, phone, email) VALUES (?, ?, ?, ?, ?, ?)',
-        [lastName, firstName, middleName, specialization, phone, email]
-      );
-      res.json({ id: result.lastID, lastName, firstName, middleName, specialization, phone, email });
-    }
+    const result = await db.query(
+      'INSERT INTO doctors ("lastName", "firstName", "middleName", specialization, phone, email) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [lastName, firstName, middleName, specialization, phone, email]
+    );
+    res.json({ id: result[0].id, lastName, firstName, middleName, specialization, phone, email });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -179,9 +164,7 @@ app.put('/api/doctors/:id', async (req, res) => {
   
   try {
     const result = await db.run(
-      usePostgres
-        ? 'UPDATE doctors SET lastName = $1, firstName = $2, middleName = $3, specialization = $4, phone = $5, email = $6 WHERE id = $7'
-        : 'UPDATE doctors SET lastName = ?, firstName = ?, middleName = ?, specialization = ?, phone = ?, email = ? WHERE id = ?',
+      'UPDATE doctors SET "lastName" = $1, "firstName" = $2, "middleName" = $3, specialization = $4, phone = $5, email = $6 WHERE id = $7',
       [lastName, firstName, middleName, specialization, phone, email, req.params.id]
     );
     res.json({ message: 'Врач обновлен', changes: result.changes });
@@ -276,9 +259,9 @@ app.get('/api/appointments', async (req, res) => {
     const appointments = await db.all(`
       SELECT 
         a.*,
-        d.lastName as doctor_lastName,
-        d.firstName as doctor_firstName,
-        d.middleName as doctor_middleName,
+        d."lastName" as doctor_lastName,
+        d."firstName" as doctor_firstName,
+        d."middleName" as doctor_middleName,
         d.specialization as doctor_specialization
       FROM appointments a
       LEFT JOIN doctors d ON a.doctor_id = d.id
@@ -586,9 +569,7 @@ app.get('/api/clients/:id/appointments', async (req, res) => {
       
       // Получаем врача
       const doctor = await db.get(
-        usePostgres
-          ? 'SELECT lastName, firstName, middleName, specialization FROM doctors WHERE id = $1'
-          : 'SELECT lastName, firstName, middleName, specialization FROM doctors WHERE id = ?',
+        'SELECT "lastName", "firstName", "middleName", specialization FROM doctors WHERE id = $1',
         [appointment.doctor_id]
       );
       

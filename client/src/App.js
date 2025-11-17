@@ -202,7 +202,9 @@ function App() {
   const handleCreateClient = async (e) => {
     e.preventDefault();
     try {
+      console.log('Отправка данных клиента:', clientForm);
       const response = await axios.post(`${API_URL}/clients`, clientForm);
+      console.log('Ответ сервера:', response.data);
       const newClientId = response.data.id;
       
       // Если модалка записи открыта, автоматически выбираем нового клиента
@@ -219,7 +221,9 @@ function App() {
       setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
       setShowClientModal(false);
     } catch (error) {
-      alert('Ошибка создания клиента');
+      console.error('Ошибка создания клиента:', error);
+      console.error('Ответ сервера:', error.response?.data);
+      alert(`Ошибка создания клиента: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -1037,7 +1041,14 @@ function App() {
 
       {/* Модальное окно создания клиента */}
       {showClientModal && (
-        <div className="modal-overlay" onClick={() => setShowClientModal(false)}>
+        <div 
+          className="modal-overlay" 
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowClientModal(false);
+            }
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Новый клиент</h2>
             <form onSubmit={handleCreateClient}>

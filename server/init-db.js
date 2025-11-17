@@ -1,17 +1,11 @@
-const { db, usePostgres } = require('./database');
+const { db } = require('./database');
 
 // Инициализация базы данных
 async function initializeDatabase() {
-  console.log('🔧 Инициализация базы данных...');
+  console.log('🔧 Инициализация базы данных PostgreSQL...');
   
   try {
-    if (usePostgres) {
-      await initializePostgreSQL();
-    } else {
-      await initializeSQLite();
-    }
-    
-    // Инициализация данных по умолчанию
+    await initializePostgreSQL();
     await initializeDefaultData();
     
     console.log('✅ База данных инициализирована');
@@ -29,9 +23,9 @@ async function initializePostgreSQL() {
   await db.run(`
     CREATE TABLE IF NOT EXISTS clients (
       id SERIAL PRIMARY KEY,
-      lastName TEXT,
-      firstName TEXT,
-      middleName TEXT,
+      "lastName" TEXT,
+      "firstName" TEXT,
+      "middleName" TEXT,
       phone TEXT,
       address TEXT,
       email TEXT,
@@ -56,9 +50,9 @@ async function initializePostgreSQL() {
   await db.run(`
     CREATE TABLE IF NOT EXISTS doctors (
       id SERIAL PRIMARY KEY,
-      lastName TEXT NOT NULL,
-      firstName TEXT NOT NULL,
-      middleName TEXT,
+      "lastName" TEXT NOT NULL,
+      "firstName" TEXT NOT NULL,
+      "middleName" TEXT,
       specialization TEXT,
       phone TEXT,
       email TEXT,
@@ -138,114 +132,6 @@ async function initializePostgreSQL() {
   `);
 }
 
-// Инициализация SQLite
-async function initializeSQLite() {
-  console.log('📊 Создание таблиц SQLite...');
-  
-  try {
-    // Таблица клиентов
-    await db.run(`CREATE TABLE IF NOT EXISTS clients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      lastName TEXT,
-      firstName TEXT,
-      middleName TEXT,
-      phone TEXT,
-      address TEXT,
-      email TEXT,
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-    
-    // Таблица услуг
-    await db.run(`CREATE TABLE IF NOT EXISTS services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price REAL NOT NULL,
-      description TEXT,
-      category TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-    
-    // Таблица врачей
-    await db.run(`CREATE TABLE IF NOT EXISTS doctors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      lastName TEXT NOT NULL,
-      firstName TEXT NOT NULL,
-      middleName TEXT,
-      specialization TEXT,
-      phone TEXT,
-      email TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-    
-    // Таблица записей
-    await db.run(`CREATE TABLE IF NOT EXISTS appointments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      appointment_date DATETIME NOT NULL,
-      doctor_id INTEGER,
-      status TEXT DEFAULT 'scheduled',
-      called_today INTEGER DEFAULT 0,
-      notes TEXT,
-      total_price REAL DEFAULT 0,
-      diagnosis TEXT,
-      discount_amount REAL DEFAULT 0,
-      paid INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (client_id) REFERENCES clients(id),
-      FOREIGN KEY (doctor_id) REFERENCES doctors(id)
-    )`);
-    
-    // Таблица связи записей и услуг
-    await db.run(`CREATE TABLE IF NOT EXISTS appointment_services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      appointment_id INTEGER NOT NULL,
-      service_id INTEGER NOT NULL,
-      quantity INTEGER DEFAULT 1,
-      FOREIGN KEY (appointment_id) REFERENCES appointments(id),
-      FOREIGN KEY (service_id) REFERENCES services(id)
-    )`);
-    
-    // Таблица материалов
-    await db.run(`CREATE TABLE IF NOT EXISTS materials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      unit TEXT,
-      price REAL NOT NULL,
-      stock REAL DEFAULT 0,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-    
-    // Таблица связи записей и материалов
-    await db.run(`CREATE TABLE IF NOT EXISTS appointment_materials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      appointment_id INTEGER NOT NULL,
-      material_id INTEGER NOT NULL,
-      quantity REAL DEFAULT 1,
-      FOREIGN KEY (appointment_id) REFERENCES appointments(id),
-      FOREIGN KEY (material_id) REFERENCES materials(id)
-    )`);
-    
-    // Таблица пользователей
-    await db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT NOT NULL,
-      doctor_id INTEGER,
-      full_name TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (doctor_id) REFERENCES doctors(id)
-    )`);
-    
-    console.log('✅ Таблицы SQLite созданы');
-  } catch (error) {
-    console.error('❌ Ошибка создания таблиц SQLite:', error);
-    throw error;
-  }
-}
-
 // Инициализация данных по умолчанию
 async function initializeDefaultData() {
   console.log('📝 Проверка данных по умолчанию...');
@@ -257,20 +143,11 @@ async function initializeDefaultData() {
     console.log('👥 Создание пользователей по умолчанию...');
     
     // Создаем врача по умолчанию
-    let doctorId;
-    if (usePostgres) {
-      const result = await db.query(
-        'INSERT INTO doctors (lastName, firstName, specialization) VALUES ($1, $2, $3) RETURNING id',
-        ['Иванов', 'Иван', 'Терапевт']
-      );
-      doctorId = result[0].id;
-    } else {
-      const result = await db.run(
-        'INSERT INTO doctors (lastName, firstName, specialization) VALUES (?, ?, ?)',
-        ['Иванов', 'Иван', 'Терапевт']
-      );
-      doctorId = result.lastID;
-    }
+    const result = await db.query(
+      'INSERT INTO doctors ("lastName", "firstName", specialization) VALUES ($1, $2, $3) RETURNING id',
+      ['Иванов', 'Иван', 'Терапевт']
+    );
+    const doctorId = result[0].id;
     
     // Создаем пользователей
     const defaultUsers = [
@@ -280,17 +157,10 @@ async function initializeDefaultData() {
     ];
     
     for (const user of defaultUsers) {
-      if (usePostgres) {
-        await db.run(
-          'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5)',
-          [user.username, user.password, user.role, user.doctor_id || null, user.full_name]
-        );
-      } else {
-        await db.run(
-          'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES (?, ?, ?, ?, ?)',
-          [user.username, user.password, user.role, user.doctor_id || null, user.full_name]
-        );
-      }
+      await db.run(
+        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5)',
+        [user.username, user.password, user.role, user.doctor_id || null, user.full_name]
+      );
     }
     
     console.log('✅ Пользователи созданы');
@@ -309,17 +179,10 @@ async function initializeDefaultData() {
     ];
     
     for (const material of defaultMaterials) {
-      if (usePostgres) {
-        await db.run(
-          'INSERT INTO materials (name, unit, price, stock) VALUES ($1, $2, $3, $4)',
-          [material.name, material.unit, material.price, material.stock]
-        );
-      } else {
-        await db.run(
-          'INSERT INTO materials (name, unit, price, stock) VALUES (?, ?, ?, ?)',
-          [material.name, material.unit, material.price, material.stock]
-        );
-      }
+      await db.run(
+        'INSERT INTO materials (name, unit, price, stock) VALUES ($1, $2, $3, $4)',
+        [material.name, material.unit, material.price, material.stock]
+      );
     }
     
     console.log('✅ Материалы созданы');
@@ -335,17 +198,10 @@ async function initializeDefaultData() {
       const servicesData = require('./migrations/services_data');
       
       for (const service of servicesData) {
-        if (usePostgres) {
-          await db.run(
-            'INSERT INTO services (name, price, category) VALUES ($1, $2, $3)',
-            [service.name, service.price, service.category || null]
-          );
-        } else {
-          await db.run(
-            'INSERT INTO services (name, price, category) VALUES (?, ?, ?)',
-            [service.name, service.price, service.category || null]
-          );
-        }
+        await db.run(
+          'INSERT INTO services (name, price, category) VALUES ($1, $2, $3)',
+          [service.name, service.price, service.category || null]
+        );
       }
       
       console.log(`✅ Импортировано услуг: ${servicesData.length}`);
