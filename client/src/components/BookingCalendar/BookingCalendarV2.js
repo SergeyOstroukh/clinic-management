@@ -26,14 +26,40 @@ const formatDateTime = (year, month, day, hours, minutes) => {
   return `${formatDate(year, month, day)} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
 };
 
+// Нормализация формата даты для сравнения
+const normalizeDateString = (dateStr) => {
+  if (!dateStr) return '';
+  
+  // Нормализуем: убираем 'T', заменяем на пробел, убираем timezone
+  let normalized = dateStr.replace('T', ' ');
+  if (normalized.includes('Z')) {
+    normalized = normalized.replace('Z', '');
+  }
+  if (normalized.includes('+')) {
+    normalized = normalized.split('+')[0];
+  }
+  
+  return normalized;
+};
+
 const parseTime = (dateTimeStr) => {
-  // Парсим время из '2026-01-21 16:00:00'
-  const timePart = dateTimeStr.split(' ')[1];
+  // Парсим время из разных форматов:
+  // '2026-01-21 16:00:00' (правильный формат)
+  // '2026-01-21T16:00:00' (ISO формат)
+  // '2026-01-21T16:00:00Z' (ISO с timezone)
+  if (!dateTimeStr) return { hours: 0, minutes: 0 };
+  
+  // Нормализуем формат
+  const normalized = normalizeDateString(dateTimeStr);
+  
+  // Парсим время (часть после пробела)
+  const timePart = normalized.split(' ')[1];
   if (!timePart) return { hours: 0, minutes: 0 };
+  
   const parts = timePart.split(':');
   return {
-    hours: parseInt(parts[0]),
-    minutes: parseInt(parts[1])
+    hours: parseInt(parts[0]) || 0,
+    minutes: parseInt(parts[1]) || 0
   };
 };
 
@@ -268,9 +294,16 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             });
             
             // Проверяем, какие слоты свободны
-            const dayAppointments = doctorAppointments.filter(apt => 
-              apt.appointment_date.startsWith(dateStr)
-            );
+            // Нормализуем формат даты для сравнения
+            const dayAppointments = doctorAppointments.filter(apt => {
+              if (!apt.appointment_date) return false;
+              
+              // Нормализуем формат даты записи
+              const normalizedDate = normalizeDateString(apt.appointment_date);
+              
+              // Проверяем, начинается ли с нужной даты
+              return normalizedDate.startsWith(dateStr);
+            });
             
             for (const slot of allDaySlots) {
               const isBooked = dayAppointments.some(apt => {
@@ -388,9 +421,16 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
     const dateStr = formatDate(year, month, day);
     // Фильтруем только активные записи (не отмененные)
-    const dayAppointments = appointments.filter(apt => 
-      apt.appointment_date.startsWith(dateStr) && apt.status !== 'cancelled'
-    );
+    // Нормализуем формат даты для сравнения
+    const dayAppointments = appointments.filter(apt => {
+      if (!apt.appointment_date || apt.status === 'cancelled') return false;
+      
+      // Нормализуем формат даты записи
+      const normalizedDate = normalizeDateString(apt.appointment_date);
+      
+      // Проверяем, начинается ли с нужной даты
+      return normalizedDate.startsWith(dateStr);
+    });
 
     let totalSlots = 0;
     schedule.forEach(s => {
@@ -406,9 +446,22 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const schedule = getDaySchedule(year, month, day);
     const dateStr = formatDate(year, month, day);
     // Фильтруем только активные записи (не отмененные)
-    const dayAppointments = appointments.filter(apt => 
-      apt.appointment_date.startsWith(dateStr) && apt.status !== 'cancelled'
-    );
+    // Нормализуем формат даты для сравнения (убираем 'T', timezone и т.д.)
+    const dayAppointments = appointments.filter(apt => {
+      if (!apt.appointment_date || apt.status === 'cancelled') return false;
+      
+      // Нормализуем формат даты записи
+      let normalizedDate = apt.appointment_date.replace('T', ' ');
+      if (normalizedDate.includes('Z')) {
+        normalizedDate = normalizedDate.replace('Z', '');
+      }
+      if (normalizedDate.includes('+')) {
+        normalizedDate = normalizedDate.split('+')[0];
+      }
+      
+      // Проверяем, начинается ли с нужной даты
+      return normalizedDate.startsWith(dateStr);
+    });
 
     // Собираем все слоты
     const allSlots = [];
