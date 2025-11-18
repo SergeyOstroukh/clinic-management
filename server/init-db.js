@@ -8,6 +8,9 @@ async function initializeDatabase() {
     await initializePostgreSQL();
     console.log('✅ Таблицы созданы/проверены');
     
+    await migrateWorkDateIfNeeded();
+    console.log('✅ Миграция дат проверена');
+    
     await initializeDefaultData();
     console.log('✅ Данные по умолчанию проверены');
     
@@ -168,6 +171,115 @@ async function initializePostgreSQL() {
   } catch (error) {
     console.error('❌ Ошибка создания таблиц:', error.message);
     throw error;
+  }
+}
+
+// Миграция work_date: DATE -> VARCHAR(50) и исправление формата
+async function migrateWorkDateIfNeeded() {
+  try {
+    // Проверяем, существует ли таблица
+    const tableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'doctor_specific_dates'
+      )
+    `);
+    
+    if (!tableExists[0]?.exists) {
+      console.log('   ℹ️  Таблица doctor_specific_dates не существует, миграция не требуется');
+      return;
+    }
+    
+    // Проверяем текущий тип колонки
+    const checkType = await db.query(`
+      SELECT data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'doctor_specific_dates' 
+      AND column_name = 'work_date'
+    `);
+    
+    if (checkType.length === 0) {
+      console.log('   ℹ️  Колонка work_date не найдена');
+      return;
+    }
+    
+    const currentType = checkType[0].data_type;
+    
+    if (currentType === 'date') {
+      console.log('   🔄 Миграция work_date: DATE -> VARCHAR(50)...');
+      
+      // Создаем временную колонку
+      await db.query(`
+        ALTER TABLE doctor_specific_dates 
+        ADD COLUMN IF NOT EXISTS work_date_new VARCHAR(50)
+      `);
+      
+      // Копируем данные, конвертируя DATE в строку YYYY-MM-DD
+      await db.query(`
+        UPDATE doctor_specific_dates 
+        SET work_date_new = TO_CHAR(work_date, 'YYYY-MM-DD')
+        WHERE work_date_new IS NULL
+      `);
+      
+      // Удаляем старую колонку
+      await db.query(`
+        ALTER TABLE doctor_specific_dates 
+        DROP COLUMN work_date
+      `);
+      
+      // Переименовываем новую колонку
+      await db.query(`
+        ALTER TABLE doctor_specific_dates 
+        RENAME COLUMN work_date_new TO work_date
+      `);
+      
+      // Добавляем NOT NULL constraint
+      await db.query(`
+        ALTER TABLE doctor_specific_dates 
+        ALTER COLUMN work_date SET NOT NULL
+      `);
+      
+      console.log('   ✅ Миграция типа колонки завершена');
+    } else if (currentType === 'character varying' || currentType === 'varchar') {
+      // Колонка уже VARCHAR, но нужно проверить формат данных
+      console.log('   🔍 Проверка формата данных work_date...');
+      
+      // Проверяем, есть ли записи с неправильным форматом (с временем или другой формат)
+      const badFormat = await db.query(`
+        SELECT id, work_date 
+        FROM doctor_specific_dates 
+        WHERE work_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        LIMIT 10
+      `);
+      
+      if (badFormat.length > 0) {
+        console.log(`   🔄 Исправление формата ${badFormat.length} записей...`);
+        
+        // Исправляем формат: убираем время, оставляем только дату
+        await db.query(`
+          UPDATE doctor_specific_dates 
+          SET work_date = SUBSTRING(work_date, 1, 10)
+          WHERE work_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        `);
+        
+        // Также исправляем записи с форматом 'YYYY-MM-DDTHH:MM:SS'
+        await db.query(`
+          UPDATE doctor_specific_dates 
+          SET work_date = SPLIT_PART(work_date, 'T', 1)
+          WHERE work_date LIKE '%T%'
+        `);
+        
+        console.log('   ✅ Формат данных исправлен');
+      } else {
+        console.log('   ✅ Формат данных правильный');
+      }
+    } else {
+      console.log(`   ⚠️  Неожиданный тип колонки: ${currentType}`);
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции work_date:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
+    // Возможно, таблица уже в правильном формате
   }
 }
 
