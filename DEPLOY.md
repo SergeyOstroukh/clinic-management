@@ -224,6 +224,9 @@
    ```bash
    apt install git -y
    ```
+   ```bash
+   apt install git -y
+   ```
 
 8. **Скопируйте проект на сервер:**
    
