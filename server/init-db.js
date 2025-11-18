@@ -6,11 +6,15 @@ async function initializeDatabase() {
   
   try {
     await initializePostgreSQL();
+    console.log('✅ Таблицы созданы/проверены');
+    
     await initializeDefaultData();
+    console.log('✅ Данные по умолчанию проверены');
     
     console.log('✅ База данных инициализирована');
   } catch (error) {
-    console.error('❌ Ошибка инициализации базы данных:', error);
+    console.error('❌ Ошибка инициализации базы данных:', error.message);
+    console.error('   Stack:', error.stack);
     throw error;
   }
 }
@@ -19,8 +23,9 @@ async function initializeDatabase() {
 async function initializePostgreSQL() {
   console.log('📊 Создание таблиц PostgreSQL...');
   
-  // Таблица клиентов
-  await db.run(`
+  try {
+    // Таблица клиентов
+    await db.run(`
     CREATE TABLE IF NOT EXISTS clients (
       id SERIAL PRIMARY KEY,
       "lastName" TEXT,
@@ -158,6 +163,12 @@ async function initializePostgreSQL() {
       FOREIGN KEY (doctor_id) REFERENCES doctors(id)
     )
   `);
+  
+  console.log('   ✓ Все таблицы проверены');
+  } catch (error) {
+    console.error('❌ Ошибка создания таблиц:', error.message);
+    throw error;
+  }
 }
 
 // Инициализация данных по умолчанию
