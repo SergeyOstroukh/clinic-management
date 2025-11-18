@@ -45,7 +45,6 @@ const isSlotOccupied = (slotTime, appointments, intervalMinutes = 30) => {
     const aptDate = new Date(apt.appointment_date);
     const aptHours = aptDate.getHours().toString().padStart(2, '0');
     const aptMinutes = aptDate.getMinutes().toString().padStart(2, '0');
-    const aptTime = `${aptHours}:${aptMinutes}`;
     
     // Проверяем, попадает ли время записи в этот слот
     const [slotHour, slotMinute] = slotTime.split(':').map(Number);

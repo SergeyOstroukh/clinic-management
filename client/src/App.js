@@ -348,7 +348,7 @@ function App() {
         appointment_date: localDateTime
       };
       
-      const response = await axios.post(`${API_URL}/appointments`, appointmentData);
+      await axios.post(`${API_URL}/appointments`, appointmentData);
       
       setAppointmentForm({
         client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''

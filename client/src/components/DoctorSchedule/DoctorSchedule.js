@@ -220,11 +220,6 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
     }
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  };
-
   const formatDateTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleString('ru-RU', { 
@@ -729,7 +724,6 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
 
   // Главный экран - врачи, работающие сегодня
   const workingToday = doctors.filter(doc => isDoctorWorkingToday(doc.id));
-  const notWorkingToday = doctors.filter(doc => !isDoctorWorkingToday(doc.id));
 
   return (
     <div className="doctor-schedule-container">

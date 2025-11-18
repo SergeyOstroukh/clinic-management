@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './BookingCalendar.css';
 
@@ -24,16 +24,6 @@ const formatDate = (year, month, day) => {
 
 const formatDateTime = (year, month, day, hours, minutes) => {
   return `${formatDate(year, month, day)} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
-};
-
-const parseDate = (dateStr) => {
-  // Парсим дату формата '2026-01-21' или '2026-01-21 16:00:00'
-  const parts = dateStr.split(' ')[0].split('-');
-  return {
-    year: parseInt(parts[0]),
-    month: parseInt(parts[1]),
-    day: parseInt(parts[2])
-  };
 };
 
 const parseTime = (dateTimeStr) => {
@@ -152,6 +142,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         return () => clearTimeout(timer);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingAppointment, doctors, clients, schedules, appointments]);
 
   useEffect(() => {
@@ -159,6 +150,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       loadSchedule();
       loadAppointments();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDoctor, currentYear, currentMonth]);
 
   // Обработчик события отмены/создания записи - обновляем календарь
@@ -179,6 +171,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     return () => {
       window.removeEventListener('appointmentCreated', handleAppointmentChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDoctor]);
 
   const loadDoctors = async () => {
