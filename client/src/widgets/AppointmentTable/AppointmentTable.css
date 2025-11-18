@@ -36,6 +36,17 @@
   animation: pulse 2s infinite;
 }
 
+/* Стиль для отмененных записей */
+.appointments-table tr.cancelled {
+  background: rgba(0, 0, 0, 0.03);
+  opacity: 0.6;
+}
+
+.appointments-table tr.cancelled td {
+  text-decoration: line-through;
+  color: #999;
+}
+
 @keyframes pulse {
   0%, 100% {
     background: rgba(255, 152, 0, 0.1);

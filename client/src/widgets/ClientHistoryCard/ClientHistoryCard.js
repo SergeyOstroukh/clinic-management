@@ -14,7 +14,9 @@ const API_URL = getApiUrl();
 const ClientHistoryCard = ({ 
   clientId, 
   clients, 
-  onClose
+  onClose,
+  onEditAppointment,
+  onCancelAppointment
 }) => {
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -182,10 +184,11 @@ const ClientHistoryCard = ({
                   <tr>
                     <th style={{ width: '12%' }}>Дата</th>
                     <th style={{ width: '18%' }}>Врач</th>
-                    <th style={{ width: '30%' }}>Услуги</th>
-                    <th style={{ width: '20%' }}>Диагноз</th>
+                    <th style={{ width: '25%' }}>Услуги</th>
+                    <th style={{ width: '15%' }}>Диагноз</th>
                     <th style={{ width: '10%' }}>Сумма</th>
                     <th style={{ width: '10%' }}>Статус</th>
+                    <th style={{ width: '10%' }}>Действия</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -213,6 +216,54 @@ const ClientHistoryCard = ({
                         >
                           {getStatusText(visit.status)}
                         </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          {visit.status !== 'cancelled' && visit.status !== 'completed' && (
+                            <>
+                              <button
+                                className="btn-icon"
+                                onClick={() => onEditAppointment && onEditAppointment(visit)}
+                                title="Редактировать запись"
+                                style={{
+                                  padding: '5px 10px',
+                                  background: '#667eea',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ✏️ Редактировать
+                              </button>
+                              <button
+                                className="btn-icon"
+                                onClick={async () => {
+                                  if (window.confirm(`Отменить запись на ${formatDate(visit.appointment_date, 'dd.MM.yyyy HH:mm')}?`)) {
+                                    if (onCancelAppointment) {
+                                      await onCancelAppointment(visit.id);
+                                      // Перезагружаем историю после отмены
+                                      loadClientHistory();
+                                    }
+                                  }
+                                }}
+                                title="Отменить запись"
+                                style={{
+                                  padding: '5px 10px',
+                                  background: '#f44336',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ❌ Отменить
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

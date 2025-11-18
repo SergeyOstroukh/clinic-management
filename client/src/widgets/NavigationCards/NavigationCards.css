@@ -41,6 +41,10 @@
   background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
 }
 
+.nav-card-booking {
+  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+}
+
 .nav-card-icon {
   font-size: 1.2rem;
   margin-bottom: 0;

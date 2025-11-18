@@ -9,6 +9,7 @@ const AppointmentTable = ({
   onCallStatusToggle,
   onStatusChange,
   onEditAppointment,
+  onCancelAppointment,
   getServiceNames,
   getDoctorName,
   calculateTotal,
@@ -57,7 +58,13 @@ const AppointmentTable = ({
           {appointments.map((apt, index) => (
             <tr 
               key={apt.id}
-              className={apt.status === 'ready_for_payment' ? 'ready-for-payment' : ''}
+              className={
+                apt.status === 'ready_for_payment' 
+                  ? 'ready-for-payment' 
+                  : apt.status === 'cancelled' 
+                    ? 'cancelled' 
+                    : ''
+              }
             >
               <td className="number-cell">{index + 1}</td>
               <td className="time-cell">
@@ -89,7 +96,7 @@ const AppointmentTable = ({
               </td>
               <td className="services-cell">{getServiceNames(apt.services)}</td>
               {showDoctor && (
-                <td className="doctor-cell">{getDoctorName(apt.doctor)}</td>
+                <td className="doctor-cell">{getDoctorName(apt)}</td>
               )}
               {showPrice && (
                 <td className="price-cell">{calculateTotal(apt.services).toFixed(2)} BYN</td>
@@ -129,21 +136,43 @@ const AppointmentTable = ({
               )}
               {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && (
                 <td className="actions-cell" style={{ textAlign: 'center' }}>
-                  {(apt.paid !== true && apt.paid !== 1) && (
-                    <span
-                      className="edit-icon"
-                      onClick={() => onEditAppointment && onEditAppointment(apt)}
-                      title="Редактировать запись"
-                      style={{ 
-                        cursor: 'pointer', 
-                        fontSize: '18px',
-                        padding: '5px',
-                        display: 'inline-block'
-                      }}
-                    >
-                      ✏️
-                    </span>
-                  )}
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                    {(apt.paid !== true && apt.paid !== 1) && (
+                      <span
+                        className="edit-icon"
+                        onClick={() => onEditAppointment && onEditAppointment(apt)}
+                        title="Редактировать запись"
+                        style={{ 
+                          cursor: 'pointer', 
+                          fontSize: '18px',
+                          padding: '5px',
+                          display: 'inline-block'
+                        }}
+                      >
+                        ✏️
+                      </span>
+                    )}
+                    {apt.status !== 'cancelled' && apt.status !== 'completed' && (
+                      <span
+                        className="cancel-icon"
+                        onClick={() => {
+                          if (window.confirm(`Отменить запись на ${formatTime(apt.appointment_date)}?\n\nКлиент: ${getClientName(apt.client_id)}`)) {
+                            onCancelAppointment && onCancelAppointment(apt.id);
+                          }
+                        }}
+                        title="Отменить запись"
+                        style={{ 
+                          cursor: 'pointer', 
+                          fontSize: '18px',
+                          padding: '5px',
+                          display: 'inline-block',
+                          color: '#f44336'
+                        }}
+                      >
+                        ❌
+                      </span>
+                    )}
+                  </div>
                 </td>
               )}
             </tr>

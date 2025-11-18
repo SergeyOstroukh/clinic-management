@@ -65,7 +65,7 @@ async function initializePostgreSQL() {
     CREATE TABLE IF NOT EXISTS appointments (
       id SERIAL PRIMARY KEY,
       client_id INTEGER NOT NULL,
-      appointment_date TIMESTAMP NOT NULL,
+      appointment_date VARCHAR(50) NOT NULL,
       doctor_id INTEGER,
       status TEXT DEFAULT 'scheduled',
       called_today BOOLEAN DEFAULT FALSE,
@@ -136,7 +136,7 @@ async function initializePostgreSQL() {
     CREATE TABLE IF NOT EXISTS doctor_specific_dates (
       id SERIAL PRIMARY KEY,
       doctor_id INTEGER NOT NULL,
-      work_date DATE NOT NULL,
+      work_date VARCHAR(50) NOT NULL,
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       is_active BOOLEAN DEFAULT true,

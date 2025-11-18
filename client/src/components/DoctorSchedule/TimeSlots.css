@@ -1,0 +1,236 @@
+.time-slots-container {
+  margin-top: 15px;
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.time-slots-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.time-slots-header h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.time-slots-legend {
+  display: flex;
+  gap: 20px;
+}
+
+.time-slots-legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.legend-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+}
+
+.legend-dot.free {
+  background: #4caf50;
+  border-color: #2e7d32;
+}
+
+.legend-dot.occupied {
+  background: #f44336;
+  border-color: #c62828;
+}
+
+.time-slots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+}
+
+.time-slot {
+  position: relative;
+  background: white;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 12px 8px;
+  text-align: center;
+  transition: all 0.3s;
+  cursor: default;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.time-slot.free {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-color: #4caf50;
+  box-shadow: 0 2px 6px rgba(76, 175, 80, 0.2);
+}
+
+.time-slot.free:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+  border-color: #2e7d32;
+}
+
+.time-slot.occupied {
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+  border-color: #f44336;
+  box-shadow: 0 2px 6px rgba(244, 67, 54, 0.2);
+  cursor: pointer;
+}
+
+.time-slot.occupied:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
+  border-color: #c62828;
+}
+
+.time-slot.expanded {
+  grid-column: span 2;
+  min-height: 120px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 15px;
+}
+
+.time-slot-time {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.time-slot.free .time-slot-time {
+  color: #2e7d32;
+}
+
+.time-slot.occupied .time-slot-time {
+  color: #c62828;
+}
+
+.time-slot-status {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.time-slot-details {
+  margin-top: 10px;
+  width: 100%;
+  padding-top: 10px;
+  border-top: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+.client-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 5px;
+}
+
+.client-phone {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.appointment-notes-small {
+  font-size: 0.8rem;
+  color: #777;
+  margin-top: 5px;
+  font-style: italic;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.time-slots-loading,
+.time-slots-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+  font-size: 0.95rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .time-slots-container {
+    padding: 15px;
+  }
+
+  .time-slots-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .time-slots-legend {
+    gap: 15px;
+  }
+
+  .time-slots-grid {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 8px;
+  }
+
+  .time-slot {
+    min-height: 50px;
+    padding: 8px 4px;
+  }
+
+  .time-slot-time {
+    font-size: 0.9rem;
+  }
+
+  .time-slot-status {
+    font-size: 1rem;
+  }
+
+  .time-slot.expanded {
+    grid-column: span 1;
+    min-height: 100px;
+  }
+}
+
+/* Анимация появления */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.time-slot {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Пульсация для текущего времени (если нужно добавить позже) */
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.6);
+  }
+}
+

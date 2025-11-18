@@ -8,6 +8,7 @@ import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from
 import { DoctorsPage } from './pages/DoctorsPage';
 import { LoginPage } from './pages/LoginPage';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
+import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -24,6 +25,8 @@ function App() {
 
   // Навигация
   const [currentView, setCurrentView] = useState('home');
+  const [editingAppointmentData, setEditingAppointmentData] = useState(null);
+  const [returnToClientId, setReturnToClientId] = useState(null);
   
   // Данные
   const [appointments, setAppointments] = useState([]);
@@ -86,6 +89,21 @@ function App() {
     if (isAuthenticated) loadData();
   }, [isAuthenticated]);
 
+  // Обработчик события создания записи из календаря - обновляем таблицу
+  useEffect(() => {
+    const handleAppointmentCreated = () => {
+      if (isAuthenticated) {
+        loadData();
+      }
+    };
+    
+    window.addEventListener('appointmentCreated', handleAppointmentCreated);
+    
+    return () => {
+      window.removeEventListener('appointmentCreated', handleAppointmentCreated);
+    };
+  }, [isAuthenticated]);
+
   // Закрыть dropdown при клике вне его
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -99,6 +117,32 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showClientDropdown, showServiceDropdown]);
+
+  // Глобальная функция для открытия модалки записи из календаря
+  useEffect(() => {
+    window.openAppointmentModal = (prefillData) => {
+      // Сохраняем дату как есть (локальная строка YYYY-MM-DDTHH:mm)
+      let appointmentDate = '';
+      if (prefillData?.appointment_date) {
+        appointmentDate = prefillData.appointment_date;
+      }
+
+      setAppointmentForm({
+        client_id: '',
+        doctor_id: prefillData?.doctor_id || '',
+        appointment_date: appointmentDate,
+        notes: '',
+        services: [],
+        paid: false
+      });
+      // Не переключаем view, остаемся там где были
+      setShowAppointmentModal(true);
+    };
+
+    return () => {
+      delete window.openAppointmentModal;
+    };
+  }, []);
 
   // Функции авторизации
   const handleLogin = (user) => {
@@ -169,8 +213,36 @@ function App() {
       setAppointments(appointments.map(apt =>
         apt.id === appointmentId ? { ...apt, status } : apt
       ));
+      
+      // Если запись отменена, отправляем событие для обновления календаря
+      if (status === 'cancelled') {
+        window.dispatchEvent(new Event('appointmentCreated'));
+      }
     } catch (error) {
       alert('Ошибка обновления статуса');
+    }
+  };
+
+  // Отмена записи
+  const handleCancelAppointment = async (appointmentId) => {
+    try {
+      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, { status: 'cancelled' });
+      
+      // Обновляем локальное состояние
+      setAppointments(appointments.map(apt =>
+        apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
+      ));
+      
+      // Отправляем событие для обновления календаря
+      window.dispatchEvent(new Event('appointmentCreated'));
+      
+      // Перезагружаем данные для обновления истории клиента
+      loadData();
+      
+      alert('✅ Запись отменена');
+    } catch (error) {
+      console.error('Ошибка отмены записи:', error);
+      alert(`❌ ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -189,10 +261,27 @@ function App() {
     }).join(', ');
   };
 
-  const getDoctorName = (doctor) => {
-    if (!doctor) return '-';
-    if (typeof doctor === 'string') return doctor;
-    return getFullName(doctor.lastName, doctor.firstName, doctor.middleName);
+  const getDoctorName = (appointment) => {
+    // Если передан объект врача напрямую
+    if (appointment && typeof appointment === 'object' && appointment.lastName) {
+      return getFullName(appointment.lastName, appointment.firstName, appointment.middleName);
+    }
+    
+    // Если передан ID врача или запись с doctor_id
+    if (appointment && (appointment.doctor_id || typeof appointment === 'number')) {
+      const doctorId = typeof appointment === 'number' ? appointment : appointment.doctor_id;
+      const doctor = doctors.find(d => d.id === doctorId);
+      if (doctor) {
+        return getFullName(doctor.lastName, doctor.firstName, doctor.middleName);
+      }
+    }
+    
+    // Если в записи есть поля врача напрямую (doctor_lastName, doctor_firstName, doctor_middleName)
+    if (appointment && appointment.doctor_lastName) {
+      return getFullName(appointment.doctor_lastName, appointment.doctor_firstName, appointment.doctor_middleName);
+    }
+    
+    return '-';
   };
 
   const calculateAppointmentTotal = (servicesList) => {
@@ -235,6 +324,7 @@ function App() {
   // Создание записи
   const handleCreateAppointment = async (e) => {
     e.preventDefault();
+    
     if (!appointmentForm.client_id) {
       alert('Пожалуйста, выберите клиента');
       return;
@@ -247,41 +337,61 @@ function App() {
       alert('Пожалуйста, выберите хотя бы одну услугу');
       return;
     }
+    
     try {
-      await axios.post(`${API_URL}/appointments`, appointmentForm);
+      // Отправляем дату как локальную строку БЕЗ конвертации timezone
+      // Формат: YYYY-MM-DD HH:MM:SS (для PostgreSQL/SQLite)
+      const localDateTime = appointmentForm.appointment_date.replace('T', ' ') + ':00';
+      
+      const appointmentData = {
+        ...appointmentForm,
+        appointment_date: localDateTime
+      };
+      
+      const response = await axios.post(`${API_URL}/appointments`, appointmentData);
+      
       setAppointmentForm({
         client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
       });
       setShowAppointmentModal(false);
-      loadData();
+      setClientSearchQuery('');
+      setServiceSearchQuery('');
+      
+      await loadData();
+      
+      // Отправляем событие для обновления календаря
+      window.dispatchEvent(new Event('appointmentCreated'));
+      
+      alert('✅ Запись успешно создана!');
     } catch (error) {
-      alert('Ошибка создания записи');
+      console.error('Ошибка создания записи:', error);
+      
+      // Закрываем модалку даже при ошибке
+      setShowAppointmentModal(false);
+      setClientSearchQuery('');
+      setServiceSearchQuery('');
+      
+      // Отправляем событие для обновления календаря (чтобы обновились слоты)
+      window.dispatchEvent(new Event('appointmentCreated'));
+      
+      alert(`❌ ${error.response?.data?.error || error.message}`);
     }
   };
 
   // Открыть редактирование записи
   const handleEditAppointment = (appointment) => {
-    setEditingAppointment(appointment);
-    // Найдем клиента для отображения в поиске
-    const client = clients.find(c => c.id === appointment.client_id);
-    if (client) {
-      setClientSearchQuery(getFullName(client.lastName, client.firstName, client.middleName));
+    // Сохраняем данные записи для редактирования
+    setEditingAppointmentData(appointment);
+    // Сохраняем ID клиента для возврата в карточку
+    if (showClientHistoryModal && selectedClientId) {
+      setReturnToClientId(selectedClientId);
     }
-    // Заполним форму данными текущей записи
-    // Преобразуем services в нужный формат (только service_id и quantity)
-    const servicesForForm = (appointment.services || []).map(s => ({
-      service_id: s.service_id,
-      quantity: s.quantity || 1
-    }));
-    
-    setAppointmentForm({
-      client_id: appointment.client_id,
-      appointment_date: new Date(appointment.appointment_date).toISOString().slice(0, 16),
-      doctor_id: appointment.doctor_id,
-      services: servicesForForm,
-      notes: appointment.notes || ''
-    });
-    setShowEditAppointmentModal(true);
+    // Закрываем модалку истории клиента, если открыта
+    if (showClientHistoryModal) {
+      setShowClientHistoryModal(false);
+    }
+    // Открываем календарь
+    setCurrentView('booking');
   };
 
   // Обновление записи
@@ -478,6 +588,7 @@ function App() {
           onCallStatusToggle={toggleCallStatus}
           onStatusChange={updateAppointmentStatus}
           onEditAppointment={handleEditAppointment}
+          onCancelAppointment={handleCancelAppointment}
           getServiceNames={getServiceNames}
           getDoctorName={getDoctorName}
           calculateTotal={calculateAppointmentTotal}
@@ -820,6 +931,35 @@ function App() {
             />
           </div>
         )}
+
+        {/* Календарь записи - для администраторов */}
+        {currentView === 'booking' && (
+          <BookingCalendar 
+            currentUser={currentUser}
+            onBack={() => {
+              // Если есть клиент для возврата, открываем его карточку
+              if (returnToClientId) {
+                setSelectedClientId(returnToClientId);
+                setShowClientHistoryModal(true);
+                setReturnToClientId(null);
+              } else {
+                setCurrentView('home');
+              }
+              setEditingAppointmentData(null);
+            }}
+            editingAppointment={editingAppointmentData}
+            onEditComplete={() => {
+              setEditingAppointmentData(null);
+              loadData();
+              // Если есть клиент для возврата, открываем его карточку
+              if (returnToClientId) {
+                setSelectedClientId(returnToClientId);
+                setShowClientHistoryModal(true);
+                setReturnToClientId(null);
+              }
+            }}
+          />
+        )}
       </div>
 
       {/* Модальное окно карточки клиента */}
@@ -842,6 +982,8 @@ function App() {
           clientId={selectedClientId}
           clients={clients}
           onClose={() => setShowClientHistoryModal(false)}
+          onEditAppointment={handleEditAppointment}
+          onCancelAppointment={handleCancelAppointment}
         />
       )}
 
@@ -902,27 +1044,67 @@ function App() {
                 </button>
               </div>
 
-              <label>Дата и время *</label>
-              <input
-                type="datetime-local"
-                value={appointmentForm.appointment_date}
-                onChange={(e) => setAppointmentForm({ ...appointmentForm, appointment_date: e.target.value })}
-                required
-              />
+              {/* Показываем выбранное время только для информации (не редактируемое) */}
+              <div style={{ 
+                padding: '15px', 
+                background: 'linear-gradient(135deg, #f0f7ff 0%, #e8f5ff 100%)', 
+                borderRadius: '10px', 
+                marginBottom: '20px',
+                border: '2px solid #667eea'
+              }}>
+                <div style={{ fontSize: '0.9rem', color: '#667eea', marginBottom: '8px', fontWeight: '600' }}>
+                  📅 Дата и время записи:
+                </div>
+                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#333' }}>
+                  {appointmentForm.appointment_date ? 
+                    new Date(appointmentForm.appointment_date).toLocaleString('ru-RU', {
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    }) 
+                    : 'Время не выбрано'}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '5px' }}>
+                  💡 Время выбирается в календаре
+                </div>
+              </div>
 
               <label>Врач *</label>
-              <select
-                value={appointmentForm.doctor_id}
-                onChange={(e) => setAppointmentForm({ ...appointmentForm, doctor_id: e.target.value })}
-                required
-              >
-                <option value="">Выберите врача</option>
-                {doctors.map(doctor => (
-                  <option key={doctor.id} value={doctor.id}>
-                    {getFullName(doctor.lastName, doctor.firstName, doctor.middleName)} - {doctor.specialization}
-                  </option>
-                ))}
-              </select>
+              {appointmentForm.doctor_id ? (
+                <div style={{
+                  padding: '12px',
+                  background: '#f0f7ff',
+                  border: '2px solid #667eea',
+                  borderRadius: '8px',
+                  marginBottom: '15px'
+                }}>
+                  <div style={{ fontSize: '1rem', fontWeight: '600', color: '#667eea' }}>
+                    👨‍⚕️ {(() => {
+                      const doctor = doctors.find(d => d.id === parseInt(appointmentForm.doctor_id));
+                      return doctor ? `${getFullName(doctor.lastName, doctor.firstName, doctor.middleName)} - ${doctor.specialization}` : 'Врач выбран';
+                    })()}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '5px' }}>
+                    💡 Врач выбирается в календаре
+                  </div>
+                </div>
+              ) : (
+                <select
+                  value={appointmentForm.doctor_id}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, doctor_id: e.target.value })}
+                  required
+                >
+                  <option value="">Выберите врача</option>
+                  {doctors.map(doctor => (
+                    <option key={doctor.id} value={doctor.id}>
+                      {getFullName(doctor.lastName, doctor.firstName, doctor.middleName)} - {doctor.specialization}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <label>Услуги</label>
               <div className="service-search-wrapper">

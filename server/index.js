@@ -327,6 +327,23 @@ app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes } = req.body;
   
   try {
+    // Проверяем, нет ли уже записи на это время для этого врача
+    const existingAppointment = await db.get(
+      usePostgres
+        ? `SELECT id, appointment_date FROM appointments 
+           WHERE doctor_id = $1 
+           AND appointment_date::timestamp(0) = $2::timestamp(0)
+           AND status != $3`
+        : 'SELECT id FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status != ?',
+      [doctor_id, appointment_date, 'cancelled']
+    );
+    
+    if (existingAppointment) {
+      return res.status(400).json({ 
+        error: 'На это время уже есть запись. Пожалуйста, выберите другое время.' 
+      });
+    }
+    
     // Создаем запись
     let appointmentId;
     
@@ -846,15 +863,24 @@ app.post('/api/specific-dates', async (req, res) => {
   const { doctor_id, work_date, start_time, end_time } = req.body;
   
   try {
+    // Убеждаемся, что work_date в формате YYYY-MM-DD (без времени)
+    let dateToSave = work_date;
+    if (work_date && work_date.includes('T')) {
+      dateToSave = work_date.split('T')[0];
+    }
+    if (dateToSave && dateToSave.length > 10) {
+      dateToSave = dateToSave.substring(0, 10);
+    }
+    
     if (usePostgres) {
       const result = await db.query(
         'INSERT INTO doctor_specific_dates (doctor_id, work_date, start_time, end_time) VALUES ($1, $2, $3, $4) RETURNING id',
-        [doctor_id, work_date, start_time, end_time]
+        [doctor_id, dateToSave, start_time, end_time]
       );
       res.json({ 
         id: result[0].id, 
         doctor_id, 
-        work_date, 
+        work_date: dateToSave, 
         start_time, 
         end_time,
         is_active: true
@@ -862,12 +888,12 @@ app.post('/api/specific-dates', async (req, res) => {
     } else {
       const result = await db.run(
         'INSERT INTO doctor_specific_dates (doctor_id, work_date, start_time, end_time) VALUES (?, ?, ?, ?)',
-        [doctor_id, work_date, start_time, end_time]
+        [doctor_id, dateToSave, start_time, end_time]
       );
       res.json({ 
         id: result.lastID, 
         doctor_id, 
-        work_date, 
+        work_date: dateToSave, 
         start_time, 
         end_time,
         is_active: true
@@ -901,7 +927,9 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     
     // Формируем даты начала и конца месяца
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    // Получаем последний день месяца БЕЗ конвертации timezone
+    const lastDay = new Date(year, parseInt(month), 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     
     const query = `
       SELECT 
@@ -925,6 +953,37 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     res.json(appointments);
   } catch (error) {
     console.error('Ошибка получения записей врача:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить записи врача на конкретный день
+app.get('/api/doctors/:id/daily-appointments', async (req, res) => {
+  try {
+    const { date } = req.query;
+    const doctorId = req.params.id;
+    
+    const query = `
+      SELECT 
+        a.id,
+        a.appointment_date,
+        a.status,
+        a.notes,
+        a.diagnosis,
+        c."firstName" as client_first_name,
+        c."lastName" as client_last_name,
+        c.phone as client_phone
+      FROM appointments a
+      JOIN clients c ON a.client_id = c.id
+      WHERE a.doctor_id = ${usePostgres ? '$1' : '?'}
+        AND DATE(a.appointment_date) = ${usePostgres ? '$2' : '?'}
+      ORDER BY a.appointment_date
+    `;
+    
+    const appointments = await db.all(query, [doctorId, date]);
+    res.json(appointments);
+  } catch (error) {
+    console.error('Ошибка получения записей врача на день:', error);
     res.status(500).json({ error: error.message });
   }
 });

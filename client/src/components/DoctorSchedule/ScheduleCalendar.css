@@ -1,0 +1,358 @@
+.schedule-calendar {
+  background: white;
+  border-radius: 12px;
+  padding: 25px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  gap: 15px;
+}
+
+.calendar-title {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.calendar-title h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.btn-today {
+  background: #f0f0f0;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.btn-today:hover {
+  background: #e0e0e0;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.calendar-day-header {
+  text-align: center;
+  font-weight: 600;
+  color: #666;
+  padding: 12px 8px;
+  font-size: 0.9rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.calendar-day {
+  min-height: 100px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.calendar-day.empty {
+  border: none;
+  background: transparent;
+}
+
+.calendar-day.editable {
+  cursor: pointer;
+}
+
+.calendar-day.editable:hover {
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.calendar-day.past {
+  background: #fafafa;
+  opacity: 0.6;
+}
+
+.calendar-day.today {
+  border-color: #ffa751;
+  border-width: 3px;
+  background: #fff9f0;
+}
+
+.calendar-day.has-schedule {
+  background: linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 100%);
+  border-color: #4caf50;
+}
+
+.calendar-day.has-schedule.today {
+  border-color: #ff9800;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+}
+
+.calendar-day.selected {
+  border-color: #9c27b0 !important;
+  border-width: 3px !important;
+  background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%) !important;
+  position: relative;
+}
+
+.calendar-day.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: #9c27b0;
+  color: white;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.calendar-day.viewing-slots {
+  border-color: #667eea !important;
+  border-width: 3px !important;
+  background: linear-gradient(135deg, #e8eaf6 0%, #c5cae9 100%) !important;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.day-number {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 5px;
+}
+
+.day-schedule {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.schedule-badge {
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-align: center;
+  word-break: break-word;
+}
+
+.schedule-badge.specific {
+  background: #667eea;
+  color: white;
+}
+
+.schedule-badge.regular {
+  background: #4caf50;
+  color: white;
+}
+
+.calendar-legend {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  padding-top: 20px;
+  border-top: 2px solid #f0f0f0;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.legend-box {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 2px solid #e0e0e0;
+}
+
+.legend-box.specific {
+  background: #667eea;
+  border-color: #667eea;
+}
+
+.legend-box.regular {
+  background: linear-gradient(135deg, #e8f5e9 0%, #e3f2fd 100%);
+  border-color: #4caf50;
+}
+
+.legend-box.today {
+  background: #fff9f0;
+  border-color: #ffa751;
+  border-width: 3px;
+}
+
+/* Кнопка просмотра слотов */
+.view-slots-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(102, 126, 234, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.view-slots-btn:hover {
+  background: rgba(102, 126, 234, 1);
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.5);
+}
+
+/* Секция временных слотов */
+.time-slots-section {
+  margin-top: 30px;
+  padding-top: 30px;
+  border-top: 3px solid #667eea;
+}
+
+.time-slots-header-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.time-slots-header-info h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.btn-close-slots {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-close-slots:hover {
+  background: #d32f2f;
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+}
+
+.no-schedule-message {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+  font-size: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+@media (max-width: 768px) {
+  .schedule-calendar {
+    padding: 15px;
+  }
+
+  .calendar-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .calendar-title {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .calendar-title h3 {
+    font-size: 1.2rem;
+  }
+
+  .calendar-grid {
+    gap: 4px;
+  }
+
+  .calendar-day {
+    min-height: 70px;
+    padding: 4px;
+  }
+
+  .day-number {
+    font-size: 0.9rem;
+  }
+
+  .schedule-badge {
+    font-size: 0.65rem;
+    padding: 2px 4px;
+  }
+
+  .calendar-legend {
+    gap: 10px;
+  }
+
+  .legend-item {
+    font-size: 0.8rem;
+  }
+
+  .legend-box {
+    width: 20px;
+    height: 20px;
+  }
+
+  .time-slots-header-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .time-slots-header-info h3 {
+    font-size: 1.1rem;
+  }
+
+  .btn-close-slots {
+    width: 100%;
+  }
+
+  .view-slots-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 0.7rem;
+  }
+}
+
