@@ -34,6 +34,32 @@ function param(index) {
   return usePostgres ? `$${index}` : '?';
 }
 
+// Нормализация формата даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
+function normalizeAppointmentDate(dateString) {
+  if (!dateString) return dateString;
+  
+  let normalized = dateString;
+  // Убираем 'T' и заменяем на пробел
+  normalized = normalized.replace('T', ' ');
+  // Убираем timezone (Z или +HH:MM)
+  if (normalized.includes('Z')) {
+    normalized = normalized.replace('Z', '');
+  }
+  if (normalized.includes('+')) {
+    normalized = normalized.split('+')[0];
+  }
+  // Убеждаемся, что есть секунды
+  if (normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)) {
+    normalized = normalized + ':00';
+  }
+  // Обрезаем до формата YYYY-MM-DD HH:MM:SS
+  if (normalized.length > 19) {
+    normalized = normalized.substring(0, 19);
+  }
+  
+  return normalized;
+}
+
 // ======================
 // API ENDPOINTS
 // ======================
@@ -327,6 +353,9 @@ app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes } = req.body;
   
   try {
+    // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
+    const dateToSave = normalizeAppointmentDate(appointment_date);
+    
     // Проверяем, нет ли уже записи на это время для этого врача
     const existingAppointment = await db.get(
       usePostgres
@@ -335,7 +364,7 @@ app.post('/api/appointments', async (req, res) => {
            AND appointment_date::timestamp(0) = $2::timestamp(0)
            AND status != $3`
         : 'SELECT id FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status != ?',
-      [doctor_id, appointment_date, 'cancelled']
+      [doctor_id, dateToSave, 'cancelled']
     );
     
     if (existingAppointment) {
@@ -350,13 +379,13 @@ app.post('/api/appointments', async (req, res) => {
     if (usePostgres) {
       const result = await db.query(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [client_id, appointment_date, doctor_id, notes, 'scheduled']
+        [client_id, dateToSave, doctor_id, notes, 'scheduled']
       );
       appointmentId = result[0].id;
     } else {
       const result = await db.run(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES (?, ?, ?, ?, ?)',
-        [client_id, appointment_date, doctor_id, notes, 'scheduled']
+        [client_id, dateToSave, doctor_id, notes, 'scheduled']
       );
       appointmentId = result.lastID;
     }
@@ -376,7 +405,7 @@ app.post('/api/appointments', async (req, res) => {
     res.json({
       id: appointmentId,
       client_id,
-      appointment_date,
+      appointment_date: dateToSave,
       doctor_id,
       services,
       notes
@@ -394,12 +423,15 @@ app.put('/api/appointments/:id', async (req, res) => {
     console.log('Обновление записи ID:', req.params.id);
     console.log('Данные:', { appointment_date, doctor_id, services, notes });
     
+    // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
+    const dateToSave = normalizeAppointmentDate(appointment_date);
+    
     // Обновляем основную информацию о записи
     await db.run(
       usePostgres
         ? 'UPDATE appointments SET appointment_date = $1, doctor_id = $2, notes = $3 WHERE id = $4'
         : 'UPDATE appointments SET appointment_date = ?, doctor_id = ?, notes = ? WHERE id = ?',
-      [appointment_date, doctor_id, notes || '', req.params.id]
+      [dateToSave, doctor_id, notes || '', req.params.id]
     );
     
     // Удаляем старые услуги
@@ -427,7 +459,7 @@ app.put('/api/appointments/:id', async (req, res) => {
     res.json({
       message: 'Запись обновлена',
       id: req.params.id,
-      appointment_date,
+      appointment_date: dateToSave,
       doctor_id,
       services,
       notes

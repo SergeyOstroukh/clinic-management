@@ -9,7 +9,10 @@ async function initializeDatabase() {
     console.log('✅ Таблицы созданы/проверены');
     
     await migrateWorkDateIfNeeded();
-    console.log('✅ Миграция дат проверена');
+    console.log('✅ Миграция дат расписания проверена');
+    
+    await migrateAppointmentDateIfNeeded();
+    console.log('✅ Миграция дат записей проверена');
     
     await initializeDefaultData();
     console.log('✅ Данные по умолчанию проверены');
@@ -280,6 +283,76 @@ async function migrateWorkDateIfNeeded() {
     console.error('   ⚠️  Ошибка миграции work_date:', error.message);
     // Не прерываем инициализацию, если миграция не удалась
     // Возможно, таблица уже в правильном формате
+  }
+}
+
+// Миграция appointment_date: исправление формата существующих записей
+async function migrateAppointmentDateIfNeeded() {
+  try {
+    // Проверяем, существует ли таблица
+    const tableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'appointments'
+      )
+    `);
+    
+    if (!tableExists[0]?.exists) {
+      console.log('   ℹ️  Таблица appointments не существует, миграция не требуется');
+      return;
+    }
+    
+    // Проверяем, есть ли записи с неправильным форматом (с 'T' или timezone)
+    const badFormat = await db.query(`
+      SELECT id, appointment_date 
+      FROM appointments 
+      WHERE appointment_date LIKE '%T%' 
+         OR appointment_date LIKE '%Z%'
+         OR appointment_date LIKE '%+%'
+         OR appointment_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
+      LIMIT 10
+    `);
+    
+    if (badFormat.length > 0) {
+      console.log(`   🔄 Исправление формата appointment_date для ${badFormat.length} записей...`);
+      
+      // Исправляем формат: убираем 'T', timezone, приводим к YYYY-MM-DD HH:MM:SS
+      await db.query(`
+        UPDATE appointments 
+        SET appointment_date = 
+          SUBSTRING(
+            REPLACE(
+              REPLACE(
+                REPLACE(
+                  SPLIT_PART(appointment_date, '+', 1),
+                  'T', ' '
+                ),
+                'Z', ''
+              ),
+              '-', '-'
+            ),
+            1, 19
+          )
+        WHERE appointment_date LIKE '%T%' 
+           OR appointment_date LIKE '%Z%'
+           OR appointment_date LIKE '%+%'
+           OR appointment_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
+      `);
+      
+      // Также добавляем секунды, если их нет
+      await db.query(`
+        UPDATE appointments 
+        SET appointment_date = appointment_date || ':00'
+        WHERE appointment_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+      `);
+      
+      console.log('   ✅ Формат appointment_date исправлен');
+    } else {
+      console.log('   ✅ Формат appointment_date правильный');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции appointment_date:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
   }
 }
 
