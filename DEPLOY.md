@@ -197,6 +197,7 @@
    - Port: 22
    - Connection type: SSH
    - Нажмите "Open"
+   - Нажмите "Open"
 
 4. **Обновите систему:**
    ```bash
