@@ -36,13 +36,6 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
     }
   };
 
-  const addService = (serviceId) => {
-    const existing = selectedServices.find(s => s.service_id === serviceId);
-    if (!existing) {
-      setSelectedServices([...selectedServices, { service_id: serviceId, quantity: 1 }]);
-    }
-    setServiceSearch('');
-  };
 
   const removeService = (serviceId) => {
     setSelectedServices(selectedServices.filter(s => s.service_id !== serviceId));
@@ -63,13 +56,6 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
     }
   };
 
-  const addMaterial = (materialId) => {
-    const existing = selectedMaterials.find(m => m.material_id === materialId);
-    if (!existing) {
-      setSelectedMaterials([...selectedMaterials, { material_id: materialId, quantity: 1 }]);
-    }
-    setMaterialSearch('');
-  };
 
   const removeMaterial = (materialId) => {
     setSelectedMaterials(selectedMaterials.filter(m => m.material_id !== materialId));
@@ -93,7 +79,7 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
 
     setIsSubmitting(true);
     try {
-      const response = await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
+      await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
         diagnosis,
         services: selectedServices,
         materials: selectedMaterials

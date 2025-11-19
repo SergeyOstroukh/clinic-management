@@ -35,12 +35,14 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
     if (currentUser?.doctor_id) {
       loadData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, currentYear, currentMonth]);
 
   useEffect(() => {
     if (selectedDate) {
       loadDayAppointments(selectedDate);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, appointments]);
 
   const loadData = async () => {
