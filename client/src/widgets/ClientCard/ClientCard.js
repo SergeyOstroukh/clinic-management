@@ -62,10 +62,14 @@ const ClientCard = ({
     });
   };
 
-  const handleCompleteVisit = () => {
+  const handleCompleteVisit = async () => {
     setShowCompleteVisit(false);
-    loadClientHistory();
-    if (onUpdate) onUpdate();
+    // Обновляем историю клиента
+    await loadClientHistory();
+    // Обновляем данные в родительском компоненте
+    if (onUpdate) {
+      onUpdate();
+    }
   };
 
   const handleMarkAsCompleted = async (visitId) => {
@@ -115,11 +119,20 @@ const ClientCard = ({
   const finalTodayTotal = todayTotal - discountAmount;
 
   return (
-    <div className="client-card-overlay" onClick={onClose}>
+    <div 
+      className="client-card-overlay" 
+      onClick={showCompleteVisit ? undefined : onClose}
+    >
       <div className="client-card" onClick={(e) => e.stopPropagation()}>
         <div className="client-card-header">
           <h2>💰 Оплата приема</h2>
-          <button className="btn-close" onClick={onClose}>✕</button>
+          <button 
+            className="btn-close" 
+            onClick={showCompleteVisit ? undefined : onClose}
+            disabled={showCompleteVisit}
+          >
+            ✕
+          </button>
         </div>
 
         {/* Информация о клиенте */}
@@ -151,14 +164,116 @@ const ClientCard = ({
                   </div>
                 </div>
 
-                {/* Кнопка для врача */}
-                {currentUser.role === 'doctor' && todayVisit.status !== 'ready_for_payment' && (
-                  <button 
-                    className="btn btn-primary btn-block"
-                    onClick={() => setShowCompleteVisit(true)}
-                  >
-                    ✏️ Заполнить информацию о приеме
-                  </button>
+                {/* Кнопка для врача - заполнить или редактировать */}
+                {currentUser.role === 'doctor' && todayVisit.status !== 'completed' && (
+                  <>
+                    {todayVisit.status !== 'ready_for_payment' ? (
+                      <button 
+                        className="btn btn-primary btn-block"
+                        onClick={() => setShowCompleteVisit(true)}
+                      >
+                        ✏️ Заполнить информацию о приеме
+                      </button>
+                    ) : (
+                      <>
+                        {/* Информация о завершенном приеме для врача */}
+                        <div className="payment-details">
+                          {/* Услуги */}
+                          {todayVisit.services && todayVisit.services.length > 0 && (
+                            <div className="details-section">
+                              <h4>📋 Услуги:</h4>
+                              <div className="details-list">
+                                {todayVisit.services.map((s, idx) => {
+                                  const service = services.find(serv => serv.id === s.service_id);
+                                  return (
+                                    <div key={idx} className="detail-item">
+                                      <span className="detail-name">
+                                        {service ? service.name : 'Неизвестная услуга'} ×{s.quantity}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Материалы */}
+                          {todayVisit.materials && todayVisit.materials.length > 0 && (
+                            <div className="details-section">
+                              <h4>💊 Материалы:</h4>
+                              <div className="details-list">
+                                {todayVisit.materials.map((m, idx) => {
+                                  const material = materials.find(mat => mat.id === m.material_id);
+                                  return (
+                                    <div key={idx} className="detail-item">
+                                      <span className="detail-name">
+                                        {material ? material.name : 'Неизвестный материал'} ×{m.quantity}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Кнопка редактирования */}
+                        <button 
+                          className="btn btn-primary btn-block"
+                          onClick={() => setShowCompleteVisit(true)}
+                        >
+                          ✏️ Редактировать информацию о приеме
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* Информация о завершенной оплате для врача (только просмотр) */}
+                {currentUser.role === 'doctor' && todayVisit.status === 'completed' && (
+                  <div className="payment-details">
+                    <div className="info-message">
+                      <p><strong>✅ Оплата завершена</strong></p>
+                      <p>Редактирование записи недоступно после завершения оплаты.</p>
+                    </div>
+                    {/* Услуги */}
+                    {todayVisit.services && todayVisit.services.length > 0 && (
+                      <div className="details-section">
+                        <h4>📋 Услуги:</h4>
+                        <div className="details-list">
+                          {todayVisit.services.map((s, idx) => {
+                            const service = services.find(serv => serv.id === s.service_id);
+                            return (
+                              <div key={idx} className="detail-item">
+                                <span className="detail-name">
+                                  {service ? service.name : 'Неизвестная услуга'} ×{s.quantity}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Материалы */}
+                    {todayVisit.materials && todayVisit.materials.length > 0 && (
+                      <div className="details-section">
+                        <h4>💊 Материалы:</h4>
+                        <div className="details-list">
+                          {todayVisit.materials.map((m, idx) => {
+                            const material = materials.find(mat => mat.id === m.material_id);
+                            return (
+                              <div key={idx} className="detail-item">
+                                <span className="detail-name">
+                                  {material ? material.name : 'Неизвестный материал'} ×{m.quantity}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Детализация для администратора */}

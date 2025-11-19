@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ServiceMaterialSelector from './ServiceMaterialSelector/ServiceMaterialSelector';
 import './DoctorVisitForm.css';
 
 const DoctorVisitForm = ({ visit, services, materials, onComplete, onCancel }) => {
@@ -7,6 +8,15 @@ const DoctorVisitForm = ({ visit, services, materials, onComplete, onCancel }) =
   const [selectedMaterials, setSelectedMaterials] = useState([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
+
+  const toggleService = (serviceId) => {
+    const existing = selectedServices.find(s => s.service_id === serviceId);
+    if (existing) {
+      setSelectedServices(selectedServices.filter(s => s.service_id !== serviceId));
+    } else {
+      setSelectedServices([...selectedServices, { service_id: serviceId, quantity: 1 }]);
+    }
+  };
 
   const addService = (serviceId) => {
     const existing = selectedServices.find(s => s.service_id === serviceId);
@@ -24,6 +34,15 @@ const DoctorVisitForm = ({ visit, services, materials, onComplete, onCancel }) =
     setSelectedServices(selectedServices.map(s => 
       s.service_id === serviceId ? { ...s, quantity: parseInt(quantity) || 1 } : s
     ));
+  };
+
+  const toggleMaterial = (materialId) => {
+    const existing = selectedMaterials.find(m => m.material_id === materialId);
+    if (existing) {
+      setSelectedMaterials(selectedMaterials.filter(m => m.material_id !== materialId));
+    } else {
+      setSelectedMaterials([...selectedMaterials, { material_id: materialId, quantity: 1 }]);
+    }
   };
 
   const addMaterial = (materialId) => {
@@ -81,35 +100,15 @@ const DoctorVisitForm = ({ visit, services, materials, onComplete, onCancel }) =
       <div className="form-section">
         <label className="form-label">Проведенные процедуры *</label>
         
-        {/* Поиск услуг */}
-        <div className="search-wrapper">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Поиск процедуры..."
-            value={serviceSearch}
-            onChange={(e) => setServiceSearch(e.target.value)}
-          />
-          {serviceSearch && (
-            <div className="search-dropdown">
-              {services.filter(s => 
-                s.name.toLowerCase().includes(serviceSearch.toLowerCase())
-              ).map(service => {
-                const alreadyAdded = selectedServices.find(s => s.service_id === service.id);
-                return (
-                  <div
-                    key={service.id}
-                    className={`dropdown-item ${alreadyAdded ? 'disabled' : ''}`}
-                    onClick={() => !alreadyAdded && addService(service.id)}
-                  >
-                    <strong>{service.name}</strong>
-                    {alreadyAdded && <span className="added-mark">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* Селектор услуг с аккордеоном */}
+        <ServiceMaterialSelector
+          items={services}
+          selectedItems={selectedServices}
+          onToggleItem={toggleService}
+          type="service"
+          searchQuery={serviceSearch}
+          onSearchChange={setServiceSearch}
+        />
 
         {/* Выбранные услуги */}
         {selectedServices.length > 0 && (
@@ -146,36 +145,15 @@ const DoctorVisitForm = ({ visit, services, materials, onComplete, onCancel }) =
       <div className="form-section">
         <label className="form-label">Использованные материалы</label>
         
-        {/* Поиск материалов */}
-        <div className="search-wrapper">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Поиск материала..."
-            value={materialSearch}
-            onChange={(e) => setMaterialSearch(e.target.value)}
-          />
-          {materialSearch && (
-            <div className="search-dropdown">
-              {materials.filter(m => 
-                m.name.toLowerCase().includes(materialSearch.toLowerCase())
-              ).map(material => {
-                const alreadyAdded = selectedMaterials.find(m => m.material_id === material.id);
-                return (
-                  <div
-                    key={material.id}
-                    className={`dropdown-item ${alreadyAdded ? 'disabled' : ''}`}
-                    onClick={() => !alreadyAdded && addMaterial(material.id)}
-                  >
-                    <strong>{material.name}</strong>
-                    <span className="material-unit"> ({material.unit})</span>
-                    {alreadyAdded && <span className="added-mark">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* Селектор материалов с аккордеоном */}
+        <ServiceMaterialSelector
+          items={materials}
+          selectedItems={selectedMaterials}
+          onToggleItem={toggleMaterial}
+          type="material"
+          searchQuery={materialSearch}
+          onSearchChange={setMaterialSearch}
+        />
 
         {/* Выбранные материалы */}
         {selectedMaterials.length > 0 && (

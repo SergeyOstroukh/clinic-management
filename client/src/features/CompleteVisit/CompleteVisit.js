@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import ServiceMaterialSelector from '../../components/ServiceMaterialSelector/ServiceMaterialSelector';
 import './CompleteVisit.css';
 
 const getApiUrl = () => {
@@ -13,10 +14,27 @@ const API_URL = getApiUrl();
 const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
   const [diagnosis, setDiagnosis] = useState(visit.diagnosis || '');
   const [selectedServices, setSelectedServices] = useState(visit.services || []);
-  const [selectedMaterials, setSelectedMaterials] = useState([]);
+  const [selectedMaterials, setSelectedMaterials] = useState(visit.materials || []);
   const [serviceSearch, setServiceSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeSection, setActiveSection] = useState('services'); // 'services' или 'materials'
+
+  // Обновляем данные при изменении visit (для редактирования)
+  useEffect(() => {
+    setDiagnosis(visit.diagnosis || '');
+    setSelectedServices(visit.services || []);
+    setSelectedMaterials(visit.materials || []);
+  }, [visit]);
+
+  const toggleService = (serviceId) => {
+    const existing = selectedServices.find(s => s.service_id === serviceId);
+    if (existing) {
+      setSelectedServices(selectedServices.filter(s => s.service_id !== serviceId));
+    } else {
+      setSelectedServices([...selectedServices, { service_id: serviceId, quantity: 1 }]);
+    }
+  };
 
   const addService = (serviceId) => {
     const existing = selectedServices.find(s => s.service_id === serviceId);
@@ -34,6 +52,15 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
     setSelectedServices(selectedServices.map(s => 
       s.service_id === serviceId ? { ...s, quantity: parseInt(quantity) || 1 } : s
     ));
+  };
+
+  const toggleMaterial = (materialId) => {
+    const existing = selectedMaterials.find(m => m.material_id === materialId);
+    if (existing) {
+      setSelectedMaterials(selectedMaterials.filter(m => m.material_id !== materialId));
+    } else {
+      setSelectedMaterials([...selectedMaterials, { material_id: materialId, quantity: 1 }]);
+    }
   };
 
   const addMaterial = (materialId) => {
@@ -66,15 +93,19 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
 
     setIsSubmitting(true);
     try {
-      await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
+      const response = await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
         diagnosis,
         services: selectedServices,
         materials: selectedMaterials
       });
+      
+      // Отправляем событие для обновления списка записей
+      window.dispatchEvent(new Event('appointmentUpdated'));
+      
       onSuccess();
     } catch (error) {
-      alert('Ошибка завершения приема');
-      console.error(error);
+      console.error('Ошибка завершения приема:', error);
+      alert(`Ошибка завершения приема: ${error.response?.data?.error || error.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -97,132 +128,129 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
         />
       </div>
 
-      {/* Услуги */}
+      {/* Услуги и материалы с вкладками */}
       <div className="form-section">
-        <label className="form-label">Проведенные процедуры *</label>
-        
-        <div className="search-wrapper">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Поиск процедуры..."
-            value={serviceSearch}
-            onChange={(e) => setServiceSearch(e.target.value)}
-          />
-          {serviceSearch && (
-            <div className="search-dropdown">
-              {services.filter(s => 
-                s.name.toLowerCase().includes(serviceSearch.toLowerCase())
-              ).map(service => {
-                const alreadyAdded = selectedServices.find(s => s.service_id === service.id);
-                return (
-                  <div
-                    key={service.id}
-                    className={`dropdown-item ${alreadyAdded ? 'disabled' : ''}`}
-                    onClick={() => !alreadyAdded && addService(service.id)}
-                  >
-                    <strong>{service.name}</strong>
-                    {alreadyAdded && <span className="added-mark">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div className="services-materials-tabs">
+          <button
+            type="button"
+            className={`section-tab ${activeSection === 'services' ? 'active' : ''}`}
+            onClick={() => setActiveSection('services')}
+          >
+            📋 Услуги
+            {selectedServices.length > 0 && (
+              <span className="tab-badge">{selectedServices.length}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`section-tab ${activeSection === 'materials' ? 'active' : ''}`}
+            onClick={() => setActiveSection('materials')}
+          >
+            📦 Материалы
+            {selectedMaterials.length > 0 && (
+              <span className="tab-badge">{selectedMaterials.length}</span>
+            )}
+          </button>
         </div>
 
-        {selectedServices.length > 0 && (
-          <div className="selected-items">
-            {selectedServices.map(item => {
-              const service = services.find(s => s.id === item.service_id);
-              if (!service) return null;
-              return (
-                <div key={item.service_id} className="selected-item">
-                  <div className="item-name">{service.name}</div>
-                  <div className="item-controls">
-                    <input
-                      type="number"
-                      min="1"
-                      value={item.quantity}
-                      onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
-                      className="quantity-input"
-                    />
-                    <button
-                      className="btn-remove"
-                      onClick={() => removeService(item.service_id)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {/* Контент услуг */}
+        {activeSection === 'services' && (
+          <div className="section-content">
+            <label className="form-label">Проведенные услуги *</label>
+            <ServiceMaterialSelector
+              items={services}
+              selectedItems={selectedServices}
+              onToggleItem={toggleService}
+              onUpdateQuantity={updateServiceQuantity}
+              onRemoveItem={removeService}
+              type="service"
+              searchQuery={serviceSearch}
+              onSearchChange={setServiceSearch}
+            />
+            
+            {/* Простой список выбранных услуг */}
+            {selectedServices.length > 0 && (
+              <div className="selected-items-simple">
+                {selectedServices.map(item => {
+                  const service = services.find(s => s.id === item.service_id);
+                  if (!service) return null;
+                  return (
+                    <div key={item.service_id} className="selected-item-simple">
+                      <span className="item-name-simple">{service.name}</span>
+                      <div className="item-controls-simple">
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
+                          className="quantity-input-simple"
+                        />
+                        <button
+                          type="button"
+                          className="btn-remove-simple"
+                          onClick={() => removeService(item.service_id)}
+                          title="Удалить"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
-      </div>
 
-      {/* Материалы */}
-      <div className="form-section">
-        <label className="form-label">Использованные материалы</label>
-        
-        <div className="search-wrapper">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Поиск материала..."
-            value={materialSearch}
-            onChange={(e) => setMaterialSearch(e.target.value)}
-          />
-          {materialSearch && (
-            <div className="search-dropdown">
-              {materials.filter(m => 
-                m.name.toLowerCase().includes(materialSearch.toLowerCase())
-              ).map(material => {
-                const alreadyAdded = selectedMaterials.find(m => m.material_id === material.id);
-                return (
-                  <div
-                    key={material.id}
-                    className={`dropdown-item ${alreadyAdded ? 'disabled' : ''}`}
-                    onClick={() => !alreadyAdded && addMaterial(material.id)}
-                  >
-                    <strong>{material.name}</strong>
-                    <span className="material-unit"> ({material.unit})</span>
-                    {alreadyAdded && <span className="added-mark">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {selectedMaterials.length > 0 && (
-          <div className="selected-items">
-            {selectedMaterials.map(item => {
-              const material = materials.find(m => m.id === item.material_id);
-              if (!material) return null;
-              return (
-                <div key={item.material_id} className="selected-item">
-                  <div className="item-name">
-                    {material.name} <span className="unit-label">({material.unit})</span>
-                  </div>
-                  <div className="item-controls">
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={item.quantity}
-                      onChange={(e) => updateMaterialQuantity(item.material_id, e.target.value)}
-                      className="quantity-input"
-                    />
-                    <button
-                      className="btn-remove"
-                      onClick={() => removeMaterial(item.material_id)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {/* Контент материалов */}
+        {activeSection === 'materials' && (
+          <div className="section-content">
+            <label className="form-label">Использованные материалы</label>
+            <ServiceMaterialSelector
+              items={materials}
+              selectedItems={selectedMaterials}
+              onToggleItem={toggleMaterial}
+              onUpdateQuantity={updateMaterialQuantity}
+              onRemoveItem={removeMaterial}
+              type="material"
+              searchQuery={materialSearch}
+              onSearchChange={setMaterialSearch}
+            />
+            
+            {/* Простой список выбранных материалов */}
+            {selectedMaterials.length > 0 && (
+              <div className="selected-items-simple">
+                {selectedMaterials.map(item => {
+                  const material = materials.find(m => m.id === item.material_id);
+                  if (!material) return null;
+                  return (
+                    <div key={item.material_id} className="selected-item-simple">
+                      <span className="item-name-simple">
+                        {material.name} <span className="unit-label-simple">({material.unit})</span>
+                      </span>
+                      <div className="item-controls-simple">
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={item.quantity}
+                          onChange={(e) => updateMaterialQuantity(item.material_id, e.target.value)}
+                          className="quantity-input-simple"
+                        />
+                        <button
+                          type="button"
+                          className="btn-remove-simple"
+                          onClick={() => removeMaterial(item.material_id)}
+                          title="Удалить"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

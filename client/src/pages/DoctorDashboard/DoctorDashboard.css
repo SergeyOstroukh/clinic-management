@@ -1,0 +1,342 @@
+.doctor-dashboard {
+  padding: 20px;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow-x: hidden;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.dashboard-header h2 {
+  margin: 0 0 5px 0;
+  color: #333;
+}
+
+.doctor-name {
+  margin: 0;
+  color: #666;
+  font-size: 16px;
+}
+
+/* Вкладки */
+.dashboard-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.tab {
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+  transition: all 0.3s;
+  font-weight: 500;
+}
+
+.tab:hover {
+  color: #2196F3;
+  background: #f5f5f5;
+}
+
+.tab.active {
+  color: #2196F3;
+  border-bottom-color: #2196F3;
+  background: #f5f5f5;
+}
+
+/* Контент вкладок */
+.dashboard-content {
+  width: 100%;
+  overflow-x: hidden;
+  min-height: 400px;
+}
+
+/* Вкладка Расписание */
+.schedule-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.schedule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.schedule-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.month-selector {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.month-label {
+  font-weight: 600;
+  color: #333;
+  min-width: 200px;
+  text-align: center;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+/* Секции расписания */
+.schedule-section {
+  background: #f9f9f9;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.schedule-section h4 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.schedule-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.day-name {
+  font-weight: 600;
+  color: #333;
+  min-width: 150px;
+}
+
+.time-range {
+  color: #666;
+  font-family: 'Courier New', monospace;
+}
+
+.specific-dates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.specific-date-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.specific-date-item .date {
+  font-weight: 600;
+  color: #333;
+}
+
+.more-dates {
+  margin: 10px 0 0 0;
+  color: #666;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Записи */
+.appointments-section {
+  background: #f9f9f9;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.appointments-section h4 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.appointments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.appointment-day {
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  overflow: hidden;
+}
+
+.day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: #f5f5f5;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.day-date {
+  font-weight: 600;
+  color: #333;
+  font-size: 16px;
+}
+
+.day-schedule {
+  color: #666;
+  font-size: 14px;
+}
+
+.day-appointments {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appointment-item {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 4px solid #2196F3;
+  background: #f9f9f9;
+}
+
+.appointment-item.status-scheduled {
+  border-left-color: #2196F3;
+}
+
+.appointment-item.status-completed {
+  border-left-color: #4CAF50;
+  background: #f1f8f4;
+}
+
+.appointment-item.status-ready_for_payment {
+  border-left-color: #FF9800;
+  background: #fff8f0;
+}
+
+.appointment-item.status-cancelled {
+  border-left-color: #f44336;
+  background: #fff5f5;
+  opacity: 0.7;
+}
+
+.appointment-time {
+  font-weight: 600;
+  color: #333;
+  min-width: 80px;
+  font-family: 'Courier New', monospace;
+}
+
+.appointment-client {
+  flex: 1;
+  color: #333;
+  font-weight: 500;
+}
+
+.appointment-status {
+  color: #666;
+  font-size: 14px;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 40px 20px;
+  font-style: italic;
+}
+
+.tab-placeholder {
+  text-align: center;
+  color: #666;
+  padding: 60px 20px;
+  line-height: 1.8;
+  background: #f9f9f9;
+  border-radius: 8px;
+  border: 2px dashed #e0e0e0;
+}
+
+.loading, .error {
+  text-align: center;
+  padding: 40px;
+  font-size: 18px;
+}
+
+.error {
+  color: #f44336;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .dashboard-tabs {
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    flex: 1;
+    min-width: 120px;
+    font-size: 14px;
+    padding: 10px 16px;
+  }
+
+  .schedule-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .month-selector {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .day-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .appointment-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+

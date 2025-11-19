@@ -10,7 +10,8 @@ export const NavigationCards = ({
 }) => {
   const allCards = [
     { id: 'booking', icon: '🗓️', title: 'Запись пациентов', gradient: 'booking', allowedRoles: ['superadmin', 'administrator'] },
-    { id: 'schedule', icon: '📅', title: 'Расписание врачей', gradient: 'schedule', allowedRoles: ['superadmin', 'administrator', 'doctor'] },
+    { id: 'schedule', icon: '📅', title: 'Расписание врачей', gradient: 'schedule', allowedRoles: ['superadmin', 'administrator'] },
+    { id: 'doctor-dashboard', icon: '👨‍⚕️', title: 'Мой кабинет', gradient: 'doctors', allowedRoles: ['doctor'] },
     { id: 'doctors', icon: '👨‍⚕️', title: 'Наши врачи', gradient: 'doctors', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'clients', icon: '👥', title: 'Все клиенты', gradient: 'clients', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'services', icon: '💼', title: 'Все услуги', gradient: 'services', allowedRoles: ['superadmin', 'administrator'] },
