@@ -11,7 +11,6 @@ const ServiceMaterialSelector = ({
   searchQuery = '',
   onSearchChange = () => {}
 }) => {
-  const [expandedCategories, setExpandedCategories] = useState({});
   const [showList, setShowList] = useState(false);
   const [activeCategory, setActiveCategory] = useState(null);
 
@@ -91,24 +90,6 @@ const ServiceMaterialSelector = ({
     }
   }, [showList]);
 
-  const toggleCategory = (category) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [category]: !prev[category]
-    }));
-  };
-
-  const expandAll = () => {
-    const allExpanded = {};
-    categories.forEach(cat => {
-      allExpanded[cat] = true;
-    });
-    setExpandedCategories(allExpanded);
-  };
-
-  const collapseAll = () => {
-    setExpandedCategories({});
-  };
 
   const isItemSelected = (itemId) => {
     return selectedItems.some(sel => 

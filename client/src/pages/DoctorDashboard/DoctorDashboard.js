@@ -23,6 +23,7 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
       console.error('doctor_id не найден в currentUser:', currentUser);
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   const loadDoctorData = async () => {
