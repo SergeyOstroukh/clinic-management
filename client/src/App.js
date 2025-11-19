@@ -7,6 +7,7 @@ import { getTodayDateString, getFullName } from './shared/lib';
 import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { LoginPage } from './pages/LoginPage';
+import { DoctorDashboard } from './pages/DoctorDashboard';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
 import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
 
@@ -97,10 +98,16 @@ function App() {
       }
     };
     
+    const handleAppointmentUpdated = () => {
+      loadData();
+    };
+
     window.addEventListener('appointmentCreated', handleAppointmentCreated);
+    window.addEventListener('appointmentUpdated', handleAppointmentUpdated);
     
     return () => {
       window.removeEventListener('appointmentCreated', handleAppointmentCreated);
+      window.removeEventListener('appointmentUpdated', handleAppointmentUpdated);
     };
   }, [isAuthenticated]);
 
@@ -543,16 +550,14 @@ function App() {
 
     return (
       <div>
-        {/* Навигационные карточки (только для администраторов) */}
-        {currentUser.role !== 'doctor' && (
-          <NavigationCards
-            onNavigate={setCurrentView}
-            clientsCount={clients.length}
-            servicesCount={services.length}
-            materialsCount={materials.length}
-            currentUser={currentUser}
-          />
-        )}
+        {/* Навигационные карточки */}
+        <NavigationCards
+          onNavigate={setCurrentView}
+          clientsCount={clients.length}
+          servicesCount={services.length}
+          materialsCount={materials.length}
+          currentUser={currentUser}
+        />
 
         {/* Заголовок и кнопки */}
         <div className="section-header">
@@ -922,6 +927,11 @@ function App() {
         )}
 
         {/* Расписание врачей - доступно всем */}
+        {/* Личный кабинет врача */}
+        {currentView === 'doctor-dashboard' && currentUser.role === 'doctor' && (
+          <DoctorDashboard currentUser={currentUser} onNavigate={setCurrentView} />
+        )}
+        
         {currentView === 'schedule' && (
           <div>
             <button className="btn" onClick={() => setCurrentView('home')} style={{ marginBottom: '20px' }}>← Назад</button>

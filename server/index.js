@@ -169,6 +169,27 @@ app.get('/api/doctors', async (req, res) => {
   }
 });
 
+// Получить одного врача по ID
+app.get('/api/doctors/:id', async (req, res) => {
+  try {
+    const doctor = await db.get(
+      usePostgres 
+        ? 'SELECT * FROM doctors WHERE id = $1'
+        : 'SELECT * FROM doctors WHERE id = ?',
+      [req.params.id]
+    );
+    
+    if (!doctor) {
+      return res.status(404).json({ error: 'Врач не найден' });
+    }
+    
+    res.json(doctor);
+  } catch (error) {
+    console.error('Ошибка получения врача:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Создать врача
 app.post('/api/doctors', async (req, res) => {
   const { lastName, firstName, middleName, specialization, phone, email } = req.body;
@@ -970,6 +991,7 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
         a.status,
         a.notes,
         a.diagnosis,
+        a.client_id,
         c."firstName" as client_first_name,
         c."lastName" as client_last_name,
         c.phone as client_phone
@@ -982,7 +1004,29 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     `;
     
     const appointments = await db.all(query, [doctorId, startDate, endDate]);
-    res.json(appointments);
+    
+    // Получаем услуги для каждой записи
+    const appointmentsWithServices = await Promise.all(appointments.map(async (appointment) => {
+      const services = await db.all(
+        usePostgres
+          ? `SELECT aps.service_id, aps.quantity, s.name, s.price 
+             FROM appointment_services aps
+             JOIN services s ON aps.service_id = s.id
+             WHERE aps.appointment_id = $1`
+          : `SELECT aps.service_id, aps.quantity, s.name, s.price 
+             FROM appointment_services aps
+             JOIN services s ON aps.service_id = s.id
+             WHERE aps.appointment_id = ?`,
+        [appointment.id]
+      );
+      
+      return {
+        ...appointment,
+        services: services
+      };
+    }));
+    
+    res.json(appointmentsWithServices);
   } catch (error) {
     console.error('Ошибка получения записей врача:', error);
     res.status(500).json({ error: error.message });

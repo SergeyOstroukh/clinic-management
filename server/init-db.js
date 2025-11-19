@@ -388,6 +388,29 @@ async function initializeDefaultData() {
     }
     
     console.log('✅ Пользователи созданы');
+  } else {
+    // Проверяем, есть ли врачи без doctor_id
+    const doctorsWithoutId = await db.all(
+      "SELECT * FROM users WHERE role = 'doctor' AND doctor_id IS NULL"
+    );
+    
+    if (doctorsWithoutId.length > 0) {
+      console.log(`🔧 Обновление ${doctorsWithoutId.length} пользователей-врачей без doctor_id...`);
+      
+      // Получаем первого врача из базы
+      const firstDoctor = await db.get('SELECT id FROM doctors ORDER BY id LIMIT 1');
+      
+      if (firstDoctor) {
+        // Обновляем всех врачей без doctor_id
+        for (const user of doctorsWithoutId) {
+          await db.run(
+            'UPDATE users SET doctor_id = $1 WHERE id = $2',
+            [firstDoctor.id, user.id]
+          );
+        }
+        console.log('✅ Пользователи-врачи обновлены');
+      }
+    }
   }
   
   // Проверяем, есть ли материалы
