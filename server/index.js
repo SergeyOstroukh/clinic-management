@@ -60,6 +60,28 @@ function normalizeAppointmentDate(dateString) {
   return normalized;
 }
 
+// Нормализация даты для сравнения в SQL (только дата YYYY-MM-DD)
+function normalizeDateForSQL(dateString) {
+  if (!dateString) return dateString;
+  
+  // Если уже в формате YYYY-MM-DD, возвращаем как есть
+  if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return dateString;
+  }
+  
+  // Парсим дату и возвращаем в формате YYYY-MM-DD
+  try {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch (error) {
+    console.error('Ошибка нормализации даты:', error);
+    return dateString;
+  }
+}
+
 // ======================
 // API ENDPOINTS
 // ======================
@@ -294,6 +316,118 @@ app.delete('/api/materials/:id', async (req, res) => {
     );
     res.json({ message: 'Материал удален', changes: result.changes });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Списание материала
+app.post('/api/materials/writeoff', async (req, res) => {
+  const { material_id, quantity, notes } = req.body;
+  
+  try {
+    if (!material_id || !quantity || quantity <= 0) {
+      return res.status(400).json({ error: 'Неверные данные для списания' });
+    }
+
+    // Получаем текущий остаток материала
+    const material = await db.get(
+      usePostgres ? 'SELECT * FROM materials WHERE id = $1' : 'SELECT * FROM materials WHERE id = ?',
+      [material_id]
+    );
+
+    if (!material) {
+      return res.status(404).json({ error: 'Материал не найден' });
+    }
+
+    if (material.stock < quantity) {
+      return res.status(400).json({ error: 'Недостаточно материала на складе' });
+    }
+
+    // Создаем запись о списании (ручное списание, appointment_id = null)
+    await db.run(
+      usePostgres
+        ? 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)'
+        : 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [material_id, 'writeoff', quantity, material.price, notes || 'Ручное списание', null, null]
+    );
+
+    // Уменьшаем остаток
+    const newStock = material.stock - quantity;
+    await db.run(
+      usePostgres
+        ? 'UPDATE materials SET stock = $1 WHERE id = $2'
+        : 'UPDATE materials SET stock = ? WHERE id = ?',
+      [newStock, material_id]
+    );
+
+    res.json({ 
+      message: 'Материал успешно списан',
+      material_id,
+      quantity,
+      new_stock: newStock
+    });
+  } catch (error) {
+    console.error('Ошибка списания материала:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Приход материала
+app.post('/api/materials/receipt', async (req, res) => {
+  const { material_id, quantity, price, notes, receipt_date } = req.body;
+  
+  try {
+    if (!material_id || !quantity || quantity <= 0) {
+      return res.status(400).json({ error: 'Неверные данные для прихода' });
+    }
+
+    // Получаем текущий остаток материала
+    const material = await db.get(
+      usePostgres ? 'SELECT * FROM materials WHERE id = $1' : 'SELECT * FROM materials WHERE id = ?',
+      [material_id]
+    );
+
+    if (!material) {
+      return res.status(404).json({ error: 'Материал не найден' });
+    }
+
+    // Используем переданную цену или цену из материала
+    const receiptPrice = price || material.price;
+
+    // Формируем дату: если передана, используем её, иначе текущая дата
+    let receiptDate = receipt_date;
+    if (!receiptDate) {
+      receiptDate = new Date().toISOString();
+    } else {
+      // Убеждаемся, что дата в правильном формате
+      receiptDate = new Date(receiptDate).toISOString();
+    }
+
+    // Создаем запись о приходе с указанной датой
+    await db.run(
+      usePostgres
+        ? 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamp)'
+        : 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [material_id, 'receipt', quantity, receiptPrice, notes || '', receiptDate]
+    );
+
+    // Увеличиваем остаток
+    const newStock = material.stock + quantity;
+    await db.run(
+      usePostgres
+        ? 'UPDATE materials SET stock = $1 WHERE id = $2'
+        : 'UPDATE materials SET stock = ? WHERE id = ?',
+      [newStock, material_id]
+    );
+
+    res.json({ 
+      message: 'Материал успешно добавлен',
+      material_id,
+      quantity,
+      new_stock: newStock
+    });
+  } catch (error) {
+    console.error('Ошибка прихода материала:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -578,6 +712,41 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
   const { diagnosis, services, materials } = req.body;
   
   try {
+    // Получаем старые материалы для восстановления остатков
+    const oldMaterials = await db.all(
+      usePostgres
+        ? 'SELECT material_id, quantity FROM appointment_materials WHERE appointment_id = $1'
+        : 'SELECT material_id, quantity FROM appointment_materials WHERE appointment_id = ?',
+      [req.params.id]
+    );
+    
+    // Восстанавливаем остатки для старых материалов (отменяем старое списание)
+    for (const oldMaterial of oldMaterials) {
+      const materialData = await db.get(
+        usePostgres ? 'SELECT * FROM materials WHERE id = $1' : 'SELECT * FROM materials WHERE id = ?',
+        [oldMaterial.material_id]
+      );
+      
+      if (materialData) {
+        // Удаляем старые записи о списании для этого приема
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM material_transactions WHERE appointment_id = $1 AND material_id = $2 AND transaction_type = $3'
+            : 'DELETE FROM material_transactions WHERE appointment_id = ? AND material_id = ? AND transaction_type = ?',
+          [req.params.id, oldMaterial.material_id, 'writeoff']
+        );
+        
+        // Восстанавливаем остаток
+        const restoredStock = materialData.stock + oldMaterial.quantity;
+        await db.run(
+          usePostgres
+            ? 'UPDATE materials SET stock = $1 WHERE id = $2'
+            : 'UPDATE materials SET stock = ? WHERE id = ?',
+          [restoredStock, oldMaterial.material_id]
+        );
+      }
+    }
+    
     // Удаляем старые услуги и материалы
     await db.run(
       usePostgres
@@ -605,15 +774,63 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       }
     }
     
-    // Добавляем новые материалы
+    // Получаем информацию о записи для автоматического списания
+    const appointment = await db.get(
+      usePostgres ? 'SELECT doctor_id FROM appointments WHERE id = $1' : 'SELECT doctor_id FROM appointments WHERE id = ?',
+      [req.params.id]
+    );
+    
+    // Добавляем новые материалы и автоматически списываем их
     if (materials && materials.length > 0) {
       for (const material of materials) {
+        const materialQuantity = material.quantity || 1;
+        
+        // Добавляем материал к записи
         await db.run(
           usePostgres
             ? 'INSERT INTO appointment_materials (appointment_id, material_id, quantity) VALUES ($1, $2, $3)'
             : 'INSERT INTO appointment_materials (appointment_id, material_id, quantity) VALUES (?, ?, ?)',
-          [req.params.id, material.material_id, material.quantity || 1]
+          [req.params.id, material.material_id, materialQuantity]
         );
+        
+        // Получаем информацию о материале для списания
+        const materialData = await db.get(
+          usePostgres ? 'SELECT * FROM materials WHERE id = $1' : 'SELECT * FROM materials WHERE id = ?',
+          [material.material_id]
+        );
+        
+        if (materialData) {
+          // Проверяем, достаточно ли материала на складе
+          if (materialData.stock < materialQuantity) {
+            console.warn(`⚠️ Недостаточно материала ${materialData.name} на складе. Остаток: ${materialData.stock}, требуется: ${materialQuantity}`);
+            // Продолжаем выполнение, но логируем предупреждение
+          }
+          
+          // Создаем запись о списании (автоматическое)
+          await db.run(
+            usePostgres
+              ? 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)'
+              : 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+              material.material_id,
+              'writeoff',
+              materialQuantity,
+              materialData.price,
+              `Автоматическое списание при завершении приема #${req.params.id}`,
+              req.params.id,
+              appointment?.doctor_id || null
+            ]
+          );
+          
+          // Уменьшаем остаток материала
+          const newStock = Math.max(0, materialData.stock - materialQuantity); // Не позволяем уйти в минус
+          await db.run(
+            usePostgres
+              ? 'UPDATE materials SET stock = $1 WHERE id = $2'
+              : 'UPDATE materials SET stock = ? WHERE id = ?',
+            [newStock, material.material_id]
+          );
+        }
       }
     }
     
@@ -727,6 +944,746 @@ app.get('/api/clients/:id/appointments', async (req, res) => {
     
     res.json(appointmentsWithData);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== STATISTICS ==========
+
+// Получить статистику по материалам
+app.get('/api/statistics/materials', async (req, res) => {
+  try {
+    let { date, month, year, doctor_id } = req.query;
+    
+    // Нормализуем входные даты
+    if (date) {
+      date = normalizeDateForSQL(date);
+    }
+    if (month) {
+      month = parseInt(month);
+    }
+    if (year) {
+      year = parseInt(year);
+    }
+    
+    // Получаем текущие остатки
+    const currentStock = await db.all('SELECT * FROM materials ORDER BY name');
+    
+    // Формируем условия для фильтрации по дате
+    let dateCondition = '';
+    const dateParams = [];
+    
+    // Получаем приходы
+    let receiptsQuery = '';
+    let receiptsParams = [];
+    
+    if (date) {
+      // Фильтр по конкретному дню
+      receiptsQuery = usePostgres
+        ? `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          WHERE mt.transaction_type = 'receipt' 
+            AND DATE(mt.created_at) = $1::date
+          ORDER BY mt.created_at DESC`
+        : `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          WHERE mt.transaction_type = 'receipt' 
+            AND DATE(mt.created_at) = ?
+          ORDER BY mt.created_at DESC`;
+      receiptsParams.push(date);
+    } else if (month && year) {
+      // Фильтр по месяцу
+      receiptsQuery = usePostgres
+        ? `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          WHERE mt.transaction_type = 'receipt' 
+            AND EXTRACT(MONTH FROM mt.created_at) = $1 
+            AND EXTRACT(YEAR FROM mt.created_at) = $2
+          ORDER BY mt.created_at DESC`
+        : `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          WHERE mt.transaction_type = 'receipt' 
+            AND strftime('%m', mt.created_at) = ? 
+            AND strftime('%Y', mt.created_at) = ?
+          ORDER BY mt.created_at DESC`;
+      receiptsParams.push(month, year);
+    } else {
+      // За все время
+      receiptsQuery = `SELECT 
+        mt.id,
+        mt.created_at as date,
+        m.name as material_name,
+        m.unit,
+        mt.quantity,
+        mt.price,
+        (mt.quantity * mt.price) as total,
+        mt.notes
+      FROM material_transactions mt
+      JOIN materials m ON mt.material_id = m.id
+      WHERE mt.transaction_type = 'receipt'
+      ORDER BY mt.created_at DESC`;
+    }
+    
+    const receipts = await db.all(receiptsQuery, receiptsParams);
+    
+    // Получаем использование (из appointment_materials)
+    let usageQuery = '';
+    let usageParams = [];
+    
+    if (date) {
+      usageQuery = usePostgres
+        ? `SELECT 
+            am.id,
+            a.appointment_date as date,
+            m.name as material_name,
+            m.unit,
+            am.quantity,
+            m.price,
+            (am.quantity * m.price) as total,
+            '' as notes
+          FROM appointment_materials am
+          JOIN materials m ON am.material_id = m.id
+          JOIN appointments a ON am.appointment_id = a.id
+          WHERE DATE(a.appointment_date::timestamp) = $1::date
+          ORDER BY a.appointment_date DESC`
+        : `SELECT 
+            am.id,
+            a.appointment_date as date,
+            m.name as material_name,
+            m.unit,
+            am.quantity,
+            m.price,
+            (am.quantity * m.price) as total,
+            '' as notes
+          FROM appointment_materials am
+          JOIN materials m ON am.material_id = m.id
+          JOIN appointments a ON am.appointment_id = a.id
+          WHERE DATE(a.appointment_date) = ?
+          ORDER BY a.appointment_date DESC`;
+      usageParams.push(date);
+    } else if (month && year) {
+      usageQuery = usePostgres
+        ? `SELECT 
+            am.id,
+            a.appointment_date as date,
+            m.name as material_name,
+            m.unit,
+            am.quantity,
+            m.price,
+            (am.quantity * m.price) as total,
+            '' as notes
+          FROM appointment_materials am
+          JOIN materials m ON am.material_id = m.id
+          JOIN appointments a ON am.appointment_id = a.id
+          WHERE EXTRACT(MONTH FROM a.appointment_date::timestamp) = $1 
+            AND EXTRACT(YEAR FROM a.appointment_date::timestamp) = $2
+          ORDER BY a.appointment_date DESC`
+        : `SELECT 
+            am.id,
+            a.appointment_date as date,
+            m.name as material_name,
+            m.unit,
+            am.quantity,
+            m.price,
+            (am.quantity * m.price) as total,
+            '' as notes
+          FROM appointment_materials am
+          JOIN materials m ON am.material_id = m.id
+          JOIN appointments a ON am.appointment_id = a.id
+          WHERE strftime('%m', a.appointment_date) = ? 
+            AND strftime('%Y', a.appointment_date) = ?
+          ORDER BY a.appointment_date DESC`;
+      usageParams.push(month, year);
+    } else {
+      // За все время
+      usageQuery = `SELECT 
+        am.id,
+        a.appointment_date as date,
+        m.name as material_name,
+        m.unit,
+        am.quantity,
+        m.price,
+        (am.quantity * m.price) as total,
+        '' as notes
+      FROM appointment_materials am
+      JOIN materials m ON am.material_id = m.id
+      JOIN appointments a ON am.appointment_id = a.id
+      ORDER BY a.appointment_date DESC`;
+    }
+    
+    const usage = await db.all(usageQuery, usageParams);
+    
+    // Получаем списания (writeoffs) с информацией о врачах
+    let writeoffsQuery = '';
+    let writeoffsParams = [];
+    
+    if (date) {
+      writeoffsQuery = usePostgres
+        ? `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT "firstName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT "lastName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT "middleName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+            AND DATE(mt.created_at) = $1::date
+          ORDER BY mt.created_at DESC`
+        : `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT firstName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT lastName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT middleName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+            AND DATE(mt.created_at) = ?
+          ORDER BY mt.created_at DESC`;
+      writeoffsParams.push(date);
+    } else if (month && year) {
+      writeoffsQuery = usePostgres
+        ? `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT "firstName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT "lastName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT "middleName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+            AND EXTRACT(MONTH FROM mt.created_at) = $1 
+            AND EXTRACT(YEAR FROM mt.created_at) = $2
+          ORDER BY mt.created_at DESC`
+        : `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT firstName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT lastName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT middleName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+            AND strftime('%m', mt.created_at) = ? 
+            AND strftime('%Y', mt.created_at) = ?
+          ORDER BY mt.created_at DESC`;
+      writeoffsParams.push(month, year);
+    } else {
+      writeoffsQuery = usePostgres
+        ? `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT "firstName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT "lastName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT "middleName" FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+          ORDER BY mt.created_at DESC`
+        : `SELECT 
+            mt.id,
+            mt.created_at as date,
+            m.name as material_name,
+            m.unit,
+            mt.quantity,
+            mt.price,
+            (mt.quantity * mt.price) as total,
+            mt.notes,
+            mt.appointment_id,
+            (SELECT firstName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_firstName,
+            (SELECT lastName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_lastName,
+            (SELECT middleName FROM doctors WHERE id = COALESCE(a.doctor_id, mt.created_by) LIMIT 1) as doctor_middleName,
+            COALESCE(a.doctor_id, mt.created_by) as doctor_id
+          FROM material_transactions mt
+          JOIN materials m ON mt.material_id = m.id
+          LEFT JOIN appointments a ON mt.appointment_id = a.id
+          WHERE mt.transaction_type = 'writeoff'
+          ORDER BY mt.created_at DESC`;
+    }
+    
+    // Применяем фильтр по врачу, если указан
+    if (doctor_id) {
+      const doctorFilter = usePostgres 
+        ? ` AND COALESCE(a.doctor_id, mt.created_by) = $${writeoffsParams.length + 1}`
+        : ` AND COALESCE(a.doctor_id, mt.created_by) = ?`;
+      // Добавляем фильтр перед ORDER BY
+      writeoffsQuery = writeoffsQuery.replace(
+        /ORDER BY/i,
+        `${doctorFilter}\n          ORDER BY`
+      );
+      writeoffsParams.push(doctor_id);
+    }
+    
+    const writeoffs = await db.all(writeoffsQuery, writeoffsParams);
+    
+    // Получаем список врачей для фильтра
+    const doctors = await db.all(usePostgres 
+      ? 'SELECT id, "firstName", "lastName", "middleName" FROM doctors ORDER BY "lastName"'
+      : 'SELECT id, firstName, lastName, middleName FROM doctors ORDER BY lastName'
+    );
+    
+    // Рассчитываем суммы
+    const receiptsTotal = receipts.reduce((sum, r) => sum + (r.total || 0), 0);
+    const usageTotal = usage.reduce((sum, u) => sum + (u.total || 0), 0);
+    const writeoffsTotal = writeoffs.reduce((sum, w) => sum + (w.total || 0), 0);
+    
+    res.json({
+      currentStock: currentStock.map(m => ({
+        ...m,
+        total_value: m.price * m.stock
+      })),
+      receipts,
+      usage,
+      writeoffs,
+      doctors,
+      totals: {
+        receipts: receiptsTotal,
+        usage: usageTotal,
+        writeoffs: writeoffsTotal
+      }
+    });
+  } catch (error) {
+    console.error('Ошибка загрузки статистики:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Исправить данные о врачах в списаниях (синхронизация created_by с doctor_id из appointments)
+app.post('/api/statistics/materials/fix-doctors', async (req, res) => {
+  try {
+    console.log('🔄 Обновление данных о врачах в списаниях материалов...');
+    
+    // Принудительно обновляем created_by для всех записей, где есть appointment_id
+    const updateQuery = usePostgres
+      ? `UPDATE material_transactions mt
+         SET created_by = (
+           SELECT a.doctor_id 
+           FROM appointments a 
+           WHERE a.id = mt.appointment_id 
+             AND a.doctor_id IS NOT NULL
+           LIMIT 1
+         )
+         WHERE mt.transaction_type = 'writeoff'
+           AND mt.appointment_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 
+             FROM appointments a 
+             WHERE a.id = mt.appointment_id 
+               AND a.doctor_id IS NOT NULL
+           )`
+      : `UPDATE material_transactions mt
+         SET created_by = (
+           SELECT a.doctor_id 
+           FROM appointments a 
+           WHERE a.id = mt.appointment_id 
+             AND a.doctor_id IS NOT NULL
+           LIMIT 1
+         )
+         WHERE mt.transaction_type = 'writeoff'
+           AND mt.appointment_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 
+             FROM appointments a 
+             WHERE a.id = mt.appointment_id 
+               AND a.doctor_id IS NOT NULL
+           )`;
+    
+    const result = await db.run(updateQuery);
+    const updatedCount = result.changes || result.rowCount || 0;
+    
+    console.log(`✅ Обновлено ${updatedCount} записей`);
+    
+    res.json({ 
+      success: true, 
+      message: `Обновлено ${updatedCount} записей о списаниях с информацией о враче`,
+      updated: updatedCount
+    });
+  } catch (error) {
+    console.error('❌ Ошибка обновления данных о врачах:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Выгрузка отчета в Excel
+app.get('/api/statistics/materials/export', async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    let { type, date, month, year } = req.query;
+    
+    // Поддержка старого названия 'usage' для обратной совместимости
+    if (type === 'usage') {
+      type = 'writeoffs';
+    }
+    
+    // Нормализуем входные даты
+    if (date) {
+      date = normalizeDateForSQL(date);
+    }
+    if (month) {
+      month = parseInt(month);
+    }
+    if (year) {
+      year = parseInt(year);
+    }
+    
+    // Получаем данные аналогично статистике
+    let query = '';
+    let params = [];
+    
+    if (type === 'receipts') {
+      if (date) {
+        query = usePostgres
+          ? `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            WHERE mt.transaction_type = 'receipt' 
+              AND DATE(mt.created_at) = $1::date
+            ORDER BY mt.created_at DESC`
+          : `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            WHERE mt.transaction_type = 'receipt' 
+              AND DATE(mt.created_at) = ?
+            ORDER BY mt.created_at DESC`;
+        params.push(date);
+      } else if (month && year) {
+        query = usePostgres
+          ? `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            WHERE mt.transaction_type = 'receipt' 
+              AND EXTRACT(MONTH FROM mt.created_at) = $1 
+              AND EXTRACT(YEAR FROM mt.created_at) = $2
+            ORDER BY mt.created_at DESC`
+          : `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            WHERE mt.transaction_type = 'receipt' 
+              AND strftime('%m', mt.created_at) = ? 
+              AND strftime('%Y', mt.created_at) = ?
+            ORDER BY mt.created_at DESC`;
+        params.push(month, year);
+      } else {
+        query = `SELECT 
+          mt.created_at as date,
+          m.name as material_name,
+          m.unit,
+          mt.quantity,
+          mt.price,
+          (mt.quantity * mt.price) as total,
+          mt.notes
+        FROM material_transactions mt
+        JOIN materials m ON mt.material_id = m.id
+        WHERE mt.transaction_type = 'receipt'
+        ORDER BY mt.created_at DESC`;
+      }
+    } else {
+      // usage - используем реальные списания из material_transactions
+      if (date) {
+        query = usePostgres
+          ? `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d."firstName", d2."firstName") as doctor_firstName,
+              COALESCE(d."lastName", d2."lastName") as doctor_lastName,
+              COALESCE(d."middleName", d2."middleName") as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+              AND DATE(mt.created_at) = $1::date
+            ORDER BY mt.created_at DESC`
+          : `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d.firstName, d2.firstName) as doctor_firstName,
+              COALESCE(d.lastName, d2.lastName) as doctor_lastName,
+              COALESCE(d.middleName, d2.middleName) as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+              AND DATE(mt.created_at) = ?
+            ORDER BY mt.created_at DESC`;
+        params.push(date);
+      } else if (month && year) {
+        query = usePostgres
+          ? `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d."firstName", d2."firstName") as doctor_firstName,
+              COALESCE(d."lastName", d2."lastName") as doctor_lastName,
+              COALESCE(d."middleName", d2."middleName") as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+              AND EXTRACT(MONTH FROM mt.created_at) = $1 
+              AND EXTRACT(YEAR FROM mt.created_at) = $2
+            ORDER BY mt.created_at DESC`
+          : `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d.firstName, d2.firstName) as doctor_firstName,
+              COALESCE(d.lastName, d2.lastName) as doctor_lastName,
+              COALESCE(d.middleName, d2.middleName) as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+              AND strftime('%m', mt.created_at) = ? 
+              AND strftime('%Y', mt.created_at) = ?
+            ORDER BY mt.created_at DESC`;
+        params.push(month, year);
+      } else {
+        query = usePostgres
+          ? `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d."firstName", d2."firstName") as doctor_firstName,
+              COALESCE(d."lastName", d2."lastName") as doctor_lastName,
+              COALESCE(d."middleName", d2."middleName") as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+            ORDER BY mt.created_at DESC`
+          : `SELECT 
+              mt.created_at as date,
+              m.name as material_name,
+              m.unit,
+              mt.quantity,
+              mt.price,
+              (mt.quantity * mt.price) as total,
+              mt.notes,
+              COALESCE(d.firstName, d2.firstName) as doctor_firstName,
+              COALESCE(d.lastName, d2.lastName) as doctor_lastName,
+              COALESCE(d.middleName, d2.middleName) as doctor_middleName
+            FROM material_transactions mt
+            JOIN materials m ON mt.material_id = m.id
+            LEFT JOIN appointments a ON mt.appointment_id = a.id
+            LEFT JOIN doctors d ON mt.created_by = d.id
+            LEFT JOIN doctors d2 ON a.doctor_id = d2.id
+            WHERE mt.transaction_type = 'writeoff'
+            ORDER BY mt.created_at DESC`;
+      }
+    }
+    
+    const data = await db.all(query, params);
+    
+    // Формируем данные для Excel
+    const excelData = data.map((item, idx) => {
+      const row = {
+        '№': idx + 1,
+        'Дата': new Date(item.date).toLocaleDateString('ru-RU'),
+        'Материал': item.material_name,
+        'Единица измерения': item.unit || '-',
+        'Количество': item.quantity,
+        'Цена за единицу': item.price ? item.price.toFixed(2) : '-',
+        'Сумма': item.total ? item.total.toFixed(2) : '-',
+        'Примечание': item.notes || '-'
+      };
+      
+      // Добавляем колонку "Врач" для списаний (writeoffs)
+      if (type === 'writeoffs' || type === 'usage') {
+        if (item.doctor_lastName) {
+          row['Врач'] = `${item.doctor_lastName} ${item.doctor_firstName || ''} ${item.doctor_middleName || ''}`.trim();
+        } else {
+          row['Врач'] = item.appointment_id ? 'Автоматическое списание' : 'Ручное списание';
+        }
+      }
+      
+      return row;
+    });
+    
+    // Добавляем итоговую строку
+    const total = data.reduce((sum, item) => sum + (item.total || 0), 0);
+    const totalRow = {
+      '№': '',
+      'Дата': '',
+      'Материал': '',
+      'Единица измерения': '',
+      'Количество': '',
+      'Цена за единицу': 'ИТОГО:',
+      'Сумма': total.toFixed(2),
+      'Примечание': ''
+    };
+    if (type === 'writeoffs' || type === 'usage') {
+      totalRow['Врач'] = '';
+    }
+    excelData.push(totalRow);
+    
+    // Создаем книгу Excel
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    const sheetName = type === 'receipts' ? 'Приходы' : 'Списания';
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    
+    // Генерируем буфер
+    const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    // Определяем имя файла
+    let fileName = `отчет_${type === 'receipts' ? 'приходы' : 'списания'}`;
+    if (date) {
+      fileName += `_${date}`;
+    } else if (month && year) {
+      fileName += `_${year}-${String(month).padStart(2, '0')}`;
+    } else {
+      fileName += '_все_время';
+    }
+    fileName += '.xlsx';
+    
+    // Отправляем файл
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error('Ошибка выгрузки отчета:', error);
     res.status(500).json({ error: error.message });
   }
 });
