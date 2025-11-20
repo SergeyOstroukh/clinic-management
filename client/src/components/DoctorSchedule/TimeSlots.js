@@ -139,10 +139,24 @@ const TimeSlots = ({ doctorId, date, startTime, endTime, intervalMinutes = 30 })
           const appointment = occupied ? getSlotAppointment(slot, appointments, intervalMinutes) : null;
           const isExpanded = expandedSlot === slot;
           
+          // Проверяем, является ли слот прошедшим
+          const [slotHour, slotMinute] = slot.split(':').map(Number);
+          let slotDateTime;
+          if (typeof date === 'string') {
+            // Если date - строка в формате YYYY-MM-DD
+            const [year, month, day] = date.split('-').map(Number);
+            slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+          } else {
+            slotDateTime = new Date(date);
+            slotDateTime.setHours(slotHour, slotMinute, 0, 0);
+          }
+          const now = new Date();
+          const isPast = slotDateTime < now;
+          
           return (
             <div 
               key={index} 
-              className={`time-slot ${occupied ? 'occupied' : 'free'} ${isExpanded ? 'expanded' : ''}`}
+              className={`time-slot ${occupied ? 'occupied' : 'free'} ${isExpanded ? 'expanded' : ''} ${isPast ? 'past' : ''}`}
               onClick={() => occupied && setExpandedSlot(isExpanded ? null : slot)}
               title={occupied && appointment ? 
                 `${appointment.client_last_name} ${appointment.client_first_name}\nТел: ${appointment.client_phone}` : 
