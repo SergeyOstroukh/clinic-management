@@ -347,6 +347,8 @@ app.get('/api/appointments', async (req, res) => {
       
       return {
         ...appointment,
+        // Нормализуем called_today: boolean -> 1/0 для совместимости с клиентом
+        called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,
         services: services.map(s => ({
           service_id: s.service_id,
           name: s.name,
@@ -496,13 +498,22 @@ app.patch('/api/appointments/:id/call-status', async (req, res) => {
   const { called_today } = req.body;
   
   try {
+    // Нормализуем значение: принимаем 1/0 или true/false, сохраняем как boolean
+    const boolValue = called_today === 1 || called_today === true;
+    
     const result = await db.run(
       usePostgres
         ? 'UPDATE appointments SET called_today = $1 WHERE id = $2'
         : 'UPDATE appointments SET called_today = ? WHERE id = ?',
-      [called_today ? true : false, req.params.id]
+      [boolValue, req.params.id]
     );
-    res.json({ message: 'Статус звонка обновлен', changes: result.changes });
+    
+    // Возвращаем нормализованное значение для клиента
+    res.json({ 
+      message: 'Статус звонка обновлен', 
+      called_today: boolValue ? 1 : 0,
+      changes: result.changes 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
