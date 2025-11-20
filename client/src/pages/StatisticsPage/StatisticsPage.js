@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './StatisticsPage.css';
 
@@ -46,12 +46,7 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
     usage: false
   });
 
-  useEffect(() => {
-    loadMaterials();
-    loadStatistics();
-  }, [dateFilter]);
-
-  const loadMaterials = async () => {
+  const loadMaterials = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/materials`);
       setMaterials(response.data);
@@ -60,9 +55,9 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
       console.error('Ошибка загрузки материалов:', error);
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadStatistics = async () => {
+  const loadStatistics = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -83,7 +78,12 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateFilter]);
+
+  useEffect(() => {
+    loadMaterials();
+    loadStatistics();
+  }, [loadMaterials, loadStatistics]);
 
   const handleWriteoff = async (e) => {
     e.preventDefault();
