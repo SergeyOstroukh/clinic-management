@@ -54,6 +54,7 @@ function App() {
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [servicesPageSearch, setServicesPageSearch] = useState('');
   const [clientsPageSearch, setClientsPageSearch] = useState('');
+  const [materialsPageSearch, setMaterialsPageSearch] = useState('');
   
   // Фильтр по дате
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
@@ -901,16 +902,42 @@ function App() {
         {currentView === 'materials' && currentUser.role === 'superadmin' && (
           <div>
             <div className="section-header">
-              <h2>📦 Все материалы</h2>
+              <h2>📦 Все материалы ({materials.filter(m => {
+                const search = materialsPageSearch.toLowerCase();
+                return m.name.toLowerCase().includes(search);
+              }).length})</h2>
               <div>
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
                 <button className="btn btn-primary" onClick={() => setShowMaterialModal(true)}>+ Добавить материал</button>
               </div>
             </div>
+
+            {/* Поиск материалов */}
+            <div className="page-search-bar">
+              <input
+                type="text"
+                placeholder="🔍 Поиск по названию материала..."
+                value={materialsPageSearch}
+                onChange={(e) => setMaterialsPageSearch(e.target.value)}
+                className="page-search-input"
+              />
+              {materialsPageSearch && (
+                <button 
+                  className="btn btn-small"
+                  onClick={() => setMaterialsPageSearch('')}
+                >
+                  ✕ Очистить
+                </button>
+              )}
+            </div>
+
             <div className="materials-list-wide">
-              {materials.length === 0 ? (
+              {materials.filter(m => {
+                const search = materialsPageSearch.toLowerCase();
+                return m.name.toLowerCase().includes(search);
+              }).length === 0 ? (
                 <div className="empty-state">
-                  <p>Нет материалов</p>
+                  <p>{materialsPageSearch ? 'Материалы не найдены' : 'Нет материалов'}</p>
                 </div>
               ) : (
                 <table className="wide-table">
@@ -926,7 +953,12 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {materials.map((material, index) => (
+                    {materials
+                      .filter(m => {
+                        const search = materialsPageSearch.toLowerCase();
+                        return m.name.toLowerCase().includes(search);
+                      })
+                      .map((material, index) => (
                       <tr key={material.id}>
                         <td className="number-cell">{index + 1}</td>
                         <td><strong>{material.name}</strong></td>
