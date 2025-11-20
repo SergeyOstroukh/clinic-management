@@ -14,8 +14,14 @@ async function initializeDatabase() {
     await migrateAppointmentDateIfNeeded();
     console.log('✅ Миграция дат записей проверена');
     
+    await migrateMaterialTransactionsColumns();
+    console.log('✅ Миграция колонок material_transactions проверена');
+    
     await initializeDefaultData();
     console.log('✅ Данные по умолчанию проверены');
+    
+    await migrateMaterialWriteoffs();
+    console.log('✅ Миграция списаний проверена');
     
     console.log('✅ База данных инициализирована');
   } catch (error) {
@@ -125,6 +131,23 @@ async function initializePostgreSQL() {
       quantity REAL DEFAULT 1,
       FOREIGN KEY (appointment_id) REFERENCES appointments(id),
       FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `);
+  
+  // Таблица транзакций материалов (приходы и списания)
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS material_transactions (
+      id SERIAL PRIMARY KEY,
+      material_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL CHECK (transaction_type IN ('receipt', 'writeoff')),
+      quantity REAL NOT NULL,
+      price REAL,
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER,
+      appointment_id INTEGER,
+      FOREIGN KEY (material_id) REFERENCES materials(id),
+      FOREIGN KEY (appointment_id) REFERENCES appointments(id)
     )
   `);
   
@@ -352,6 +375,169 @@ async function migrateAppointmentDateIfNeeded() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции appointment_date:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
+  }
+}
+
+// Миграция: добавление колонки appointment_id в material_transactions
+async function migrateMaterialTransactionsColumns() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция колонок доступна только для PostgreSQL');
+      return;
+    }
+
+    // Проверяем, существует ли колонка appointment_id
+    const columnExists = await db.all(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'material_transactions' 
+        AND column_name = 'appointment_id'
+    `);
+
+    if (columnExists.length === 0) {
+      console.log('   🔄 Добавление колонки appointment_id в material_transactions...');
+      
+      // Добавляем колонку appointment_id
+      await db.run(`
+        ALTER TABLE material_transactions 
+        ADD COLUMN appointment_id INTEGER
+      `);
+      
+      // Добавляем внешний ключ
+      try {
+        await db.run(`
+          ALTER TABLE material_transactions 
+          ADD CONSTRAINT fk_material_transactions_appointment 
+          FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+        `);
+      } catch (fkError) {
+        // Если внешний ключ уже существует, игнорируем ошибку
+        if (!fkError.message.includes('already exists')) {
+          throw fkError;
+        }
+      }
+      
+      console.log('   ✅ Колонка appointment_id добавлена');
+    } else {
+      console.log('   ✅ Колонка appointment_id уже существует');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции колонок:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
+  }
+}
+
+// Миграция: создание записей о списаниях для существующих appointment_materials
+async function migrateMaterialWriteoffs() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция списаний доступна только для PostgreSQL');
+      return;
+    }
+
+    // Проверяем, есть ли appointment_materials без соответствующих записей в material_transactions
+    const missingWriteoffs = await db.all(`
+      SELECT 
+        am.appointment_id,
+        am.material_id,
+        am.quantity,
+        a.doctor_id,
+        m.price
+      FROM appointment_materials am
+      JOIN appointments a ON am.appointment_id = a.id
+      JOIN materials m ON am.material_id = m.id
+      WHERE NOT EXISTS (
+        SELECT 1 
+        FROM material_transactions mt 
+        WHERE mt.appointment_id = am.appointment_id 
+          AND mt.material_id = am.material_id
+          AND mt.transaction_type = 'writeoff'
+      )
+      AND a.status IN ('ready_for_payment', 'completed')
+    `);
+
+    if (missingWriteoffs.length > 0) {
+      console.log(`   🔄 Создание записей о списаниях для ${missingWriteoffs.length} существующих материалов...`);
+      
+      for (const item of missingWriteoffs) {
+        // Создаем запись о списании
+        await db.run(`
+          INSERT INTO material_transactions 
+            (material_id, transaction_type, quantity, price, notes, appointment_id, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          item.material_id,
+          'writeoff',
+          item.quantity,
+          item.price,
+          `Автоматическое списание при завершении приема #${item.appointment_id} (миграция)`,
+          item.appointment_id,
+          item.doctor_id
+        ]);
+      }
+      
+      console.log(`   ✅ Создано ${missingWriteoffs.length} записей о списаниях`);
+    } else {
+      console.log('   ✅ Все списания уже созданы');
+    }
+    
+    // Обновляем created_by для записей, где есть appointment_id с doctor_id
+    // Обновляем даже если created_by уже заполнен, чтобы синхронизировать данные
+    const updateResult = await db.run(`
+      UPDATE material_transactions mt
+      SET created_by = (
+        SELECT a.doctor_id 
+        FROM appointments a 
+        WHERE a.id = mt.appointment_id 
+          AND a.doctor_id IS NOT NULL
+        LIMIT 1
+      )
+      WHERE mt.transaction_type = 'writeoff'
+        AND mt.appointment_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 
+          FROM appointments a 
+          WHERE a.id = mt.appointment_id 
+            AND a.doctor_id IS NOT NULL
+        )
+        AND (
+          mt.created_by IS NULL 
+          OR mt.created_by != (
+            SELECT a.doctor_id 
+            FROM appointments a 
+            WHERE a.id = mt.appointment_id 
+            LIMIT 1
+          )
+        )
+    `);
+    
+    if (updateResult && updateResult.changes > 0) {
+      console.log(`   🔄 Обновлено ${updateResult.changes} записей о списаниях с информацией о враче из карточки приема`);
+    } else {
+      // Проверяем, сколько записей без врача осталось
+      const withoutDoctor = await db.all(`
+        SELECT COUNT(*) as count
+        FROM material_transactions mt
+        LEFT JOIN appointments a ON mt.appointment_id = a.id
+        LEFT JOIN doctors d ON COALESCE(a.doctor_id, mt.created_by) = d.id
+        WHERE mt.transaction_type = 'writeoff'
+          AND mt.appointment_id IS NOT NULL
+          AND d.id IS NULL
+      `);
+      const count = withoutDoctor[0]?.count || 0;
+      if (count > 0) {
+        console.log(`   ⚠️  Осталось ${count} записей о списаниях без врача (возможно, в appointments нет doctor_id)`);
+      } else {
+        console.log('   ✅ Все записи о списаниях синхронизированы с карточками приемов');
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции списаний:', error.message);
     // Не прерываем инициализацию, если миграция не удалась
   }
 }

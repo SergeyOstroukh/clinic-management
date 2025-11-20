@@ -6,6 +6,7 @@ import axios from 'axios';
 import { getTodayDateString, getFullName } from './shared/lib';
 import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
+import { StatisticsPage } from './pages/StatisticsPage';
 import { LoginPage } from './pages/LoginPage';
 import { DoctorDashboard } from './pages/DoctorDashboard';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
@@ -70,7 +71,10 @@ function App() {
     client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
   });
   const [serviceForm, setServiceForm] = useState({ name: '', price: '', description: '', category: '' });
-  const [materialForm, setMaterialForm] = useState({ name: '', unit: '', price: '', stock: '', description: '' });
+  const [materialForm, setMaterialForm] = useState({ name: '', unit: '', price: '', stock: '', description: '', receipt_date: new Date().toISOString().split('T')[0] });
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptForm, setReceiptForm] = useState({ material_id: '', quantity: '', price: '', notes: '', receipt_date: new Date().toISOString().split('T')[0] });
+  const [materialSearchQuery, setMaterialSearchQuery] = useState('');
 
   // Проверка авторизации при загрузке
   useEffect(() => {
@@ -477,13 +481,57 @@ function App() {
         await axios.put(`${API_URL}/materials/${editingMaterial.id}`, materialForm);
         setEditingMaterial(null);
       } else {
-        await axios.post(`${API_URL}/materials`, materialForm);
+        // Создаем материал
+        const materialData = { ...materialForm };
+        const initialStock = parseFloat(materialData.stock) || 0;
+        // Убираем stock из данных материала, так как он будет установлен через транзакцию
+        delete materialData.stock;
+        delete materialData.receipt_date;
+        
+        const response = await axios.post(`${API_URL}/materials`, materialData);
+        const newMaterialId = response.data.id || response.data;
+        
+        // Если указан начальный остаток, создаем транзакцию прихода
+        if (initialStock > 0) {
+          await axios.post(`${API_URL}/materials/receipt`, {
+            material_id: newMaterialId,
+            quantity: initialStock,
+            price: materialForm.price,
+            notes: 'Начальный остаток',
+            receipt_date: materialForm.receipt_date || new Date().toISOString().split('T')[0]
+          });
+        }
       }
-      setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '' });
+      setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '', receipt_date: new Date().toISOString().split('T')[0] });
       setShowMaterialModal(false);
       loadData();
     } catch (error) {
-      alert('Ошибка сохранения материала');
+      alert('Ошибка сохранения материала: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleReceiptMaterial = async (e) => {
+    e.preventDefault();
+    try {
+      if (!receiptForm.material_id || !receiptForm.quantity || parseFloat(receiptForm.quantity) <= 0) {
+        alert('Заполните все обязательные поля');
+        return;
+      }
+
+      await axios.post(`${API_URL}/materials/receipt`, {
+        material_id: parseInt(receiptForm.material_id),
+        quantity: parseFloat(receiptForm.quantity),
+        price: receiptForm.price || null,
+        notes: receiptForm.notes || '',
+        receipt_date: receiptForm.receipt_date || new Date().toISOString().split('T')[0]
+      });
+
+      alert('✅ Материал успешно пополнен');
+      setReceiptForm({ material_id: '', quantity: '', price: '', notes: '', receipt_date: new Date().toISOString().split('T')[0] });
+      setShowReceiptModal(false);
+      loadData();
+    } catch (error) {
+      alert('Ошибка пополнения материала: ' + (error.response?.data?.error || error.message));
     }
   };
 
@@ -898,6 +946,22 @@ function App() {
                             ✏️ Редактировать
                           </button>
                           <button 
+                            className="btn btn-small btn-primary"
+                            onClick={() => {
+                              setReceiptForm({ 
+                                material_id: material.id, 
+                                quantity: '', 
+                                price: material.price, 
+                                notes: '', 
+                                receipt_date: new Date().toISOString().split('T')[0] 
+                              });
+                              setMaterialSearchQuery('');
+                              setShowReceiptModal(true);
+                            }}
+                          >
+                            ➕ Пополнить
+                          </button>
+                          <button 
                             className="btn btn-small btn-danger"
                             onClick={() => handleDeleteMaterial(material.id)}
                           >
@@ -913,7 +977,12 @@ function App() {
           </div>
         )}
         
-        {/* Отчеты - только для superadmin */}
+        {/* Статистика и отчеты - только для superadmin */}
+        {currentView === 'statistics' && currentUser.role === 'superadmin' && (
+          <StatisticsPage onNavigate={setCurrentView} currentUser={currentUser} />
+        )}
+
+        {/* Отчеты - только для superadmin (старая версия, можно удалить позже) */}
         {currentView === 'reports' && currentUser.role === 'superadmin' && (
           <div>
             <div className="section-header">
@@ -1492,7 +1561,7 @@ function App() {
           if (e.target === e.currentTarget) {
             setShowMaterialModal(false);
             setEditingMaterial(null);
-            setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '' });
+            setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '', receipt_date: new Date().toISOString().split('T')[0] });
           }
         }}>
           <div className="modal">
@@ -1526,15 +1595,27 @@ function App() {
                 required
               />
 
-              <label>Остаток на складе</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0"
-                value={materialForm.stock}
-                onChange={(e) => setMaterialForm({ ...materialForm, stock: e.target.value })}
-              />
+              {!editingMaterial && (
+                <>
+                  <label>Начальный остаток на складе</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0"
+                    value={materialForm.stock}
+                    onChange={(e) => setMaterialForm({ ...materialForm, stock: e.target.value })}
+                  />
+
+                  <label>Дата прихода *</label>
+                  <input
+                    type="date"
+                    value={materialForm.receipt_date}
+                    onChange={(e) => setMaterialForm({ ...materialForm, receipt_date: e.target.value })}
+                    required
+                  />
+                </>
+              )}
 
               <label>Описание</label>
               <textarea
@@ -1551,13 +1632,143 @@ function App() {
                   onClick={() => {
                     setShowMaterialModal(false);
                     setEditingMaterial(null);
-                    setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '' });
+                    setMaterialForm({ name: '', unit: '', price: '', stock: '', description: '', receipt_date: new Date().toISOString().split('T')[0] });
                   }}
                 >
                   Отмена
                 </button>
                 <button type="submit" className="btn btn-primary">
                   {editingMaterial ? 'Сохранить' : 'Создать'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно пополнения материала */}
+      {showReceiptModal && (
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowReceiptModal(false);
+            setReceiptForm({ material_id: '', quantity: '', price: '', notes: '', receipt_date: new Date().toISOString().split('T')[0] });
+            setMaterialSearchQuery('');
+          }
+        }}>
+          <div className="modal">
+            <h2>Пополнить материал</h2>
+            <form onSubmit={handleReceiptMaterial}>
+              <label>Поиск материала</label>
+              <input
+                type="text"
+                placeholder="Введите название материала для поиска..."
+                value={materialSearchQuery}
+                onChange={(e) => {
+                  setMaterialSearchQuery(e.target.value);
+                  // Если материал уже выбран и он не соответствует поиску, сбрасываем выбор
+                  if (receiptForm.material_id) {
+                    const selectedMaterial = materials.find(m => m.id === parseInt(receiptForm.material_id));
+                    if (selectedMaterial && !selectedMaterial.name.toLowerCase().includes(e.target.value.toLowerCase())) {
+                      setReceiptForm({ ...receiptForm, material_id: '', price: '' });
+                    }
+                  }
+                }}
+                style={{ marginBottom: '10px' }}
+              />
+
+              <label>Материал *</label>
+              <select
+                value={receiptForm.material_id}
+                onChange={(e) => {
+                  const material = materials.find(m => m.id === parseInt(e.target.value));
+                  setReceiptForm({ 
+                    ...receiptForm, 
+                    material_id: e.target.value,
+                    price: material ? material.price : ''
+                  });
+                  // Очищаем поиск после выбора
+                  setMaterialSearchQuery('');
+                }}
+                required
+                style={{ 
+                  fontSize: '14px',
+                  height: materialSearchQuery ? '200px' : 'auto'
+                }}
+                size={materialSearchQuery ? Math.min(5, materials.filter(m => 
+                  m.name.toLowerCase().includes(materialSearchQuery.toLowerCase())
+                ).length) : 1}
+              >
+                <option value="">Выберите материал</option>
+                {materials
+                  .filter(m => 
+                    !materialSearchQuery || 
+                    m.name.toLowerCase().includes(materialSearchQuery.toLowerCase())
+                  )
+                  .map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.unit}) - Остаток: {m.stock} {m.unit} - Цена: {m.price} BYN
+                    </option>
+                  ))}
+              </select>
+              {materialSearchQuery && materials.filter(m => 
+                m.name.toLowerCase().includes(materialSearchQuery.toLowerCase())
+              ).length === 0 && (
+                <div style={{ color: '#999', fontSize: '12px', marginTop: '5px' }}>
+                  Материалы не найдены
+                </div>
+              )}
+
+              <label>Количество *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="0.00"
+                value={receiptForm.quantity}
+                onChange={(e) => setReceiptForm({ ...receiptForm, quantity: e.target.value })}
+                required
+              />
+
+              <label>Цена за единицу (BYN)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Оставить текущую цену"
+                value={receiptForm.price}
+                onChange={(e) => setReceiptForm({ ...receiptForm, price: e.target.value })}
+              />
+
+              <label>Дата прихода *</label>
+              <input
+                type="date"
+                value={receiptForm.receipt_date}
+                onChange={(e) => setReceiptForm({ ...receiptForm, receipt_date: e.target.value })}
+                required
+              />
+
+              <label>Примечание</label>
+              <textarea
+                placeholder="Примечание к приходу (необязательно)"
+                value={receiptForm.notes}
+                onChange={(e) => setReceiptForm({ ...receiptForm, notes: e.target.value })}
+                rows={3}
+              />
+
+              <div className="modal-actions">
+                <button 
+                  type="button" 
+                  className="btn" 
+                  onClick={() => {
+                    setShowReceiptModal(false);
+                    setReceiptForm({ material_id: '', quantity: '', price: '', notes: '', receipt_date: new Date().toISOString().split('T')[0] });
+                    setMaterialSearchQuery('');
+                  }}
+                >
+                  Отмена
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  ✅ Пополнить
                 </button>
               </div>
             </form>
