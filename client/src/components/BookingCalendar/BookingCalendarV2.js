@@ -432,6 +432,38 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return normalizedDate.startsWith(dateStr);
     });
 
+    // Проверяем, является ли день сегодняшним и все ли слоты прошли
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(year, month - 1, day);
+    checkDate.setHours(0, 0, 0, 0);
+    const isToday = checkDate.getTime() === today.getTime();
+    
+    if (isToday) {
+      // Проверяем, есть ли еще доступные слоты на сегодня
+      const allSlots = [];
+      schedule.forEach(s => {
+        const times = generateTimeSlots(s.start_time, s.end_time);
+        times.forEach(time => {
+          const [slotHour, slotMinute] = time.split(':').map(Number);
+          const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+          const now = new Date();
+          now.setSeconds(0, 0);
+          now.setMilliseconds(0);
+          slotDateTime.setSeconds(0, 0);
+          slotDateTime.setMilliseconds(0);
+          if (slotDateTime.getTime() >= now.getTime()) {
+            allSlots.push(time);
+          }
+        });
+      });
+      
+      // Если все слоты прошли, возвращаем специальный статус
+      if (allSlots.length === 0) {
+        return 'past-today';
+      }
+    }
+
     let totalSlots = 0;
     schedule.forEach(s => {
       totalSlots += generateTimeSlots(s.start_time, s.end_time).length;
@@ -474,9 +506,18 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
         });
 
+        // Проверяем, является ли слот прошедшим
+        const [slotHour, slotMinute] = time.split(':').map(Number);
+        const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+        const now = new Date();
+        // Сравниваем с точностью до минуты
+        now.setSeconds(0, 0);
+        const isPast = slotDateTime.getTime() < now.getTime();
+
         allSlots.push({
           time,
           isBooked,
+          isPast,
           appointment: isBooked ? dayAppointments.find(apt => {
             const aptTime = parseTime(apt.appointment_date);
             const slotTime = time.split(':');
@@ -702,14 +743,20 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       const isToday = new Date().getDate() === day && 
                      new Date().getMonth() + 1 === currentMonth && 
                      new Date().getFullYear() === currentYear;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkDate = new Date(currentYear, currentMonth - 1, day);
+      checkDate.setHours(0, 0, 0, 0);
+      const isPast = checkDate < today;
       
       days.push(
         <div
           key={day}
-          className={`calendar-day-booking ${status} ${isToday ? 'today' : ''}`}
-          onClick={() => status !== 'no-schedule' && handleDayClick(currentYear, currentMonth, day)}
+          className={`calendar-day-booking ${status} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${status === 'past-today' ? 'past-today' : ''}`}
+          onClick={() => status !== 'no-schedule' && status !== 'past-today' && handleDayClick(currentYear, currentMonth, day)}
         >
           <div className="day-number">{day}</div>
+          {status === 'past-today' && <div className="availability-badge">Запись невозможна</div>}
           {status === 'available' && <div className="availability-badge">Свободно</div>}
           {status === 'partially-booked' && <div className="availability-badge partial">Есть места</div>}
           {status === 'fully-booked' && <div className="availability-badge full">Занято</div>}
@@ -1062,7 +1109,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
       {/* Модалка выбора времени и создания записи */}
       {showModal && selectedSlot && (() => {
-        // Пересчитываем слоты с актуальными данными appointments
+        // Пересчитываем слоты с актуальными данными appointments и текущим временем
+        // Используем useMemo для пересчета при каждом рендере модального окна
         const actualSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
         
         return (
@@ -1199,43 +1247,60 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                 </div>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '15px' }}>
-                {actualSlots.slots.map((slot, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => !creating && handleSlotClick(slot.time, slot)}
-                    disabled={creating}
-                    style={{
-                      padding: '15px',
-                      fontSize: '1rem',
-                      fontWeight: 'bold',
-                      background: slot.isBooked 
-                        ? '#ffebee' 
-                        : (selectedTime === slot.time 
-                          ? '#667eea' 
-                          : '#e8f5e9'),
-                      color: slot.isBooked 
-                        ? '#d32f2f' 
-                        : (selectedTime === slot.time 
-                          ? 'white' 
-                          : '#388e3c'),
-                      border: `2px solid ${slot.isBooked 
-                        ? '#f44336' 
-                        : (selectedTime === slot.time 
-                          ? '#667eea' 
-                          : '#4caf50')}`,
-                      borderRadius: '8px',
-                      cursor: creating ? 'not-allowed' : 'pointer',
-                      opacity: creating ? 0.6 : 1,
-                      transform: selectedTime === slot.time ? 'scale(1.05)' : 'none',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    {slot.time}
-                    <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
-                      {slot.isBooked ? 'Занято (отменить?)' : (selectedTime === slot.time ? 'Выбрано' : 'Свободно')}
-                    </div>
-                  </button>
-                ))}
+                {actualSlots.slots.map((slot, idx) => {
+                  // Перепроверяем, является ли слот прошедшим (для актуального времени)
+                  const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                  const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                  const now = new Date();
+                  now.setSeconds(0, 0);
+                  now.setMilliseconds(0);
+                  slotDateTime.setSeconds(0, 0);
+                  slotDateTime.setMilliseconds(0);
+                  const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => !creating && !isPast && handleSlotClick(slot.time, slot)}
+                      disabled={creating || isPast}
+                      style={{
+                        padding: '15px',
+                        fontSize: '1rem',
+                        fontWeight: 'bold',
+                        background: isPast 
+                          ? '#f5f5f5' 
+                          : (slot.isBooked 
+                            ? '#ffebee' 
+                            : (selectedTime === slot.time 
+                              ? '#667eea' 
+                              : '#e8f5e9')),
+                        color: isPast 
+                          ? '#999' 
+                          : (slot.isBooked 
+                            ? '#d32f2f' 
+                            : (selectedTime === slot.time 
+                              ? 'white' 
+                              : '#388e3c')),
+                        border: `2px solid ${isPast 
+                          ? '#ccc' 
+                          : (slot.isBooked 
+                            ? '#f44336' 
+                            : (selectedTime === slot.time 
+                              ? '#667eea' 
+                              : '#4caf50'))}`,
+                        borderRadius: '8px',
+                        cursor: (creating || isPast) ? 'not-allowed' : 'pointer',
+                        opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
+                        transform: selectedTime === slot.time ? 'scale(1.05)' : 'none',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {slot.time}
+                      <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
+                        {slot.isBooked ? 'Занято (отменить?)' : (selectedTime === slot.time ? 'Выбрано' : 'Свободно')}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

@@ -139,6 +139,14 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
     return 'has-appointments';
   };
 
+  const isPastDate = (year, month, day) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(year, month - 1, day);
+    checkDate.setHours(0, 0, 0, 0);
+    return checkDate < today;
+  };
+
   const parseTime = (dateTimeStr) => {
     if (!dateTimeStr) return { hours: 0, minutes: 0 };
     let normalized = dateTimeStr.replace('T', ' ');
@@ -255,11 +263,12 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
                 selectedDate.year === day.year && 
                 selectedDate.month === day.month && 
                 selectedDate.day === day.day;
+              const isPast = isPastDate(day.year, day.month, day.day);
 
               return (
                 <div
                   key={`${day.year}-${day.month}-${day.day}`}
-                  className={`calendar-day ${status} ${isToday(day.year, day.month, day.day) ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
+                  className={`calendar-day ${status} ${isToday(day.year, day.month, day.day) ? 'today' : ''} ${isSelected ? 'selected' : ''} ${isPast ? 'past' : ''}`}
                   onClick={() => handleDayClick(day.year, day.month, day.day)}
                 >
                   <div className="day-number">{day.day}</div>

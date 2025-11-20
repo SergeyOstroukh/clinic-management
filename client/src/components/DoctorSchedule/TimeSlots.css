@@ -122,6 +122,31 @@
   color: #c62828;
 }
 
+.time-slot.past {
+  opacity: 0.5;
+  background: #f5f5f5 !important;
+  border-color: #ccc !important;
+}
+
+.time-slot.past .time-slot-time {
+  color: #999 !important;
+}
+
+.time-slot.past.free {
+  background: #f5f5f5 !important;
+  border-color: #ccc !important;
+}
+
+.time-slot.past.occupied {
+  background: #f5f5f5 !important;
+  border-color: #ccc !important;
+}
+
+.time-slot.past:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 .time-slot-status {
   font-size: 1.2rem;
   line-height: 1;

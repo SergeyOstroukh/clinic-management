@@ -115,7 +115,32 @@
 .calendar-day-booking.past {
   opacity: 0.5;
   cursor: not-allowed;
-  background: #fafafa;
+  background: #f5f5f5 !important;
+}
+
+.calendar-day-booking.past .day-number {
+  color: #999;
+}
+
+.calendar-day-booking.past .availability-badge {
+  opacity: 0.7;
+}
+
+.calendar-day-booking.past-today {
+  background: #fff3e0 !important;
+  border-color: #ff9800 !important;
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.calendar-day-booking.past-today .day-number {
+  color: #e65100;
+}
+
+.calendar-day-booking.past-today .availability-badge {
+  background: #ff9800;
+  color: white;
+  opacity: 1;
 }
 
 .calendar-day-booking.today {

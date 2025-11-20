@@ -191,7 +191,12 @@ function App() {
         const aptDate = new Date(apt.appointment_date).toISOString().split('T')[0];
         return aptDate === selectedDate;
       })
-      .sort((a, b) => a.id - b.id); // Сортировка по id (новые записи в конце)
+      .sort((a, b) => {
+        // Сортировка по времени (от меньшего к большему)
+        const timeA = new Date(a.appointment_date).getTime();
+        const timeB = new Date(b.appointment_date).getTime();
+        return timeA - timeB;
+      });
   };
 
   // Фильтрация записей по врачу (для роли doctor)
@@ -578,11 +583,6 @@ function App() {
               </button>
             </div>
           </div>
-          {currentUser.role !== 'doctor' && (
-            <button className="btn btn-primary" onClick={() => setShowAppointmentModal(true)}>
-              + Новая запись
-            </button>
-          )}
         </div>
 
         {/* Таблица записей */}
