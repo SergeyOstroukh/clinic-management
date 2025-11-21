@@ -213,7 +213,7 @@ const ServiceMaterialSelector = ({
                             <span className="item-unit">({item.unit})</span>
                           )}
                           {item.price && (
-                            <span className="item-price">{item.price} ₽</span>
+                            <span className="item-price">{item.price} BYN</span>
                           )}
                         </div>
                       </label>
@@ -253,7 +253,7 @@ const ServiceMaterialSelector = ({
                                 <div className="selected-item-unit">{fullItem.unit}</div>
                               )}
                               {fullItem.price && (
-                                <div className="selected-item-price">{fullItem.price} ₽</div>
+                                <div className="selected-item-price">{fullItem.price} BYN</div>
                               )}
                             </div>
                             <div className="selected-item-controls">

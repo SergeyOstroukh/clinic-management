@@ -193,6 +193,44 @@ async function initializePostgreSQL() {
     )
   `);
   
+  // Таблица составных услуг (готовые карточки услуг)
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS composite_services (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      category TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  
+  // Таблица связи составных услуг с подуслугами
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS composite_service_services (
+      id SERIAL PRIMARY KEY,
+      composite_service_id INTEGER NOT NULL,
+      service_id INTEGER NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      display_order INTEGER DEFAULT 0,
+      FOREIGN KEY (composite_service_id) REFERENCES composite_services(id) ON DELETE CASCADE,
+      FOREIGN KEY (service_id) REFERENCES services(id)
+    )
+  `);
+  
+  // Таблица связи составных услуг с материалами
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS composite_service_materials (
+      id SERIAL PRIMARY KEY,
+      composite_service_id INTEGER NOT NULL,
+      material_id INTEGER NOT NULL,
+      quantity REAL DEFAULT 1,
+      display_order INTEGER DEFAULT 0,
+      FOREIGN KEY (composite_service_id) REFERENCES composite_services(id) ON DELETE CASCADE,
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `);
+  
   console.log('   ✓ Все таблицы проверены');
   } catch (error) {
     console.error('❌ Ошибка создания таблиц:', error.message);

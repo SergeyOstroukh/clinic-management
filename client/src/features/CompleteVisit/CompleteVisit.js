@@ -17,8 +17,24 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
   const [selectedMaterials, setSelectedMaterials] = useState(visit.materials || []);
   const [serviceSearch, setServiceSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
+  const [compositeServices, setCompositeServices] = useState([]);
+  const [compositeServiceSearch, setCompositeServiceSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeSection, setActiveSection] = useState('services'); // 'services' или 'materials'
+  const [activeSection, setActiveSection] = useState('services'); // 'services', 'materials' или 'composite'
+
+  // Загружаем составные услуги
+  useEffect(() => {
+    const loadCompositeServices = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/composite-services`);
+        // Фильтруем только активные
+        setCompositeServices(response.data.filter(cs => cs.is_active !== false));
+      } catch (error) {
+        console.error('Ошибка загрузки составных услуг:', error);
+      }
+    };
+    loadCompositeServices();
+  }, []);
 
   // Обновляем данные при изменении visit (для редактирования)
   useEffect(() => {
@@ -67,6 +83,74 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
     ));
   };
 
+  // Применить составную услугу
+  const handleApplyCompositeService = (compositeService) => {
+    // Добавляем все подуслуги
+    const newServices = [...selectedServices];
+    compositeService.services.forEach(csService => {
+      // API может возвращать данные с полем id вместо service_id
+      const serviceId = csService.service_id || csService.id;
+      if (!serviceId) {
+        console.warn('Пропущена услуга без ID:', csService);
+        return;
+      }
+      
+      const existing = newServices.find(s => s.service_id === serviceId);
+      if (existing) {
+        // Если услуга уже есть, увеличиваем количество
+        existing.quantity = (existing.quantity || 1) + (csService.quantity || 1);
+      } else {
+        // Добавляем новую услугу
+        newServices.push({
+          service_id: parseInt(serviceId),
+          quantity: parseInt(csService.quantity) || 1
+        });
+      }
+    });
+    setSelectedServices(newServices);
+
+    // Добавляем все материалы
+    if (compositeService.materials && compositeService.materials.length > 0) {
+      const newMaterials = [...selectedMaterials];
+      compositeService.materials.forEach(csMaterial => {
+        // API может возвращать данные с полем id вместо material_id
+        const materialId = csMaterial.material_id || csMaterial.id;
+        if (!materialId) {
+          console.warn('Пропущен материал без ID:', csMaterial);
+          return;
+        }
+        
+        const existing = newMaterials.find(m => m.material_id === materialId);
+        if (existing) {
+          // Если материал уже есть, увеличиваем количество
+          existing.quantity = (existing.quantity || 1) + (csMaterial.quantity || 1);
+        } else {
+          // Добавляем новый материал
+          newMaterials.push({
+            material_id: parseInt(materialId),
+            quantity: parseFloat(csMaterial.quantity) || 1
+          });
+        }
+      });
+      setSelectedMaterials(newMaterials);
+    }
+
+    // Переключаемся на вкладку услуг, чтобы показать добавленные
+    setActiveSection('services');
+    setCompositeServiceSearch('');
+    
+    // Показываем информацию о добавленных элементах
+    const addedServicesCount = compositeService.services?.length || 0;
+    const addedMaterialsCount = compositeService.materials?.length || 0;
+    let message = `✅ Составная услуга "${compositeService.name}" применена!\n\n`;
+    message += `Добавлено:\n`;
+    message += `- Подуслуг: ${addedServicesCount}\n`;
+    if (addedMaterialsCount > 0) {
+      message += `- Материалов: ${addedMaterialsCount}`;
+    }
+    alert(message);
+  };
+
   const handleSubmit = async () => {
     if (!diagnosis.trim()) {
       alert('Пожалуйста, введите диагноз');
@@ -77,12 +161,34 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
       return;
     }
 
+    // Валидация и нормализация данных перед отправкой
+    const normalizedServices = selectedServices
+      .filter(s => s.service_id != null) // Убираем записи без service_id
+      .map(s => ({
+        service_id: parseInt(s.service_id),
+        quantity: parseInt(s.quantity) || 1
+      }))
+      .filter(s => !isNaN(s.service_id)); // Убираем записи с невалидным ID
+    
+    const normalizedMaterials = (selectedMaterials || [])
+      .filter(m => m.material_id != null) // Убираем записи без material_id
+      .map(m => ({
+        material_id: parseInt(m.material_id),
+        quantity: parseFloat(m.quantity) || 1
+      }))
+      .filter(m => !isNaN(m.material_id)); // Убираем записи с невалидным ID
+
+    if (normalizedServices.length === 0) {
+      alert('Ошибка: нет валидных услуг для сохранения. Пожалуйста, выберите услуги заново.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
         diagnosis,
-        services: selectedServices,
-        materials: selectedMaterials
+        services: normalizedServices,
+        materials: normalizedMaterials
       });
       
       // Отправляем событие для обновления списка записей
@@ -91,6 +197,10 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
       onSuccess();
     } catch (error) {
       console.error('Ошибка завершения приема:', error);
+      console.error('Отправленные данные:', { 
+        services: normalizedServices, 
+        materials: normalizedMaterials 
+      });
       alert(`Ошибка завершения приема: ${error.response?.data?.error || error.message}`);
     } finally {
       setIsSubmitting(false);
@@ -119,6 +229,13 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
         <div className="services-materials-tabs">
           <button
             type="button"
+            className={`section-tab ${activeSection === 'composite' ? 'active' : ''}`}
+            onClick={() => setActiveSection('composite')}
+          >
+            🔧 Готовые услуги
+          </button>
+          <button
+            type="button"
             className={`section-tab ${activeSection === 'services' ? 'active' : ''}`}
             onClick={() => setActiveSection('services')}
           >
@@ -138,6 +255,61 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
             )}
           </button>
         </div>
+
+        {/* Контент составных услуг */}
+        {activeSection === 'composite' && (
+          <div className="section-content">
+            <label className="form-label">Готовые составные услуги</label>
+            <p className="form-hint">Выберите готовую услугу, чтобы автоматически добавить все подуслуги и материалы</p>
+            
+            <div className="search-box" style={{ marginBottom: '15px' }}>
+              <input
+                type="text"
+                placeholder="🔍 Поиск готовой услуги..."
+                value={compositeServiceSearch}
+                onChange={(e) => setCompositeServiceSearch(e.target.value)}
+                className="page-search-input"
+              />
+            </div>
+
+            <div className="composite-services-selector">
+              {compositeServices
+                .filter(cs => {
+                  const search = compositeServiceSearch.toLowerCase();
+                  return cs.name.toLowerCase().includes(search) ||
+                         (cs.category && cs.category.toLowerCase().includes(search));
+                })
+                .map(cs => (
+                  <div key={cs.id} className="composite-service-option" onClick={() => handleApplyCompositeService(cs)}>
+                    <div className="composite-service-header">
+                      <h4>{cs.name}</h4>
+                      {cs.category && <span className="composite-service-category">{cs.category}</span>}
+                    </div>
+                    {cs.description && <p className="composite-service-description">{cs.description}</p>}
+                    <div className="composite-service-details">
+                      <span>📋 {cs.services?.length || 0} подуслуг</span>
+                      {cs.materials && cs.materials.length > 0 && (
+                        <span>📦 {cs.materials.length} материалов</span>
+                      )}
+                    </div>
+                    <button type="button" className="btn btn-primary btn-small" style={{ marginTop: '10px' }}>
+                      ➕ Применить
+                    </button>
+                  </div>
+                ))}
+              
+              {compositeServices.filter(cs => {
+                const search = compositeServiceSearch.toLowerCase();
+                return cs.name.toLowerCase().includes(search) ||
+                       (cs.category && cs.category.toLowerCase().includes(search));
+              }).length === 0 && (
+                <div className="empty-state">
+                  <p>{compositeServiceSearch ? 'Готовые услуги не найдены' : 'Нет готовых составных услуг'}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Контент услуг */}
         {activeSection === 'services' && (

@@ -45,10 +45,17 @@ export const DoctorsPage = ({ onNavigate, currentUser }) => {
     }
     if (window.confirm('Удалить врача? Все записи к этому врачу останутся, но имя врача не будет отображаться.')) {
       try {
-        await axios.delete(`${API_URL}/doctors/${id}`);
+        const response = await axios.delete(`${API_URL}/doctors/${id}`);
+        if (response.data.appointmentsUpdated > 0) {
+          alert(`Врач удален. Обновлено записей: ${response.data.appointmentsUpdated}`);
+        } else {
+          alert('Врач успешно удален');
+        }
         loadDoctors();
       } catch (error) {
-        alert('Ошибка удаления врача');
+        console.error('Ошибка удаления врача:', error);
+        const errorMessage = error.response?.data?.error || error.message || 'Неизвестная ошибка';
+        alert(`Ошибка удаления врача: ${errorMessage}`);
       }
     }
   };
