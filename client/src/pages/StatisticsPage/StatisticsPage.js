@@ -32,10 +32,12 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
     totals: { receipts: 0, usage: 0, writeoffs: 0 }
   });
   const [dateFilter, setDateFilter] = useState({
-    type: 'all', // 'all', 'day', 'month'
+    type: 'all', // 'all', 'day', 'month', 'range'
     date: new Date().toISOString().split('T')[0],
     month: new Date().getMonth() + 1,
     year: new Date().getFullYear(),
+    startDate: '',
+    endDate: '',
     doctor_id: '' // Фильтр по врачу
   });
   const [reportType, setReportType] = useState('receipts'); // 'receipts' или 'writeoffs'
@@ -149,6 +151,84 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
     } catch (error) {
       console.error('Ошибка выгрузки отчета:', error);
       alert('Ошибка выгрузки отчета');
+    }
+  };
+
+  const handleExportAppointments = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (dateFilter.type === 'day') {
+        params.append('date', dateFilter.date);
+      } else if (dateFilter.type === 'month') {
+        params.append('month', dateFilter.month);
+        params.append('year', dateFilter.year);
+      } else if (dateFilter.type === 'range') {
+        if (dateFilter.startDate) {
+          params.append('startDate', dateFilter.startDate);
+        }
+        if (dateFilter.endDate) {
+          params.append('endDate', dateFilter.endDate);
+        }
+      }
+      
+      const response = await axios.get(`${API_URL}/statistics/appointments/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      }));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Формируем имя файла
+      let fileName = 'отчет_записи';
+      if (dateFilter.type === 'day') {
+        fileName += `_${dateFilter.date}`;
+      } else if (dateFilter.type === 'range') {
+        if (dateFilter.startDate && dateFilter.endDate) {
+          fileName += `_${dateFilter.startDate}_${dateFilter.endDate}`;
+        }
+      } else if (dateFilter.type === 'month') {
+        fileName += `_${dateFilter.year}-${String(dateFilter.month).padStart(2, '0')}`;
+      } else {
+        fileName += '_все_время';
+      }
+      fileName += '.xlsx';
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Ошибка выгрузки записей:', error);
+      alert(`Ошибка выгрузки записей: ${error.response?.data?.error || error.message}`);
+    }
+  };
+
+  const handleExportClients = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/statistics/clients/export`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      }));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const fileName = `база_клиентов_${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Ошибка выгрузки клиентов:', error);
+      alert(`Ошибка выгрузки клиентов: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -629,6 +709,101 @@ const StatisticsPage = ({ onNavigate, currentUser }) => {
 
               <button className="btn btn-primary btn-large" onClick={handleExportExcel}>
                 📥 Выгрузить отчет в Excel
+              </button>
+            </div>
+
+            {/* Экспорт записей */}
+            <div className="export-section">
+            <h3>📋 Экспорт записей</h3>
+            <p>Выгрузить все записи за выбранный период с информацией о приеме, враче, клиенте и услугах</p>
+            <div className="export-controls">
+              <div className="date-filters">
+                <div className="filter-group">
+                  <label>Период:</label>
+                  <select
+                    value={dateFilter.type}
+                    onChange={(e) => setDateFilter({ ...dateFilter, type: e.target.value })}
+                  >
+                    <option value="all">Все время</option>
+                    <option value="day">День</option>
+                    <option value="month">Месяц</option>
+                    <option value="range">Диапазон</option>
+                  </select>
+                </div>
+
+                {dateFilter.type === 'day' && (
+                  <div className="filter-group">
+                    <label>Дата:</label>
+                    <input
+                      type="date"
+                      value={dateFilter.date}
+                      onChange={(e) => setDateFilter({ ...dateFilter, date: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                {dateFilter.type === 'range' && (
+                  <>
+                    <div className="filter-group">
+                      <label>С:</label>
+                      <input
+                        type="date"
+                        value={dateFilter.startDate || ''}
+                        onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="filter-group">
+                      <label>По:</label>
+                      <input
+                        type="date"
+                        value={dateFilter.endDate || ''}
+                        onChange={(e) => setDateFilter({ ...dateFilter, endDate: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {dateFilter.type === 'month' && (
+                  <>
+                    <div className="filter-group">
+                      <label>Месяц:</label>
+                      <select
+                        value={dateFilter.month}
+                        onChange={(e) => setDateFilter({ ...dateFilter, month: parseInt(e.target.value) })}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                          <option key={m} value={m}>
+                            {new Date(2000, m - 1).toLocaleString('ru-RU', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="filter-group">
+                      <label>Год:</label>
+                      <input
+                        type="number"
+                        min="2020"
+                        max="2100"
+                        value={dateFilter.year}
+                        onChange={(e) => setDateFilter({ ...dateFilter, year: parseInt(e.target.value) })}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <button className="btn btn-primary" onClick={handleExportAppointments}>
+                📥 Выгрузить записи в Excel
+              </button>
+            </div>
+            </div>
+
+            {/* Экспорт клиентов */}
+            <div className="export-section">
+              <h3>👥 Экспорт базы клиентов</h3>
+              <p>Выгрузить всю базу клиентов с полной информацией</p>
+              <button className="btn btn-primary" onClick={handleExportClients}>
+                📥 Выгрузить базу клиентов в Excel
               </button>
             </div>
           </div>

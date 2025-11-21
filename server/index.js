@@ -243,14 +243,60 @@ app.put('/api/doctors/:id', async (req, res) => {
 });
 
 // Удалить врача
+// ВАЖНО: Записи (appointments) НЕ удаляются, только обнуляется doctor_id
 app.delete('/api/doctors/:id', async (req, res) => {
   try {
+    const doctorId = req.params.id;
+    
+    // Проверяем, есть ли записи у этого врача
+    const appointments = await db.all(
+      usePostgres 
+        ? 'SELECT COUNT(*) as count FROM appointments WHERE doctor_id = $1'
+        : 'SELECT COUNT(*) as count FROM appointments WHERE doctor_id = ?',
+      [doctorId]
+    );
+    
+    const appointmentCount = appointments[0]?.count || 0;
+    
+    // ВАЖНО: Записи НЕ удаляем, только обнуляем doctor_id, чтобы записи остались в базе
+    if (appointmentCount > 0) {
+      await db.run(
+        usePostgres
+          ? 'UPDATE appointments SET doctor_id = NULL WHERE doctor_id = $1'
+          : 'UPDATE appointments SET doctor_id = NULL WHERE doctor_id = ?',
+        [doctorId]
+      );
+      console.log(`✅ Обнулен doctor_id для ${appointmentCount} записей (записи сохранены)`);
+    }
+    
+    // Также обнуляем doctor_id в users, если есть связанный пользователь
+    await db.run(
+      usePostgres
+        ? 'UPDATE users SET doctor_id = NULL WHERE doctor_id = $1'
+        : 'UPDATE users SET doctor_id = NULL WHERE doctor_id = ?',
+      [doctorId]
+    );
+    
+    // Теперь удаляем только самого врача (записи уже обработаны выше)
     const result = await db.run(
       usePostgres ? 'DELETE FROM doctors WHERE id = $1' : 'DELETE FROM doctors WHERE id = ?',
-      [req.params.id]
+      [doctorId]
     );
-    res.json({ message: 'Врач удален', changes: result.changes });
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Врач не найден' });
+    }
+    
+    console.log(`✅ Врач #${doctorId} удален. Записей обновлено: ${appointmentCount} (записи сохранены)`);
+    
+    res.json({ 
+      message: 'Врач удален', 
+      changes: result.changes,
+      appointmentsUpdated: appointmentCount,
+      appointmentsPreserved: true // Явно указываем, что записи сохранены
+    });
   } catch (error) {
+    console.error('Ошибка удаления врача:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -428,6 +474,263 @@ app.post('/api/materials/receipt', async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка прихода материала:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== COMPOSITE SERVICES ==========
+
+// Получить все составные услуги
+app.get('/api/composite-services', async (req, res) => {
+  try {
+    const compositeServices = await db.all(`
+      SELECT cs.*,
+        (SELECT COUNT(*) FROM composite_service_services WHERE composite_service_id = cs.id) as services_count,
+        (SELECT COUNT(*) FROM composite_service_materials WHERE composite_service_id = cs.id) as materials_count
+      FROM composite_services cs
+      ORDER BY cs.name
+    `);
+    
+    // Для каждой составной услуги получаем подуслуги и материалы
+    for (const cs of compositeServices) {
+      const services = await db.all(`
+        SELECT s.*, css.quantity, css.display_order
+        FROM composite_service_services css
+        JOIN services s ON css.service_id = s.id
+        WHERE css.composite_service_id = $1
+        ORDER BY css.display_order, s.name
+      `, [cs.id]);
+      
+      const materials = await db.all(`
+        SELECT m.*, csm.quantity, csm.display_order
+        FROM composite_service_materials csm
+        JOIN materials m ON csm.material_id = m.id
+        WHERE csm.composite_service_id = $1
+        ORDER BY csm.display_order, m.name
+      `, [cs.id]);
+      
+      cs.services = services;
+      cs.materials = materials;
+    }
+    
+    res.json(compositeServices);
+  } catch (error) {
+    console.error('Ошибка получения составных услуг:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить одну составную услугу
+app.get('/api/composite-services/:id', async (req, res) => {
+  try {
+    const compositeService = await db.get(
+      'SELECT * FROM composite_services WHERE id = $1',
+      [req.params.id]
+    );
+    
+    if (!compositeService) {
+      return res.status(404).json({ error: 'Составная услуга не найдена' });
+    }
+    
+    const services = await db.all(`
+      SELECT s.*, css.quantity, css.display_order
+      FROM composite_service_services css
+      JOIN services s ON css.service_id = s.id
+      WHERE css.composite_service_id = $1
+      ORDER BY css.display_order, s.name
+    `, [req.params.id]);
+    
+    const materials = await db.all(`
+      SELECT m.*, csm.quantity, csm.display_order
+      FROM composite_service_materials csm
+      JOIN materials m ON csm.material_id = m.id
+      WHERE csm.composite_service_id = $1
+      ORDER BY csm.display_order, m.name
+    `, [req.params.id]);
+    
+    compositeService.services = services;
+    compositeService.materials = materials;
+    
+    res.json(compositeService);
+  } catch (error) {
+    console.error('Ошибка получения составной услуги:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать составную услугу
+app.post('/api/composite-services', async (req, res) => {
+  const { name, description, category, services, materials, is_active } = req.body;
+  
+  try {
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Название обязательно' });
+    }
+    
+    if (!services || services.length === 0) {
+      return res.status(400).json({ error: 'Необходимо добавить хотя бы одну подуслугу' });
+    }
+    
+    // Создаем составную услугу
+    const result = await db.query(
+      'INSERT INTO composite_services (name, description, category, is_active) VALUES ($1, $2, $3, $4) RETURNING id',
+      [name.trim(), description || null, category || null, is_active !== false]
+    );
+    
+    const compositeServiceId = result[0].id;
+    
+    // Добавляем подуслуги
+    if (services && services.length > 0) {
+      for (let i = 0; i < services.length; i++) {
+        const service = services[i];
+        await db.run(
+          'INSERT INTO composite_service_services (composite_service_id, service_id, quantity, display_order) VALUES ($1, $2, $3, $4)',
+          [compositeServiceId, service.service_id, service.quantity || 1, i]
+        );
+      }
+    }
+    
+    // Добавляем материалы
+    if (materials && materials.length > 0) {
+      for (let i = 0; i < materials.length; i++) {
+        const material = materials[i];
+        await db.run(
+          'INSERT INTO composite_service_materials (composite_service_id, material_id, quantity, display_order) VALUES ($1, $2, $3, $4)',
+          [compositeServiceId, material.material_id, material.quantity || 1, i]
+        );
+      }
+    }
+    
+    // Получаем созданную услугу со всеми данными
+    const created = await db.get(
+      'SELECT * FROM composite_services WHERE id = $1',
+      [compositeServiceId]
+    );
+    
+    const createdServices = await db.all(`
+      SELECT s.*, css.quantity, css.display_order
+      FROM composite_service_services css
+      JOIN services s ON css.service_id = s.id
+      WHERE css.composite_service_id = $1
+      ORDER BY css.display_order
+    `, [compositeServiceId]);
+    
+    const createdMaterials = await db.all(`
+      SELECT m.*, csm.quantity, csm.display_order
+      FROM composite_service_materials csm
+      JOIN materials m ON csm.material_id = m.id
+      WHERE csm.composite_service_id = $1
+      ORDER BY csm.display_order
+    `, [compositeServiceId]);
+    
+    created.services = createdServices;
+    created.materials = createdMaterials;
+    
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('Ошибка создания составной услуги:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить составную услугу
+app.put('/api/composite-services/:id', async (req, res) => {
+  const { name, description, category, services, materials, is_active } = req.body;
+  
+  try {
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Название обязательно' });
+    }
+    
+    if (!services || services.length === 0) {
+      return res.status(400).json({ error: 'Необходимо добавить хотя бы одну подуслугу' });
+    }
+    
+    // Обновляем основную информацию
+    await db.run(
+      'UPDATE composite_services SET name = $1, description = $2, category = $3, is_active = $4 WHERE id = $5',
+      [name.trim(), description || null, category || null, is_active !== false, req.params.id]
+    );
+    
+    // Удаляем старые связи
+    await db.run(
+      'DELETE FROM composite_service_services WHERE composite_service_id = $1',
+      [req.params.id]
+    );
+    await db.run(
+      'DELETE FROM composite_service_materials WHERE composite_service_id = $1',
+      [req.params.id]
+    );
+    
+    // Добавляем новые подуслуги
+    if (services && services.length > 0) {
+      for (let i = 0; i < services.length; i++) {
+        const service = services[i];
+        await db.run(
+          'INSERT INTO composite_service_services (composite_service_id, service_id, quantity, display_order) VALUES ($1, $2, $3, $4)',
+          [req.params.id, service.service_id, service.quantity || 1, i]
+        );
+      }
+    }
+    
+    // Добавляем новые материалы
+    if (materials && materials.length > 0) {
+      for (let i = 0; i < materials.length; i++) {
+        const material = materials[i];
+        await db.run(
+          'INSERT INTO composite_service_materials (composite_service_id, material_id, quantity, display_order) VALUES ($1, $2, $3, $4)',
+          [req.params.id, material.material_id, material.quantity || 1, i]
+        );
+      }
+    }
+    
+    // Получаем обновленную услугу
+    const updated = await db.get(
+      'SELECT * FROM composite_services WHERE id = $1',
+      [req.params.id]
+    );
+    
+    const updatedServices = await db.all(`
+      SELECT s.*, css.quantity, css.display_order
+      FROM composite_service_services css
+      JOIN services s ON css.service_id = s.id
+      WHERE css.composite_service_id = $1
+      ORDER BY css.display_order
+    `, [req.params.id]);
+    
+    const updatedMaterials = await db.all(`
+      SELECT m.*, csm.quantity, csm.display_order
+      FROM composite_service_materials csm
+      JOIN materials m ON csm.material_id = m.id
+      WHERE csm.composite_service_id = $1
+      ORDER BY csm.display_order
+    `, [req.params.id]);
+    
+    updated.services = updatedServices;
+    updated.materials = updatedMaterials;
+    
+    res.json(updated);
+  } catch (error) {
+    console.error('Ошибка обновления составной услуги:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить составную услугу
+app.delete('/api/composite-services/:id', async (req, res) => {
+  try {
+    const result = await db.run(
+      'DELETE FROM composite_services WHERE id = $1',
+      [req.params.id]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Составная услуга не найдена' });
+    }
+    
+    res.json({ message: 'Составная услуга удалена', changes: result.changes });
+  } catch (error) {
+    console.error('Ошибка удаления составной услуги:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1499,6 +1802,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d."firstName", d2."firstName") as doctor_firstName,
               COALESCE(d."lastName", d2."lastName") as doctor_lastName,
               COALESCE(d."middleName", d2."middleName") as doctor_middleName
@@ -1518,6 +1822,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d.firstName, d2.firstName) as doctor_firstName,
               COALESCE(d.lastName, d2.lastName) as doctor_lastName,
               COALESCE(d.middleName, d2.middleName) as doctor_middleName
@@ -1540,6 +1845,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d."firstName", d2."firstName") as doctor_firstName,
               COALESCE(d."lastName", d2."lastName") as doctor_lastName,
               COALESCE(d."middleName", d2."middleName") as doctor_middleName
@@ -1560,6 +1866,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d.firstName, d2.firstName) as doctor_firstName,
               COALESCE(d.lastName, d2.lastName) as doctor_lastName,
               COALESCE(d.middleName, d2.middleName) as doctor_middleName
@@ -1583,6 +1890,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d."firstName", d2."firstName") as doctor_firstName,
               COALESCE(d."lastName", d2."lastName") as doctor_lastName,
               COALESCE(d."middleName", d2."middleName") as doctor_middleName
@@ -1601,6 +1909,7 @@ app.get('/api/statistics/materials/export', async (req, res) => {
               mt.price,
               (mt.quantity * mt.price) as total,
               mt.notes,
+              mt.appointment_id,
               COALESCE(d.firstName, d2.firstName) as doctor_firstName,
               COALESCE(d.lastName, d2.lastName) as doctor_lastName,
               COALESCE(d.middleName, d2.middleName) as doctor_middleName
@@ -1616,36 +1925,94 @@ app.get('/api/statistics/materials/export', async (req, res) => {
     
     const data = await db.all(query, params);
     
-    // Формируем данные для Excel
-    const excelData = data.map((item, idx) => {
-      const row = {
-        '№': idx + 1,
-        'Дата': new Date(item.date).toLocaleDateString('ru-RU'),
-        'Материал': item.material_name,
-        'Единица измерения': item.unit || '-',
-        'Количество': item.quantity,
-        'Цена за единицу': item.price ? item.price.toFixed(2) : '-',
-        'Сумма': item.total ? item.total.toFixed(2) : '-',
-        'Примечание': item.notes || '-'
-      };
+    // Группируем материалы по названию и единице измерения, суммируя количество и стоимость
+    const groupedMaterials = {};
+    
+    data.forEach(item => {
+      const key = `${item.material_name}_${item.unit || ''}`;
       
-      // Добавляем колонку "Врач" для списаний (writeoffs)
-      if (type === 'writeoffs' || type === 'usage') {
-        if (item.doctor_lastName) {
-          row['Врач'] = `${item.doctor_lastName} ${item.doctor_firstName || ''} ${item.doctor_middleName || ''}`.trim();
-        } else {
-          row['Врач'] = item.appointment_id ? 'Автоматическое списание' : 'Ручное списание';
+      if (!groupedMaterials[key]) {
+        groupedMaterials[key] = {
+          material_name: item.material_name,
+          unit: item.unit || '-',
+          totalQuantity: 0,
+          totalAmount: 0,
+          priceSum: 0,
+          priceCount: 0,
+          dates: new Set(),
+          notes: []
+        };
+      }
+      
+      const group = groupedMaterials[key];
+      group.totalQuantity += parseFloat(item.quantity) || 0;
+      group.totalAmount += parseFloat(item.total) || 0;
+      
+      if (item.price) {
+        group.priceSum += parseFloat(item.price);
+        group.priceCount += 1;
+      }
+      
+      // Сохраняем даты для отображения диапазона
+      if (item.date) {
+        group.dates.add(new Date(item.date).toLocaleDateString('ru-RU'));
+      }
+      
+      // Сохраняем примечания только для ручных списаний (не автоматических)
+      // Автоматические списания имеют appointment_id или содержат "Автоматическое списание"
+      const isAutomatic = item.appointment_id || 
+                         (item.notes && item.notes.includes('Автоматическое списание'));
+      
+      if (!isAutomatic && item.notes && item.notes.trim() && !group.notes.includes(item.notes.trim())) {
+        if (group.notes.length < 3) {
+          group.notes.push(item.notes.trim());
         }
       }
+    });
+    
+    // Формируем данные для Excel из сгруппированных материалов
+    const excelData = Object.values(groupedMaterials).map((group, idx) => {
+      // Вычисляем среднюю цену за единицу
+      const avgPrice = group.priceCount > 0 ? (group.totalAmount / group.totalQuantity) : null;
+      
+      // Формируем строку с датами (диапазон или список)
+      let dateRange = '';
+      const datesArray = Array.from(group.dates).sort();
+      if (datesArray.length === 1) {
+        dateRange = datesArray[0];
+      } else if (datesArray.length <= 3) {
+        dateRange = datesArray.join(', ');
+      } else {
+        dateRange = `${datesArray[0]} - ${datesArray[datesArray.length - 1]}`;
+      }
+      
+      const row = {
+        '№': idx + 1,
+        'Период': dateRange || '-',
+        'Материал': group.material_name,
+        'Единица измерения': group.unit,
+        'Количество': group.totalQuantity.toFixed(2),
+        'Цена за единицу': avgPrice ? avgPrice.toFixed(2) : '-',
+        'Сумма': group.totalAmount.toFixed(2),
+        'Примечание': group.notes.length > 0 ? group.notes.join('; ') : '-'
+      };
       
       return row;
     });
     
+    // Сортируем по названию материала
+    excelData.sort((a, b) => a['Материал'].localeCompare(b['Материал']));
+    
+    // Обновляем номера после сортировки
+    excelData.forEach((row, idx) => {
+      row['№'] = idx + 1;
+    });
+    
     // Добавляем итоговую строку
-    const total = data.reduce((sum, item) => sum + (item.total || 0), 0);
+    const total = Object.values(groupedMaterials).reduce((sum, group) => sum + group.totalAmount, 0);
     const totalRow = {
       '№': '',
-      'Дата': '',
+      'Период': '',
       'Материал': '',
       'Единица измерения': '',
       'Количество': '',
@@ -1653,9 +2020,6 @@ app.get('/api/statistics/materials/export', async (req, res) => {
       'Сумма': total.toFixed(2),
       'Примечание': ''
     };
-    if (type === 'writeoffs' || type === 'usage') {
-      totalRow['Врач'] = '';
-    }
     excelData.push(totalRow);
     
     // Создаем книгу Excel
@@ -1684,6 +2048,496 @@ app.get('/api/statistics/materials/export', async (req, res) => {
     res.send(excelBuffer);
   } catch (error) {
     console.error('Ошибка выгрузки отчета:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Выгрузка записей (appointments) в Excel
+app.get('/api/statistics/appointments/export', async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    let { date, month, year, startDate, endDate } = req.query;
+    
+    // Нормализуем входные даты
+    if (date) {
+      date = normalizeDateForSQL(date);
+    }
+    if (month) {
+      month = parseInt(month);
+    }
+    if (year) {
+      year = parseInt(year);
+    }
+    if (startDate) {
+      startDate = normalizeDateForSQL(startDate);
+    }
+    if (endDate) {
+      endDate = normalizeDateForSQL(endDate);
+    }
+    
+    // Формируем запрос в зависимости от фильтров
+    let query = '';
+    let params = [];
+    
+    if (date) {
+      // За один день
+      query = usePostgres
+        ? `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c."lastName", '') as client_lastName,
+            COALESCE(c."firstName", '') as client_firstName,
+            COALESCE(c."middleName", '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d."lastName", '') as doctor_lastName,
+            COALESCE(d."firstName", '') as doctor_firstName,
+            COALESCE(d."middleName", '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE DATE(a.appointment_date::timestamp) = $1::date
+          ORDER BY a.appointment_date`
+        : `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c.lastName, '') as client_lastName,
+            COALESCE(c.firstName, '') as client_firstName,
+            COALESCE(c.middleName, '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d.lastName, '') as doctor_lastName,
+            COALESCE(d.firstName, '') as doctor_firstName,
+            COALESCE(d.middleName, '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE DATE(a.appointment_date) = ?
+          ORDER BY a.appointment_date`;
+      params.push(date);
+    } else if (startDate && endDate) {
+      // За период
+      query = usePostgres
+        ? `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c."lastName", '') as client_lastName,
+            COALESCE(c."firstName", '') as client_firstName,
+            COALESCE(c."middleName", '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d."lastName", '') as doctor_lastName,
+            COALESCE(d."firstName", '') as doctor_firstName,
+            COALESCE(d."middleName", '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE DATE(a.appointment_date::timestamp) BETWEEN $1::date AND $2::date
+          ORDER BY a.appointment_date`
+          : `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c.lastName, '') as client_lastName,
+            COALESCE(c.firstName, '') as client_firstName,
+            COALESCE(c.middleName, '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d.lastName, '') as doctor_lastName,
+            COALESCE(d.firstName, '') as doctor_firstName,
+            COALESCE(d.middleName, '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE DATE(a.appointment_date) BETWEEN ? AND ?
+          ORDER BY a.appointment_date`;
+      params.push(startDate, endDate);
+    } else if (month && year) {
+      // За месяц
+      query = usePostgres
+        ? `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c."lastName", '') as client_lastName,
+            COALESCE(c."firstName", '') as client_firstName,
+            COALESCE(c."middleName", '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d."lastName", '') as doctor_lastName,
+            COALESCE(d."firstName", '') as doctor_firstName,
+            COALESCE(d."middleName", '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE EXTRACT(MONTH FROM a.appointment_date::timestamp) = $1 
+            AND EXTRACT(YEAR FROM a.appointment_date::timestamp) = $2
+          ORDER BY a.appointment_date`
+          : `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c.lastName, '') as client_lastName,
+            COALESCE(c.firstName, '') as client_firstName,
+            COALESCE(c.middleName, '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d.lastName, '') as doctor_lastName,
+            COALESCE(d.firstName, '') as doctor_firstName,
+            COALESCE(d.middleName, '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE strftime('%m', a.appointment_date) = ? 
+            AND strftime('%Y', a.appointment_date) = ?
+          ORDER BY a.appointment_date`;
+      params.push(month, year);
+    } else {
+      // За все время
+      query = usePostgres
+        ? `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c."lastName", '') as client_lastName,
+            COALESCE(c."firstName", '') as client_firstName,
+            COALESCE(c."middleName", '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d."lastName", '') as doctor_lastName,
+            COALESCE(d."firstName", '') as doctor_firstName,
+            COALESCE(d."middleName", '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          ORDER BY a.appointment_date`
+          : `SELECT 
+            a.id,
+            a.appointment_date,
+            a.client_id,
+            a.doctor_id,
+            COALESCE(c.lastName, '') as client_lastName,
+            COALESCE(c.firstName, '') as client_firstName,
+            COALESCE(c.middleName, '') as client_middleName,
+            COALESCE(c.phone, '') as client_phone,
+            COALESCE(d.lastName, '') as doctor_lastName,
+            COALESCE(d.firstName, '') as doctor_firstName,
+            COALESCE(d.middleName, '') as doctor_middleName,
+            a.status,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid
+          FROM appointments a
+          LEFT JOIN clients c ON a.client_id = c.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          ORDER BY a.appointment_date`;
+    }
+    
+    const appointments = await db.all(query, params);
+    
+    console.log(`📊 Найдено записей для экспорта: ${appointments.length}`);
+    
+    // Отладочное логирование первых записей
+    if (appointments.length > 0) {
+      const firstApt = appointments[0];
+      console.log('🔍 Первая запись из базы:');
+      console.log('   ID:', firstApt.id);
+      console.log('   client_id:', firstApt.client_id);
+      console.log('   doctor_id:', firstApt.doctor_id);
+      console.log('   Все ключи:', Object.keys(firstApt));
+      console.log('   Поля клиента:', {
+        client_lastName: firstApt.client_lastName,
+        client_firstName: firstApt.client_firstName,
+        client_middleName: firstApt.client_middleName,
+        client_phone: firstApt.client_phone
+      });
+      console.log('   Поля врача:', {
+        doctor_lastName: firstApt.doctor_lastName,
+        doctor_firstName: firstApt.doctor_firstName,
+        doctor_middleName: firstApt.doctor_middleName
+      });
+      
+      // Проверяем, есть ли данные в связанных таблицах
+      if (firstApt.client_id) {
+        const clientCheck = await db.get('SELECT "lastName", "firstName", "middleName" FROM clients WHERE id = $1', [firstApt.client_id]);
+        console.log('   Проверка клиента в БД:', clientCheck);
+      }
+      if (firstApt.doctor_id) {
+        const doctorCheck = await db.get('SELECT "lastName", "firstName", "middleName" FROM doctors WHERE id = $1', [firstApt.doctor_id]);
+        console.log('   Проверка врача в БД:', doctorCheck);
+      }
+    }
+    
+    // Для каждой записи получаем услуги
+    const excelData = [];
+    
+    for (const apt of appointments) {
+      // Получаем услуги для этой записи
+      const services = await db.all(
+        usePostgres
+          ? `SELECT s.name, s.category, as2.quantity
+             FROM appointment_services as2
+             JOIN services s ON as2.service_id = s.id
+             WHERE as2.appointment_id = $1`
+          : `SELECT s.name, s.category, as2.quantity
+             FROM appointment_services as2
+             JOIN services s ON as2.service_id = s.id
+             WHERE as2.appointment_id = ?`,
+        [apt.id]
+      );
+      
+      // Формируем строку с услугами
+      const servicesList = services.map(s => {
+        const qty = s.quantity > 1 ? ` (x${s.quantity})` : '';
+        return s.name + qty;
+      }).join('; ') || '-';
+      
+      // Парсим дату и время
+      let appointmentDate = '';
+      let appointmentTime = '';
+      if (apt.appointment_date) {
+        const dateStr = apt.appointment_date.toString();
+        const datePart = dateStr.split(' ')[0] || dateStr.split('T')[0];
+        const timePart = dateStr.includes(' ') ? dateStr.split(' ')[1] : (dateStr.includes('T') ? dateStr.split('T')[1] : '');
+        appointmentDate = datePart;
+        appointmentTime = timePart ? timePart.substring(0, 5) : '';
+      }
+      
+      // Формируем ФИО клиента - проверяем разные варианты имен полей (PostgreSQL может возвращать в разном регистре)
+      const clientParts = [];
+      // Проверяем все возможные варианты имен полей
+      const clientLastName = apt.client_lastName || apt.client_lastname || apt['client_lastName'] || apt['client_lastname'] || '';
+      const clientFirstName = apt.client_firstName || apt.client_firstname || apt['client_firstName'] || apt['client_firstname'] || '';
+      const clientMiddleName = apt.client_middleName || apt.client_middlename || apt['client_middleName'] || apt['client_middlename'] || '';
+      
+      // Убираем пустые строки и пробелы
+      if (clientLastName && String(clientLastName).trim() && String(clientLastName).trim() !== '') {
+        clientParts.push(String(clientLastName).trim());
+      }
+      if (clientFirstName && String(clientFirstName).trim() && String(clientFirstName).trim() !== '') {
+        clientParts.push(String(clientFirstName).trim());
+      }
+      if (clientMiddleName && String(clientMiddleName).trim() && String(clientMiddleName).trim() !== '') {
+        clientParts.push(String(clientMiddleName).trim());
+      }
+      const clientName = clientParts.length > 0 ? clientParts.join(' ') : '-';
+      
+      // Формируем ФИО врача - проверяем разные варианты имен полей
+      const doctorParts = [];
+      const doctorLastName = apt.doctor_lastName || apt.doctor_lastname || apt['doctor_lastName'] || apt['doctor_lastname'] || '';
+      const doctorFirstName = apt.doctor_firstName || apt.doctor_firstname || apt['doctor_firstName'] || apt['doctor_firstname'] || '';
+      const doctorMiddleName = apt.doctor_middleName || apt.doctor_middlename || apt['doctor_middleName'] || apt['doctor_middlename'] || '';
+      
+      if (doctorLastName && String(doctorLastName).trim() && String(doctorLastName).trim() !== '') {
+        doctorParts.push(String(doctorLastName).trim());
+      }
+      if (doctorFirstName && String(doctorFirstName).trim() && String(doctorFirstName).trim() !== '') {
+        doctorParts.push(String(doctorFirstName).trim());
+      }
+      if (doctorMiddleName && String(doctorMiddleName).trim() && String(doctorMiddleName).trim() !== '') {
+        doctorParts.push(String(doctorMiddleName).trim());
+      }
+      const doctorName = doctorParts.length > 0 ? doctorParts.join(' ') : '-';
+      
+      // Отладочное логирование для первых нескольких записей
+      if (excelData.length < 3) {
+        console.log(`🔍 Запись #${apt.id}:`, {
+          client_id: apt.client_id,
+          doctor_id: apt.doctor_id,
+          client_lastName_raw: apt.client_lastName,
+          client_firstName_raw: apt.client_firstName,
+          client_middleName_raw: apt.client_middleName,
+          doctor_lastName_raw: apt.doctor_lastName,
+          doctor_firstName_raw: apt.doctor_firstName,
+          doctor_middleName_raw: apt.doctor_middleName,
+          clientName_result: clientName,
+          doctorName_result: doctorName,
+          allKeys: Object.keys(apt).filter(k => k.includes('client') || k.includes('doctor'))
+        });
+      }
+      
+      const row = {
+        '№': apt.id,
+        'Дата': appointmentDate,
+        'Время': appointmentTime,
+        'Клиент': clientName,
+        'Телефон': apt.client_phone || apt['client_phone'] || '-',
+        'Врач': doctorName,
+        'Услуги': servicesList,
+        'Диагноз': apt.diagnosis || '-',
+        'Статус': apt.status || '-',
+        'Стоимость': apt.total_price ? parseFloat(apt.total_price).toFixed(2) : '0.00',
+        'Скидка': apt.discount_amount ? parseFloat(apt.discount_amount).toFixed(2) : '0.00',
+        'Оплачено': apt.paid ? 'Да' : 'Нет'
+      };
+      
+      // Логируем для отладки
+      if (clientName === '-' && apt.id) {
+        console.log(`⚠️ Запись #${apt.id}: клиент не найден (client_id: ${apt.client_id || 'null'}, поля: ${JSON.stringify({client_lastName, client_firstName, client_middleName})})`);
+      }
+      if (doctorName === '-' && apt.id) {
+        console.log(`⚠️ Запись #${apt.id}: врач не найден (doctor_id: ${apt.doctor_id || 'null'}, поля: ${JSON.stringify({doctor_lastName, doctor_firstName, doctor_middleName})})`);
+      }
+      
+      excelData.push(row);
+    }
+    
+    // Добавляем итоговую строку
+    const totalAmount = appointments.reduce((sum, apt) => sum + (parseFloat(apt.total_price) || 0), 0);
+    const totalDiscount = appointments.reduce((sum, apt) => sum + (parseFloat(apt.discount_amount) || 0), 0);
+    const totalRow = {
+      '№': '',
+      'Дата': '',
+      'Время': '',
+      'Клиент': '',
+      'Телефон': '',
+      'Врач': '',
+      'Услуги': '',
+      'Диагноз': '',
+      'Статус': '',
+      'Стоимость': totalAmount.toFixed(2),
+      'Скидка': totalDiscount.toFixed(2),
+      'Оплачено': `Всего записей: ${appointments.length}`
+    };
+    excelData.push(totalRow);
+    
+    // Создаем книгу Excel
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Записи');
+    
+    // Генерируем буфер
+    const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    // Определяем имя файла
+    let fileName = 'отчет_записи';
+    if (date) {
+      fileName += `_${date}`;
+    } else if (startDate && endDate) {
+      fileName += `_${startDate}_${endDate}`;
+    } else if (month && year) {
+      fileName += `_${year}-${String(month).padStart(2, '0')}`;
+    } else {
+      fileName += '_все_время';
+    }
+    fileName += '.xlsx';
+    
+    // Отправляем файл
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error('Ошибка выгрузки записей:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Выгрузка всех клиентов в Excel
+app.get('/api/statistics/clients/export', async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    
+    // Получаем всех клиентов
+    const clients = await db.all(`
+      SELECT 
+        id,
+        "lastName",
+        "firstName",
+        "middleName",
+        phone,
+        address,
+        email,
+        notes,
+        created_at
+      FROM clients
+      ORDER BY "lastName", "firstName", "middleName"
+    `);
+    
+    // Формируем данные для Excel
+    const excelData = clients.map((client, idx) => ({
+      '№': idx + 1,
+      'ID': client.id,
+      'Фамилия': client.lastName || '-',
+      'Имя': client.firstName || '-',
+      'Отчество': client.middleName || '-',
+      'Телефон': client.phone || '-',
+      'Адрес': client.address || '-',
+      'Email': client.email || '-',
+      'Примечания': client.notes || '-',
+      'Дата регистрации': client.created_at ? new Date(client.created_at).toLocaleDateString('ru-RU') : '-'
+    }));
+    
+    // Добавляем итоговую строку
+    const totalRow = {
+      '№': '',
+      'ID': '',
+      'Фамилия': '',
+      'Имя': '',
+      'Отчество': '',
+      'Телефон': '',
+      'Адрес': '',
+      'Email': '',
+      'Примечания': `Всего клиентов: ${clients.length}`,
+      'Дата регистрации': ''
+    };
+    excelData.push(totalRow);
+    
+    // Создаем книгу Excel
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Клиенты');
+    
+    // Генерируем буфер
+    const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    // Определяем имя файла
+    const fileName = `база_клиентов_${new Date().toISOString().split('T')[0]}.xlsx`;
+    
+    // Отправляем файл
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    console.error('Ошибка выгрузки клиентов:', error);
     res.status(500).json({ error: error.message });
   }
 });

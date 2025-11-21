@@ -7,6 +7,7 @@ import { getTodayDateString, getFullName } from './shared/lib';
 import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { StatisticsPage } from './pages/StatisticsPage';
+import CompositeServicesPage from './pages/CompositeServicesPage';
 import { LoginPage } from './pages/LoginPage';
 import { DoctorDashboard } from './pages/DoctorDashboard';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
@@ -1012,6 +1013,15 @@ function App() {
         {/* Статистика и отчеты - только для superadmin */}
         {currentView === 'statistics' && currentUser.role === 'superadmin' && (
           <StatisticsPage onNavigate={setCurrentView} currentUser={currentUser} />
+        )}
+        
+        {/* Конструктор составных услуг - только для superadmin */}
+        {currentView === 'composite-services' && currentUser.role === 'superadmin' && (
+          <CompositeServicesPage 
+            onNavigate={setCurrentView} 
+            services={services}
+            materials={materials}
+          />
         )}
 
         {/* Отчеты - только для superadmin (старая версия, можно удалить позже) */}

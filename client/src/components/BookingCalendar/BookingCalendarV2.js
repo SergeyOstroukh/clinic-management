@@ -432,45 +432,71 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return normalizedDate.startsWith(dateStr);
     });
 
-    // Проверяем, является ли день сегодняшним и все ли слоты прошли
+    // Проверяем, является ли день сегодняшним
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const checkDate = new Date(year, month - 1, day);
     checkDate.setHours(0, 0, 0, 0);
     const isToday = checkDate.getTime() === today.getTime();
+    const now = new Date();
+    now.setSeconds(0, 0);
+    now.setMilliseconds(0);
+
+    // Собираем все доступные (не прошедшие) слоты и проверяем, какие заняты
+    const availableSlots = [];
+    const bookedSlots = [];
     
-    if (isToday) {
-      // Проверяем, есть ли еще доступные слоты на сегодня
-      const allSlots = [];
-      schedule.forEach(s => {
-        const times = generateTimeSlots(s.start_time, s.end_time);
-        times.forEach(time => {
-          const [slotHour, slotMinute] = time.split(':').map(Number);
-          const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
-          const now = new Date();
-          now.setSeconds(0, 0);
-          now.setMilliseconds(0);
-          slotDateTime.setSeconds(0, 0);
-          slotDateTime.setMilliseconds(0);
-          if (slotDateTime.getTime() >= now.getTime()) {
-            allSlots.push(time);
-          }
-        });
-      });
-      
-      // Если все слоты прошли, возвращаем специальный статус
-      if (allSlots.length === 0) {
-        return 'past-today';
-      }
-    }
-
-    let totalSlots = 0;
     schedule.forEach(s => {
-      totalSlots += generateTimeSlots(s.start_time, s.end_time).length;
+      const times = generateTimeSlots(s.start_time, s.end_time);
+      times.forEach(time => {
+        const [slotHour, slotMinute] = time.split(':').map(Number);
+        const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+        slotDateTime.setSeconds(0, 0);
+        slotDateTime.setMilliseconds(0);
+        
+        // Для прошедших дней или прошедших слотов сегодня - не учитываем
+        const isPastSlot = isToday ? (slotDateTime.getTime() < now.getTime()) : (checkDate < today);
+        
+        if (!isPastSlot) {
+          // Проверяем, занят ли слот
+          const isBooked = dayAppointments.some(apt => {
+            const aptTime = parseTime(apt.appointment_date);
+            return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+          });
+          
+          if (isBooked) {
+            bookedSlots.push(time);
+          } else {
+            availableSlots.push(time);
+          }
+        }
+      });
     });
-
-    if (dayAppointments.length === 0) return 'available';
-    if (dayAppointments.length >= totalSlots) return 'fully-booked';
+    
+    // Если все доступные слоты прошли (для сегодняшнего дня)
+    if (isToday && availableSlots.length === 0 && bookedSlots.length === 0) {
+      return 'past-today';
+    }
+    
+    // Определяем статус на основе доступных слотов
+    const totalAvailableSlots = availableSlots.length + bookedSlots.length;
+    
+    if (totalAvailableSlots === 0) {
+      // Если нет доступных слотов (прошедший день)
+      return 'past-today';
+    }
+    
+    if (availableSlots.length === 0) {
+      // Все доступные слоты заняты
+      return 'fully-booked';
+    }
+    
+    if (bookedSlots.length === 0) {
+      // Нет занятых слотов
+      return 'available';
+    }
+    
+    // Есть и свободные, и занятые слоты
     return 'partially-booked';
   };
 

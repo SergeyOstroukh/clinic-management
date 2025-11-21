@@ -16,6 +16,7 @@ export const NavigationCards = ({
     { id: 'clients', icon: '👥', title: 'Все клиенты', gradient: 'clients', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'services', icon: '💼', title: 'Все услуги', gradient: 'services', allowedRoles: ['superadmin', 'administrator'] },
     { id: 'materials', icon: '📦', title: 'Все материалы', gradient: 'materials', allowedRoles: ['superadmin'] },
+    { id: 'composite-services', icon: '🔧', title: 'Конструктор услуг', gradient: 'services', allowedRoles: ['superadmin'] },
     { id: 'statistics', icon: '📊', title: 'Статистика и отчеты', gradient: 'reports', allowedRoles: ['superadmin'] },
     { id: 'reports', icon: '📊', title: 'Отчеты', gradient: 'reports', allowedRoles: ['superadmin'] },
   ];
