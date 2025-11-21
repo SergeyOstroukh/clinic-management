@@ -22,7 +22,8 @@ const ClientCard = ({
   doctors,
   currentUser,
   onClose,
-  onUpdate
+  onUpdate,
+  toast
 }) => {
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +154,7 @@ const ClientCard = ({
                 materials={materials}
                 onSuccess={handleCompleteVisit}
                 onCancel={() => setShowCompleteVisit(false)}
+                toast={toast}
               />
             ) : (
               <>

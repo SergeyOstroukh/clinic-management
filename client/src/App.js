@@ -14,6 +14,11 @@ import { DoctorDashboard } from './pages/DoctorDashboard';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
 import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
 import ChangePassword from './components/ChangePassword';
+import { ToastContainer } from './components/Toast';
+import { useToast } from './hooks/useToast';
+import PhoneInput from './components/PhoneInput';
+import Pagination from './components/Pagination';
+import TableFilters from './components/TableFilters';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -24,6 +29,9 @@ const getApiUrl = () => {
 const API_URL = getApiUrl();
 
 function App() {
+  // Toast уведомления
+  const toast = useToast();
+  
   // Авторизация
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -60,6 +68,18 @@ function App() {
   const [servicesPageSearch, setServicesPageSearch] = useState('');
   const [clientsPageSearch, setClientsPageSearch] = useState('');
   const [materialsPageSearch, setMaterialsPageSearch] = useState('');
+  
+  // Пагинация для клиентов
+  const [clientsPage, setClientsPage] = useState(1);
+  const [clientsPerPage, setClientsPerPage] = useState(10);
+  
+  // Пагинация для услуг
+  const [servicesPage, setServicesPage] = useState(1);
+  const [servicesPerPage, setServicesPerPage] = useState(10);
+  
+  // Пагинация для материалов
+  const [materialsPage, setMaterialsPage] = useState(1);
+  const [materialsPerPage, setMaterialsPerPage] = useState(10);
   
   // Фильтр по дате
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
@@ -224,7 +244,7 @@ function App() {
         apt.id === appointmentId ? { ...apt, called_today: newStatus } : apt
       ));
     } catch (error) {
-      alert('Ошибка обновления статуса звонка');
+      toast.error('Ошибка обновления статуса звонка');
     }
   };
 
@@ -241,7 +261,7 @@ function App() {
         window.dispatchEvent(new Event('appointmentCreated'));
       }
     } catch (error) {
-      alert('Ошибка обновления статуса');
+      toast.error('Ошибка обновления статуса');
     }
   };
 
@@ -261,10 +281,10 @@ function App() {
       // Перезагружаем данные для обновления истории клиента
       loadData();
       
-      alert('✅ Запись отменена');
+      toast.success('✅ Запись отменена');
     } catch (error) {
       console.error('Ошибка отмены записи:', error);
-      alert(`❌ ${error.response?.data?.error || error.message}`);
+      toast.error(`${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -330,10 +350,10 @@ function App() {
       const updatedClients = clients.filter(c => c.id !== clientId);
       setClients(updatedClients);
       
-      alert('✅ Клиент успешно удален');
+      toast.success('✅ Клиент успешно удален');
     } catch (error) {
       console.error('Ошибка удаления клиента:', error);
-      alert(error.response?.data?.error || 'Ошибка удаления клиента');
+      toast.error(error.response?.data?.error || 'Ошибка удаления клиента');
     }
   };
 
@@ -348,7 +368,7 @@ function App() {
           ...clientForm,
           currentUser: currentUser
         });
-        alert('✅ Клиент успешно обновлен');
+        toast.success('✅ Клиент успешно обновлен');
       } else {
         // Создание нового клиента
         const response = await axios.post(`${API_URL}/clients`, clientForm);
@@ -361,6 +381,8 @@ function App() {
           // Используем данные из формы для отображения
           setClientSearchQuery(getFullName(clientForm.lastName, clientForm.firstName, clientForm.middleName));
         }
+        
+        toast.success('✅ Клиент успешно создан');
       }
       
       // Обновляем данные
@@ -373,7 +395,7 @@ function App() {
     } catch (error) {
       console.error('Ошибка сохранения клиента:', error);
       console.error('Ответ сервера:', error.response?.data);
-      alert(`Ошибка сохранения клиента: ${error.response?.data?.error || error.message}`);
+      toast.error(`Ошибка сохранения клиента: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -382,15 +404,15 @@ function App() {
     e.preventDefault();
     
     if (!appointmentForm.client_id) {
-      alert('Пожалуйста, выберите клиента');
+      toast.warning('Пожалуйста, выберите клиента');
       return;
     }
     if (!appointmentForm.doctor_id) {
-      alert('Пожалуйста, выберите врача');
+      toast.warning('Пожалуйста, выберите врача');
       return;
     }
     if (appointmentForm.services.length === 0) {
-      alert('Пожалуйста, выберите хотя бы одну услугу');
+      toast.warning('Пожалуйста, выберите хотя бы одну услугу');
       return;
     }
     
@@ -418,7 +440,7 @@ function App() {
       // Отправляем событие для обновления календаря
       window.dispatchEvent(new Event('appointmentCreated'));
       
-      alert('✅ Запись успешно создана!');
+      toast.success('✅ Запись успешно создана!');
     } catch (error) {
       console.error('Ошибка создания записи:', error);
       
@@ -430,7 +452,7 @@ function App() {
       // Отправляем событие для обновления календаря (чтобы обновились слоты)
       window.dispatchEvent(new Event('appointmentCreated'));
       
-      alert(`❌ ${error.response?.data?.error || error.message}`);
+      toast.error(`Ошибка создания записи: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -454,15 +476,15 @@ function App() {
   const handleUpdateAppointment = async (e) => {
     e.preventDefault();
     if (!appointmentForm.client_id) {
-      alert('Пожалуйста, выберите клиента');
+      toast.warning('Пожалуйста, выберите клиента');
       return;
     }
     if (!appointmentForm.doctor_id) {
-      alert('Пожалуйста, выберите врача');
+      toast.warning('Пожалуйста, выберите врача');
       return;
     }
     if (appointmentForm.services.length === 0) {
-      alert('Пожалуйста, выберите хотя бы одну услугу');
+      toast.warning('Пожалуйста, выберите хотя бы одну услугу');
       return;
     }
     try {
@@ -476,11 +498,11 @@ function App() {
       setServiceSearchQuery('');
       setShowEditAppointmentModal(false);
       loadData();
-      alert('✅ Запись успешно обновлена');
+      toast.success('✅ Запись успешно обновлена');
     } catch (error) {
       console.error('Ошибка обновления записи:', error);
       console.error('Детали ошибки:', error.response?.data);
-      alert(`Ошибка обновления записи: ${error.response?.data?.error || error.message}`);
+      toast.error(`Ошибка обновления записи: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -498,19 +520,20 @@ function App() {
       setShowServiceModal(false);
       loadData();
     } catch (error) {
-      alert('Ошибка сохранения услуги');
+      toast.error('Ошибка сохранения услуги');
     }
   };
 
   const handleDeleteService = async (id) => {
-    if (window.confirm('Удалить услугу?')) {
+    toast.confirm('Удалить услугу?', async () => {
       try {
         await axios.delete(`${API_URL}/services/${id}`);
+        toast.success('✅ Услуга успешно удалена');
         loadData();
       } catch (error) {
-        alert('Ошибка удаления услуги');
+        toast.error('Ошибка удаления услуги');
       }
-    }
+    });
   };
 
   // CRUD для материалов
@@ -546,7 +569,7 @@ function App() {
       setShowMaterialModal(false);
       loadData();
     } catch (error) {
-      alert('Ошибка сохранения материала: ' + (error.response?.data?.error || error.message));
+      toast.error('Ошибка сохранения материала: ' + (error.response?.data?.error || error.message));
     }
   };
 
@@ -554,7 +577,7 @@ function App() {
     e.preventDefault();
     try {
       if (!receiptForm.material_id || !receiptForm.quantity || parseFloat(receiptForm.quantity) <= 0) {
-        alert('Заполните все обязательные поля');
+        toast.warning('Заполните все обязательные поля');
         return;
       }
 
@@ -566,24 +589,25 @@ function App() {
         receipt_date: receiptForm.receipt_date || new Date().toISOString().split('T')[0]
       });
 
-      alert('✅ Материал успешно пополнен');
+      toast.success('✅ Материал успешно пополнен');
       setReceiptForm({ material_id: '', quantity: '', price: '', notes: '', receipt_date: new Date().toISOString().split('T')[0] });
       setShowReceiptModal(false);
       loadData();
     } catch (error) {
-      alert('Ошибка пополнения материала: ' + (error.response?.data?.error || error.message));
+      toast.error('Ошибка пополнения материала: ' + (error.response?.data?.error || error.message));
     }
   };
 
   const handleDeleteMaterial = async (id) => {
-    if (window.confirm('Удалить материал?')) {
+    toast.confirm('Удалить материал?', async () => {
       try {
         await axios.delete(`${API_URL}/materials/${id}`);
+        toast.success('✅ Материал успешно удален');
         loadData();
       } catch (error) {
-        alert('Ошибка удаления материала');
+        toast.error('Ошибка удаления материала');
       }
-    }
+    });
   };
 
   // Фильтр клиентов для поиска
@@ -771,7 +795,10 @@ function App() {
                 type="text"
                 placeholder="🔍 Поиск по ФИО или телефону..."
                 value={clientsPageSearch}
-                onChange={(e) => setClientsPageSearch(e.target.value)}
+                onChange={(e) => {
+                  setClientsPageSearch(e.target.value);
+                  setClientsPage(1); // Сбрасываем на первую страницу при поиске
+                }}
                 className="page-search-input"
               />
               {clientsPageSearch && (
@@ -785,38 +812,42 @@ function App() {
             </div>
 
             <div className="clients-list-wide">
-              {clients.filter(c => {
-                const search = clientsPageSearch.toLowerCase();
-                const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
-                const phone = (c.phone || '').toLowerCase();
-                return fullName.includes(search) || phone.includes(search);
-              }).length === 0 ? (
-                <div className="empty-state">
-                  <p>{clientsPageSearch ? 'Клиенты не найдены' : 'Нет клиентов'}</p>
-                </div>
-              ) : (
-                <table className="wide-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '5%' }}>#</th>
-                      <th style={{ width: '25%' }}>ФИО</th>
-                      <th style={{ width: '15%' }}>Телефон</th>
-                      <th style={{ width: '25%' }}>Адрес</th>
-                      <th style={{ width: '15%' }}>Email</th>
-                      <th style={{ width: '15%' }}>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clients
-                      .filter(c => {
-                        const search = clientsPageSearch.toLowerCase();
-                        const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
-                        const phone = (c.phone || '').toLowerCase();
-                        return fullName.includes(search) || phone.includes(search);
-                      })
-                      .map((client, index) => (
-                        <tr key={client.id}>
-                          <td className="number-cell">{index + 1}</td>
+              {(() => {
+                // Фильтрация клиентов
+                const filteredClients = clients.filter(c => {
+                  const search = clientsPageSearch.toLowerCase();
+                  const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
+                  const phone = (c.phone || '').toLowerCase();
+                  return fullName.includes(search) || phone.includes(search);
+                });
+
+                // Пагинация
+                const totalPages = Math.ceil(filteredClients.length / clientsPerPage);
+                const startIndex = (clientsPage - 1) * clientsPerPage;
+                const endIndex = startIndex + clientsPerPage;
+                const paginatedClients = filteredClients.slice(startIndex, endIndex);
+
+                return filteredClients.length === 0 ? (
+                  <div className="empty-state">
+                    <p>{clientsPageSearch ? 'Клиенты не найдены' : 'Нет клиентов'}</p>
+                  </div>
+                ) : (
+                  <>
+                    <table className="wide-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '5%' }}>#</th>
+                          <th style={{ width: '25%' }}>ФИО</th>
+                          <th style={{ width: '15%' }}>Телефон</th>
+                          <th style={{ width: '25%' }}>Адрес</th>
+                          <th style={{ width: '15%' }}>Email</th>
+                          <th style={{ width: '15%' }}>Действия</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedClients.map((client, index) => (
+                          <tr key={client.id}>
+                            <td className="number-cell">{startIndex + index + 1}</td>
                           <td>
                             <span
                               className="client-name-link"
@@ -856,8 +887,6 @@ function App() {
                                       email: client.email || '',
                                       notes: client.notes || ''
                                     });
-                                    setEditingClient(null);
-                                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
                                     setShowClientModal(true);
                                   }}
                                   title="Редактировать клиента"
@@ -878,7 +907,26 @@ function App() {
                       ))}
                   </tbody>
                 </table>
-              )}
+                
+                {filteredClients.length > 0 && (
+                  <Pagination
+                    currentPage={clientsPage}
+                    totalPages={totalPages}
+                    totalItems={filteredClients.length}
+                    onPageChange={(page) => {
+                      setClientsPage(page);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    itemsPerPage={clientsPerPage}
+                    onItemsPerPageChange={(value) => {
+                      setClientsPerPage(value);
+                      setClientsPage(1);
+                    }}
+                  />
+                )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -906,7 +954,10 @@ function App() {
                 type="text"
                 placeholder="🔍 Поиск по разделу или названию услуги..."
                 value={servicesPageSearch}
-                onChange={(e) => setServicesPageSearch(e.target.value)}
+                onChange={(e) => {
+                  setServicesPageSearch(e.target.value);
+                  setServicesPage(1); // Сбрасываем на первую страницу при поиске
+                }}
                 className="page-search-input"
               />
               {servicesPageSearch && (
@@ -920,36 +971,41 @@ function App() {
             </div>
 
             <div className="services-list-wide">
-              {services.filter(s => {
-                const search = servicesPageSearch.toLowerCase();
-                return s.name.toLowerCase().includes(search) || 
-                       (s.category && s.category.toLowerCase().includes(search));
-              }).length === 0 ? (
-                <div className="empty-state">
-                  <p>{servicesPageSearch ? 'Услуги не найдены' : 'Нет услуг'}</p>
-                </div>
-              ) : (
-                <table className="wide-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '5%' }}>#</th>
-                      <th style={{ width: '20%' }}>Раздел</th>
-                      <th style={{ width: '30%' }}>Название услуги</th>
-                      <th style={{ width: '12%' }}>Цена (BYN)</th>
-                      <th style={{ width: '18%' }}>Описание</th>
-                      {currentUser.role === 'superadmin' && <th style={{ width: '15%' }}>Действия</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {services
-                      .filter(s => {
-                        const search = servicesPageSearch.toLowerCase();
-                        return s.name.toLowerCase().includes(search) || 
-                               (s.category && s.category.toLowerCase().includes(search));
-                      })
-                      .map((service, index) => (
-                        <tr key={service.id}>
-                          <td className="service-number">{index + 1}</td>
+              {(() => {
+                // Фильтрация услуг
+                const filteredServices = services.filter(s => {
+                  const search = servicesPageSearch.toLowerCase();
+                  return s.name.toLowerCase().includes(search) || 
+                         (s.category && s.category.toLowerCase().includes(search));
+                });
+
+                // Пагинация
+                const totalPages = Math.ceil(filteredServices.length / servicesPerPage);
+                const startIndex = (servicesPage - 1) * servicesPerPage;
+                const endIndex = startIndex + servicesPerPage;
+                const paginatedServices = filteredServices.slice(startIndex, endIndex);
+
+                return filteredServices.length === 0 ? (
+                  <div className="empty-state">
+                    <p>{servicesPageSearch ? 'Услуги не найдены' : 'Нет услуг'}</p>
+                  </div>
+                ) : (
+                  <>
+                    <table className="wide-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '5%' }}>#</th>
+                          <th style={{ width: '20%' }}>Раздел</th>
+                          <th style={{ width: '30%' }}>Название услуги</th>
+                          <th style={{ width: '12%' }}>Цена (BYN)</th>
+                          <th style={{ width: '18%' }}>Описание</th>
+                          {currentUser.role === 'superadmin' && <th style={{ width: '15%' }}>Действия</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedServices.map((service, index) => (
+                          <tr key={service.id}>
+                            <td className="service-number">{startIndex + index + 1}</td>
                           <td className="service-category">
                             {service.category ? (
                               <span className="category-badge">{service.category}</span>
@@ -981,10 +1037,29 @@ function App() {
                             </td>
                           )}
                         </tr>
-                      ))}
-                  </tbody>
-                </table>
-              )}
+                        ))}
+                      </tbody>
+                    </table>
+                    
+                    {filteredServices.length > 0 && (
+                      <Pagination
+                        currentPage={servicesPage}
+                        totalPages={totalPages}
+                        totalItems={filteredServices.length}
+                        onPageChange={(page) => {
+                          setServicesPage(page);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        itemsPerPage={servicesPerPage}
+                        onItemsPerPageChange={(value) => {
+                          setServicesPerPage(value);
+                          setServicesPage(1);
+                        }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1009,7 +1084,10 @@ function App() {
                 type="text"
                 placeholder="🔍 Поиск по названию материала..."
                 value={materialsPageSearch}
-                onChange={(e) => setMaterialsPageSearch(e.target.value)}
+                onChange={(e) => {
+                  setMaterialsPageSearch(e.target.value);
+                  setMaterialsPage(1); // Сбрасываем на первую страницу при поиске
+                }}
                 className="page-search-input"
               />
               {materialsPageSearch && (
@@ -1023,35 +1101,41 @@ function App() {
             </div>
 
             <div className="materials-list-wide">
-              {materials.filter(m => {
-                const search = materialsPageSearch.toLowerCase();
-                return m.name.toLowerCase().includes(search);
-              }).length === 0 ? (
-                <div className="empty-state">
-                  <p>{materialsPageSearch ? 'Материалы не найдены' : 'Нет материалов'}</p>
-                </div>
-              ) : (
-                <table className="wide-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '5%' }}>#</th>
-                      <th style={{ width: '25%' }}>Название</th>
-                      <th style={{ width: '10%' }}>Единица</th>
-                      <th style={{ width: '12%' }}>Цена (BYN)</th>
-                      <th style={{ width: '10%' }}>Остаток</th>
-                      <th style={{ width: '23%' }}>Описание</th>
-                      <th style={{ width: '15%' }}>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {materials
-                      .filter(m => {
-                        const search = materialsPageSearch.toLowerCase();
-                        return m.name.toLowerCase().includes(search);
-                      })
-                      .map((material, index) => (
-                      <tr key={material.id}>
-                        <td className="number-cell">{index + 1}</td>
+              {(() => {
+                // Фильтрация материалов
+                const filteredMaterials = materials.filter(m => {
+                  const search = materialsPageSearch.toLowerCase();
+                  return m.name.toLowerCase().includes(search);
+                });
+
+                // Пагинация
+                const totalPages = Math.ceil(filteredMaterials.length / materialsPerPage);
+                const startIndex = (materialsPage - 1) * materialsPerPage;
+                const endIndex = startIndex + materialsPerPage;
+                const paginatedMaterials = filteredMaterials.slice(startIndex, endIndex);
+
+                return filteredMaterials.length === 0 ? (
+                  <div className="empty-state">
+                    <p>{materialsPageSearch ? 'Материалы не найдены' : 'Нет материалов'}</p>
+                  </div>
+                ) : (
+                  <>
+                    <table className="wide-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '5%' }}>#</th>
+                          <th style={{ width: '25%' }}>Название</th>
+                          <th style={{ width: '10%' }}>Единица</th>
+                          <th style={{ width: '12%' }}>Цена (BYN)</th>
+                          <th style={{ width: '10%' }}>Остаток</th>
+                          <th style={{ width: '23%' }}>Описание</th>
+                          <th style={{ width: '15%' }}>Действия</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedMaterials.map((material, index) => (
+                          <tr key={material.id}>
+                            <td className="number-cell">{startIndex + index + 1}</td>
                         <td><strong>{material.name}</strong></td>
                         <td>{material.unit}</td>
                         <td className="service-price">{material.price} BYN</td>
@@ -1092,10 +1176,29 @@ function App() {
                           </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                        ))}
+                      </tbody>
+                    </table>
+                    
+                    {filteredMaterials.length > 0 && (
+                      <Pagination
+                        currentPage={materialsPage}
+                        totalPages={totalPages}
+                        totalItems={filteredMaterials.length}
+                        onPageChange={(page) => {
+                          setMaterialsPage(page);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        itemsPerPage={materialsPerPage}
+                        onItemsPerPageChange={(value) => {
+                          setMaterialsPerPage(value);
+                          setMaterialsPage(1);
+                        }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1147,6 +1250,7 @@ function App() {
         {currentView === 'booking' && (
           <BookingCalendar 
             currentUser={currentUser}
+            toast={toast}
             onBack={() => {
               // Если есть клиент для возврата, открываем его карточку
               if (returnToClientId) {
@@ -1184,6 +1288,7 @@ function App() {
           currentUser={currentUser}
           onClose={() => setShowClientCardModal(false)}
           onUpdate={loadData}
+          toast={toast}
         />
       )}
 
@@ -1931,7 +2036,22 @@ function App() {
                 type="text"
                 placeholder="Фамилия"
                 value={clientForm.lastName}
-                onChange={(e) => setClientForm({ ...clientForm, lastName: e.target.value })}
+                onChange={(e) => {
+                  const lastName = e.target.value;
+                  setClientForm({ ...clientForm, lastName });
+                  
+                  // Автозаполнение телефона по ФИО (только при создании нового клиента)
+                  if (!editingClient && lastName && clientForm.firstName) {
+                    const existingClient = clients.find(c => 
+                      c.lastName?.toLowerCase() === lastName.toLowerCase() &&
+                      c.firstName?.toLowerCase() === clientForm.firstName.toLowerCase() &&
+                      (!clientForm.middleName || c.middleName?.toLowerCase() === clientForm.middleName.toLowerCase())
+                    );
+                    if (existingClient && existingClient.phone && !clientForm.phone) {
+                      setClientForm(prev => ({ ...prev, phone: existingClient.phone }));
+                    }
+                  }
+                }}
                 required
               />
 
@@ -1940,7 +2060,22 @@ function App() {
                 type="text"
                 placeholder="Имя"
                 value={clientForm.firstName}
-                onChange={(e) => setClientForm({ ...clientForm, firstName: e.target.value })}
+                onChange={(e) => {
+                  const firstName = e.target.value;
+                  setClientForm({ ...clientForm, firstName });
+                  
+                  // Автозаполнение телефона по ФИО (только при создании нового клиента)
+                  if (!editingClient && firstName && clientForm.lastName) {
+                    const existingClient = clients.find(c => 
+                      c.lastName?.toLowerCase() === clientForm.lastName.toLowerCase() &&
+                      c.firstName?.toLowerCase() === firstName.toLowerCase() &&
+                      (!clientForm.middleName || c.middleName?.toLowerCase() === clientForm.middleName.toLowerCase())
+                    );
+                    if (existingClient && existingClient.phone && !clientForm.phone) {
+                      setClientForm(prev => ({ ...prev, phone: existingClient.phone }));
+                    }
+                  }
+                }}
                 required
               />
 
@@ -1949,15 +2084,29 @@ function App() {
                 type="text"
                 placeholder="Отчество"
                 value={clientForm.middleName}
-                onChange={(e) => setClientForm({ ...clientForm, middleName: e.target.value })}
+                onChange={(e) => {
+                  const middleName = e.target.value;
+                  setClientForm({ ...clientForm, middleName });
+                  
+                  // Автозаполнение телефона по ФИО (только при создании нового клиента)
+                  if (!editingClient && middleName && clientForm.lastName && clientForm.firstName) {
+                    const existingClient = clients.find(c => 
+                      c.lastName?.toLowerCase() === clientForm.lastName.toLowerCase() &&
+                      c.firstName?.toLowerCase() === clientForm.firstName.toLowerCase() &&
+                      c.middleName?.toLowerCase() === middleName.toLowerCase()
+                    );
+                    if (existingClient && existingClient.phone && !clientForm.phone) {
+                      setClientForm(prev => ({ ...prev, phone: existingClient.phone }));
+                    }
+                  }
+                }}
               />
 
               <label>Телефон *</label>
-              <input
-                type="tel"
-                placeholder="+375..."
+              <PhoneInput
                 value={clientForm.phone}
-                onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })}
+                onChange={(phone) => setClientForm({ ...clientForm, phone })}
+                placeholder="+375 (XX) XXX-XX-XX"
                 required
               />
 
@@ -1998,6 +2147,9 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Toast уведомления */}
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
 
       {/* Модальное окно смены пароля */}
       <ChangePassword
