@@ -584,34 +584,38 @@ async function migrateMaterialWriteoffs() {
 async function initializeDefaultData() {
   console.log('📝 Проверка данных по умолчанию...');
   
+  const bcrypt = require('bcrypt');
+  
   // Проверяем, есть ли пользователи
   const users = await db.all('SELECT * FROM users');
   
   if (users.length === 0) {
-    console.log('👥 Создание пользователей по умолчанию...');
+    console.log('👥 Создание главного администратора по умолчанию...');
     
-    // Создаем врача по умолчанию
-    const result = await db.query(
-      'INSERT INTO doctors ("lastName", "firstName", specialization) VALUES ($1, $2, $3) RETURNING id',
-      ['Иванов', 'Иван', 'Терапевт']
-    );
-    const doctorId = result[0].id;
+    const bcrypt = require('bcrypt');
     
-    // Создаем пользователей
-    const defaultUsers = [
-      { username: 'Admin', password: 'admin', role: 'superadmin', full_name: 'Главный администратор' },
-      { username: 'Administrator', password: 'administrator', role: 'administrator', full_name: 'Администратор' },
-      { username: 'Doctor1', password: 'doctor', role: 'doctor', doctor_id: doctorId, full_name: 'Иванов Иван' }
-    ];
+    // Проверяем, есть ли переменные окружения для создания первого администратора
+    const initialAdminUsername = process.env.INITIAL_ADMIN_USERNAME || 'admin';
+    const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin';
     
-    for (const user of defaultUsers) {
-      await db.run(
-        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5)',
-        [user.username, user.password, user.role, user.doctor_id || null, user.full_name]
+    try {
+      // Хешируем пароль
+      const hashedPassword = await bcrypt.hash(initialAdminPassword, 10);
+      
+      // Создаем главного администратора
+      await db.query(
+        'INSERT INTO users (username, password, role, full_name) VALUES ($1, $2, $3, $4)',
+        [initialAdminUsername, hashedPassword, 'superadmin', 'Главный администратор']
       );
+      
+      console.log(`✅ Главный администратор "${initialAdminUsername}" создан`);
+      console.log(`   Логин: ${initialAdminUsername}`);
+      console.log(`   Пароль: ${initialAdminPassword}`);
+      console.log('⚠️  ВАЖНО: После первого входа обязательно смените пароль через интерфейс!');
+    } catch (error) {
+      console.error('❌ Ошибка создания главного администратора:', error.message);
+      console.log('   Создайте главного администратора через API endpoint /api/setup/first-admin');
     }
-    
-    console.log('✅ Пользователи созданы');
   } else {
     // Проверяем, есть ли врачи без doctor_id
     const doctorsWithoutId = await db.all(
@@ -634,6 +638,16 @@ async function initializeDefaultData() {
         }
         console.log('✅ Пользователи-врачи обновлены');
       }
+    }
+    
+    // Проверяем, есть ли пользователи с открытыми паролями (без хеширования)
+    const usersWithPlainPasswords = await db.all(
+      "SELECT id, username FROM users WHERE password NOT LIKE '$2%'"
+    );
+    
+    if (usersWithPlainPasswords.length > 0) {
+      console.log(`⚠️  Найдено ${usersWithPlainPasswords.length} пользователей с открытыми паролями.`);
+      console.log('   Рекомендуется обновить пароли через интерфейс для безопасности.');
     }
   }
   

@@ -6,12 +6,14 @@ import axios from 'axios';
 import { getTodayDateString, getFullName } from './shared/lib';
 import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
+import { AdministratorsPage } from './pages/AdministratorsPage';
 import { StatisticsPage } from './pages/StatisticsPage';
 import CompositeServicesPage from './pages/CompositeServicesPage';
 import { LoginPage } from './pages/LoginPage';
 import { DoctorDashboard } from './pages/DoctorDashboard';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
 import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
+import ChangePassword from './components/ChangePassword';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -46,6 +48,7 @@ function App() {
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [showClientCardModal, setShowClientCardModal] = useState(false);
   const [showClientHistoryModal, setShowClientHistoryModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState(null);
   
   // Поиск и выбор
@@ -677,7 +680,18 @@ function App() {
                 {currentUser.role === 'doctor' && '👨‍⚕️ Врач'}
               </span>
             </div>
-            <button className="btn btn-logout" onClick={handleLogout}>Выход</button>
+            <div className="header-user-actions">
+              {currentUser.role === 'superadmin' && (
+                <button 
+                  className="btn btn-change-password" 
+                  onClick={() => setShowChangePasswordModal(true)}
+                  title="Сменить пароль"
+                >
+                  🔐 Сменить пароль
+                </button>
+              )}
+              <button className="btn btn-logout" onClick={handleLogout}>Выход</button>
+            </div>
           </div>
         </div>
       </div>
@@ -689,6 +703,11 @@ function App() {
         {/* Врачи - доступно администратору и superadmin */}
         {currentView === 'doctors' && (currentUser.role === 'superadmin' || currentUser.role === 'administrator') && (
           <DoctorsPage onNavigate={setCurrentView} currentUser={currentUser} />
+        )}
+        
+        {/* Администраторы - доступно только superadmin */}
+        {currentView === 'administrators' && currentUser.role === 'superadmin' && (
+          <AdministratorsPage onNavigate={setCurrentView} currentUser={currentUser} />
         )}
         
         {/* Клиенты - доступно администратору и superadmin */}
@@ -1903,6 +1922,16 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Модальное окно смены пароля */}
+      <ChangePassword
+        currentUser={currentUser}
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+        onSuccess={() => {
+          // Можно добавить дополнительную логику после успешной смены пароля
+        }}
+      />
     </div>
   );
 }

@@ -1,0 +1,35 @@
+.administrators-page {
+  min-height: 100%;
+}
+
+.administrators-list {
+  margin-top: 20px;
+}
+
+.loading {
+  text-align: center;
+  padding: 50px;
+  font-size: 1.2rem;
+  color: #667eea;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.role-administrator {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.form-hint {
+  margin: 10px 0;
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
+}
+

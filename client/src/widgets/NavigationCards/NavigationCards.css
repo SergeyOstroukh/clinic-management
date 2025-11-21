@@ -45,6 +45,18 @@
   background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
 }
 
+.nav-card-administrators {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.nav-card-clients {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.nav-card-services {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
 .nav-card-icon {
   font-size: 1.2rem;
   margin-bottom: 0;

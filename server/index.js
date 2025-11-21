@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const bcrypt = require('bcrypt');
 
 // Импорт модуля базы данных
 const { db, usePostgres } = require('./database');
@@ -214,15 +215,62 @@ app.get('/api/doctors/:id', async (req, res) => {
 
 // Создать врача
 app.post('/api/doctors', async (req, res) => {
-  const { lastName, firstName, middleName, specialization, phone, email } = req.body;
+  const { lastName, firstName, middleName, specialization, phone, email, createUser, username, password, currentUser } = req.body;
   
   try {
+    // Проверка прав доступа для создания пользователя
+    if (createUser && (!currentUser || currentUser.role !== 'superadmin')) {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может создавать пользователей.' });
+    }
+    
+    // Создаем врача
     const result = await db.query(
       'INSERT INTO doctors ("lastName", "firstName", "middleName", specialization, phone, email) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
       [lastName, firstName, middleName, specialization, phone, email]
     );
-    res.json({ id: result[0].id, lastName, firstName, middleName, specialization, phone, email });
+    const doctorId = result[0].id;
+    
+    // Если нужно создать пользователя для врача
+    if (createUser && username && password) {
+      // Проверяем, не существует ли уже пользователь с таким именем
+      const existingUser = await db.get(
+        'SELECT id FROM users WHERE username = $1',
+        [username]
+      );
+      
+      if (existingUser) {
+        // Если пользователь уже существует, просто обновляем doctor_id
+        await db.run(
+          'UPDATE users SET doctor_id = $1 WHERE id = $2',
+          [doctorId, existingUser.id]
+        );
+      } else {
+        // Хешируем пароль
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Формируем полное имя
+        const fullName = `${lastName} ${firstName} ${middleName || ''}`.trim();
+        
+        // Создаем пользователя
+        await db.query(
+          'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5)',
+          [username, hashedPassword, 'doctor', doctorId, fullName]
+        );
+      }
+    }
+    
+    res.json({ 
+      id: doctorId, 
+      lastName, 
+      firstName, 
+      middleName, 
+      specialization, 
+      phone, 
+      email,
+      userCreated: createUser && username && password
+    });
   } catch (error) {
+    console.error('Ошибка создания врача:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -277,7 +325,29 @@ app.delete('/api/doctors/:id', async (req, res) => {
       [doctorId]
     );
     
-    // Теперь удаляем только самого врача (записи уже обработаны выше)
+    // Удаляем расписание врача (регулярное - по дням недели)
+    const schedulesResult = await db.run(
+      usePostgres
+        ? 'DELETE FROM doctor_schedules WHERE doctor_id = $1'
+        : 'DELETE FROM doctor_schedules WHERE doctor_id = ?',
+      [doctorId]
+    );
+    if (schedulesResult.changes > 0) {
+      console.log(`✅ Удалено ${schedulesResult.changes} записей расписания врача`);
+    }
+    
+    // Удаляем точечные даты работы врача
+    const specificDatesResult = await db.run(
+      usePostgres
+        ? 'DELETE FROM doctor_specific_dates WHERE doctor_id = $1'
+        : 'DELETE FROM doctor_specific_dates WHERE doctor_id = ?',
+      [doctorId]
+    );
+    if (specificDatesResult.changes > 0) {
+      console.log(`✅ Удалено ${specificDatesResult.changes} точечных дат работы врача`);
+    }
+    
+    // Теперь удаляем только самого врача (все связанные данные уже обработаны выше)
     const result = await db.run(
       usePostgres ? 'DELETE FROM doctors WHERE id = $1' : 'DELETE FROM doctors WHERE id = ?',
       [doctorId]
@@ -2544,6 +2614,23 @@ app.get('/api/statistics/clients/export', async (req, res) => {
 
 // ========== USERS / AUTH ==========
 
+// Middleware для проверки прав доступа (только для superadmin)
+const requireSuperAdmin = async (req, res, next) => {
+  try {
+    // В реальном приложении здесь должна быть проверка токена/сессии
+    // Для простоты проверяем через заголовок или body
+    const { currentUser } = req.body;
+    
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Требуется роль главного администратора.' });
+    }
+    
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Логин
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
@@ -2551,12 +2638,26 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const user = await db.get(
       usePostgres
-        ? 'SELECT * FROM users WHERE username = $1 AND password = $2'
-        : 'SELECT * FROM users WHERE username = ? AND password = ?',
-      [username, password]
+        ? 'SELECT * FROM users WHERE username = $1'
+        : 'SELECT * FROM users WHERE username = ?',
+      [username]
     );
     
     if (!user) {
+      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+    }
+    
+    // Проверяем пароль (поддерживаем как хешированные, так и старые открытые пароли для миграции)
+    let passwordValid = false;
+    if (user.password.startsWith('$2')) {
+      // Пароль хеширован с bcrypt
+      passwordValid = await bcrypt.compare(password, user.password);
+    } else {
+      // Старый формат (открытый пароль) - для обратной совместимости
+      passwordValid = user.password === password;
+    }
+    
+    if (!passwordValid) {
       return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
     }
     
@@ -2568,6 +2669,7 @@ app.post('/api/auth/login', async (req, res) => {
       full_name: user.full_name
     });
   } catch (error) {
+    console.error('Ошибка входа:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2581,6 +2683,306 @@ app.get('/api/auth/me', async (req, res) => {
 // Логаут
 app.post('/api/auth/logout', (req, res) => {
   res.json({ message: 'Logged out' });
+});
+
+// Создать первого главного администратора (только если в системе нет пользователей)
+app.post('/api/setup/first-admin', async (req, res) => {
+  try {
+    const { username, password, full_name } = req.body;
+    
+    // Проверяем, есть ли уже пользователи в системе
+    const existingUsers = await db.all('SELECT COUNT(*) as count FROM users');
+    const userCount = existingUsers[0]?.count || 0;
+    
+    if (userCount > 0) {
+      return res.status(403).json({ 
+        error: 'В системе уже есть пользователи. Используйте обычный endpoint /api/users для создания новых пользователей (требуется авторизация главного администратора).' 
+      });
+    }
+    
+    // Валидация
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Имя пользователя и пароль обязательны' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+    }
+    
+    // Проверяем, не существует ли уже пользователь с таким именем
+    const existingUser = await db.get(
+      usePostgres
+        ? 'SELECT id FROM users WHERE username = $1'
+        : 'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+    
+    if (existingUser) {
+      return res.status(400).json({ error: 'Пользователь с таким именем уже существует' });
+    }
+    
+    // Хешируем пароль
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Создаем главного администратора
+    if (usePostgres) {
+      const result = await db.query(
+        'INSERT INTO users (username, password, role, full_name) VALUES ($1, $2, $3, $4) RETURNING id, username, role, full_name',
+        [username, hashedPassword, 'superadmin', full_name || 'Главный администратор']
+      );
+      console.log(`✅ Первый главный администратор "${username}" создан через API`);
+      res.json({ 
+        message: 'Главный администратор успешно создан',
+        user: result[0]
+      });
+    } else {
+      const result = await db.run(
+        'INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)',
+        [username, hashedPassword, 'superadmin', full_name || 'Главный администратор']
+      );
+      console.log(`✅ Первый главный администратор "${username}" создан через API`);
+      res.json({ 
+        message: 'Главный администратор успешно создан',
+        user: { id: result.lastID, username, role: 'superadmin', full_name: full_name || 'Главный администратор' }
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка создания первого администратора:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Сменить пароль пользователя
+// ТОЛЬКО главный администратор может менять пароли (свой и других пользователей)
+app.post('/api/users/change-password', async (req, res) => {
+  try {
+    const { userId, currentPassword, newPassword, currentUser } = req.body;
+    
+    // Валидация
+    if (!userId || !newPassword) {
+      return res.status(400).json({ error: 'ID пользователя и новый пароль обязательны' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Пароль должен содержать минимум 6 символов' });
+    }
+    
+    // Проверяем права доступа - ТОЛЬКО главный администратор может менять пароли
+    if (!currentUser) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+    
+    if (currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Только главный администратор может менять пароли' });
+    }
+    
+    // Получаем пользователя
+    const user = await db.get(
+      usePostgres
+        ? 'SELECT * FROM users WHERE id = $1'
+        : 'SELECT * FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    // Если главный админ меняет свой пароль, проверяем текущий пароль
+    // Если меняет чужой пароль, текущий пароль не требуется
+    if (currentUser.id === parseInt(userId)) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Текущий пароль обязателен для смены своего пароля' });
+      }
+      
+      // Проверяем текущий пароль
+      let passwordValid = false;
+      if (user.password.startsWith('$2')) {
+        passwordValid = await bcrypt.compare(currentPassword, user.password);
+      } else {
+        passwordValid = user.password === currentPassword;
+      }
+      
+      if (!passwordValid) {
+        return res.status(401).json({ error: 'Неверный текущий пароль' });
+      }
+    }
+    
+    // Хешируем новый пароль
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Обновляем пароль
+    await db.run(
+      usePostgres
+        ? 'UPDATE users SET password = $1 WHERE id = $2'
+        : 'UPDATE users SET password = ? WHERE id = ?',
+      [hashedPassword, userId]
+    );
+    
+    console.log(`✅ Пароль пользователя #${userId} изменен`);
+    
+    res.json({ message: 'Пароль успешно изменен' });
+  } catch (error) {
+    console.error('Ошибка смены пароля:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить список пользователей (только для главного админа)
+app.get('/api/users', async (req, res) => {
+  try {
+    const { role, doctor_id } = req.query;
+    
+    let query = '';
+    let params = [];
+    
+    if (doctor_id) {
+      // Получаем пользователя по doctor_id
+      query = usePostgres
+        ? 'SELECT id, username, role, full_name, doctor_id, created_at FROM users WHERE doctor_id = $1'
+        : 'SELECT id, username, role, full_name, doctor_id, created_at FROM users WHERE doctor_id = ?';
+      params.push(doctor_id);
+    } else if (role) {
+      query = usePostgres
+        ? 'SELECT id, username, role, full_name, doctor_id, created_at FROM users WHERE role = $1 ORDER BY username'
+        : 'SELECT id, username, role, full_name, doctor_id, created_at FROM users WHERE role = ? ORDER BY username';
+      params.push(role);
+    } else {
+      query = 'SELECT id, username, role, full_name, doctor_id, created_at FROM users ORDER BY role, username';
+    }
+    
+    const users = await db.all(query, params);
+    
+    // Не возвращаем пароли
+    const safeUsers = users.map(u => ({
+      id: u.id,
+      username: u.username,
+      role: u.role,
+      full_name: u.full_name,
+      doctor_id: u.doctor_id,
+      created_at: u.created_at
+    }));
+    
+    // Если запрашивали по doctor_id, возвращаем одного пользователя или null
+    if (doctor_id) {
+      res.json(safeUsers[0] || null);
+    } else {
+      res.json(safeUsers);
+    }
+  } catch (error) {
+    console.error('Ошибка получения пользователей:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить пользователя (только для главного админа)
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { currentUser } = req.body;
+    
+    // Проверка прав доступа
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может удалять пользователей.' });
+    }
+    
+    const userId = req.params.id;
+    
+    // Нельзя удалить самого себя
+    if (currentUser.id === parseInt(userId)) {
+      return res.status(400).json({ error: 'Нельзя удалить свой собственный аккаунт' });
+    }
+    
+    // Проверяем, существует ли пользователь
+    const user = await db.get(
+      usePostgres
+        ? 'SELECT id, role FROM users WHERE id = $1'
+        : 'SELECT id, role FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    // Удаляем пользователя
+    const result = await db.run(
+      usePostgres
+        ? 'DELETE FROM users WHERE id = $1'
+        : 'DELETE FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    console.log(`✅ Пользователь #${userId} удален`);
+    
+    res.json({ message: 'Пользователь удален' });
+  } catch (error) {
+    console.error('Ошибка удаления пользователя:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать пользователя (только для главного админа)
+app.post('/api/users', async (req, res) => {
+  try {
+    const { username, password, role, doctor_id, full_name, currentUser } = req.body;
+    
+    // Проверка прав доступа
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может создавать пользователей.' });
+    }
+    
+    // Валидация
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Имя пользователя и пароль обязательны' });
+    }
+    
+    if (!['superadmin', 'administrator', 'doctor'].includes(role)) {
+      return res.status(400).json({ error: 'Недопустимая роль' });
+    }
+    
+    // Проверяем, не существует ли уже пользователь с таким именем
+    const existingUser = await db.get(
+      usePostgres
+        ? 'SELECT id FROM users WHERE username = $1'
+        : 'SELECT id FROM users WHERE username = ?',
+      [username]
+    );
+    
+    if (existingUser) {
+      return res.status(400).json({ error: 'Пользователь с таким именем уже существует' });
+    }
+    
+    // Хешируем пароль
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Создаем пользователя
+    if (usePostgres) {
+      const result = await db.query(
+        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, role, doctor_id, full_name',
+        [username, hashedPassword, role, doctor_id || null, full_name || null]
+      );
+      res.json({ 
+        message: 'Пользователь создан',
+        user: result[0]
+      });
+    } else {
+      const result = await db.run(
+        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES (?, ?, ?, ?, ?)',
+        [username, hashedPassword, role, doctor_id || null, full_name || null]
+      );
+      res.json({ 
+        message: 'Пользователь создан',
+        user: { id: result.lastID, username, role, doctor_id, full_name }
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка создания пользователя:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ======================
