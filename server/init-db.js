@@ -17,6 +17,9 @@ async function initializeDatabase() {
     await migrateMaterialTransactionsColumns();
     console.log('✅ Миграция колонок material_transactions проверена');
     
+    await migrateAppointmentsClientIdNullable();
+    console.log('✅ Миграция client_id в appointments проверена');
+    
     await initializeDefaultData();
     console.log('✅ Данные по умолчанию проверены');
     
@@ -464,6 +467,68 @@ async function migrateMaterialTransactionsColumns() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции колонок:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
+  }
+}
+
+// Миграция: разрешить NULL для client_id в appointments
+async function migrateAppointmentsClientIdNullable() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция client_id доступна только для PostgreSQL');
+      return;
+    }
+
+    // Проверяем, можно ли уже установить NULL для client_id
+    const columnInfo = await db.all(`
+      SELECT is_nullable 
+      FROM information_schema.columns 
+      WHERE table_name = 'appointments' 
+        AND column_name = 'client_id'
+    `);
+
+    if (columnInfo.length > 0 && columnInfo[0].is_nullable === 'NO') {
+      console.log('   🔄 Изменение client_id на NULLABLE в appointments...');
+      
+      // Сначала удаляем старый внешний ключ (если есть)
+      try {
+        await db.run(`
+          ALTER TABLE appointments 
+          DROP CONSTRAINT IF EXISTS appointments_client_id_fkey
+        `);
+      } catch (fkError) {
+        // Игнорируем ошибку, если ограничение не существует
+        console.log('   ℹ️  Старое ограничение не найдено или уже удалено');
+      }
+      
+      // Изменяем колонку, чтобы разрешить NULL
+      await db.run(`
+        ALTER TABLE appointments 
+        ALTER COLUMN client_id DROP NOT NULL
+      `);
+      
+      // Добавляем новый внешний ключ с ON DELETE SET NULL
+      try {
+        await db.run(`
+          ALTER TABLE appointments 
+          ADD CONSTRAINT appointments_client_id_fkey 
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+        `);
+      } catch (fkError) {
+        // Если ограничение уже существует, игнорируем ошибку
+        if (!fkError.message.includes('already exists')) {
+          throw fkError;
+        }
+      }
+      
+      console.log('   ✅ client_id теперь может быть NULL');
+    } else {
+      console.log('   ✅ client_id уже может быть NULL');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции client_id:', error.message);
     // Не прерываем инициализацию, если миграция не удалась
   }
 }

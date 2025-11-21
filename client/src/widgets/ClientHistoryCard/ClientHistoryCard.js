@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { formatDate, getFullName } from '../../shared/lib';
+import ConfirmModal from '../../components/ConfirmModal/ConfirmModal';
+import { useConfirmModal } from '../../hooks/useConfirmModal';
 import './ClientHistoryCard.css';
 
 const getApiUrl = () => {
@@ -14,10 +16,15 @@ const API_URL = getApiUrl();
 const ClientHistoryCard = ({ 
   clientId, 
   clients, 
-  onClose,
+  onClose, 
   onEditAppointment,
-  onCancelAppointment
+  onCancelAppointment,
+  showConfirm: externalShowConfirm
 }) => {
+  // Используем внешний showConfirm или создаем свой
+  const { confirmModal, showConfirm: internalShowConfirm } = useConfirmModal();
+  const showConfirm = externalShowConfirm || internalShowConfirm;
+  
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -240,7 +247,21 @@ const ClientHistoryCard = ({
                               <button
                                 className="btn-icon"
                                 onClick={async () => {
-                                  if (window.confirm(`Отменить запись на ${formatDate(visit.appointment_date, 'dd.MM.yyyy HH:mm')}?`)) {
+                                  if (showConfirm) {
+                                    const confirmed = await showConfirm({
+                                      title: 'Отмена записи',
+                                      message: `Отменить запись на ${formatDate(visit.appointment_date, 'dd.MM.yyyy HH:mm')}?`,
+                                      confirmText: 'Да, отменить',
+                                      cancelText: 'Нет',
+                                      confirmButtonClass: 'btn-danger'
+                                    });
+                                    
+                                    if (confirmed && onCancelAppointment) {
+                                      await onCancelAppointment(visit.id);
+                                      // Перезагружаем историю после отмены
+                                      loadClientHistory();
+                                    }
+                                  } else if (window.confirm(`Отменить запись на ${formatDate(visit.appointment_date, 'dd.MM.yyyy HH:mm')}?`)) {
                                     if (onCancelAppointment) {
                                       await onCancelAppointment(visit.id);
                                       // Перезагружаем историю после отмены
@@ -277,6 +298,20 @@ const ClientHistoryCard = ({
           <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
         </div>
       </div>
+      
+      {/* Модальное окно подтверждения */}
+      {!externalShowConfirm && (
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={confirmModal.onCancel}
+          confirmText={confirmModal.confirmText}
+          cancelText={confirmModal.cancelText}
+          confirmButtonClass={confirmModal.confirmButtonClass}
+        />
+      )}
     </div>
   );
 };

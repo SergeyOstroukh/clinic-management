@@ -80,10 +80,10 @@ const ClientCard = ({
       });
       loadClientHistory();
       if (onUpdate) onUpdate();
-      alert('✅ Оплата завершена!');
+      if (toast) toast.success('✅ Оплата завершена!');
     } catch (error) {
       console.error('Ошибка обновления статуса:', error);
-      alert('Ошибка завершения оплаты');
+      if (toast) toast.error('Ошибка завершения оплаты');
     }
   };
 
