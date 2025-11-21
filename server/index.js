@@ -115,6 +115,81 @@ app.post('/api/clients', async (req, res) => {
   }
 });
 
+// Обновить клиента (только для главного админа)
+app.put('/api/clients/:id', async (req, res) => {
+  const { lastName, firstName, middleName, phone, address, email, notes, currentUser } = req.body;
+  
+  try {
+    // Проверка прав доступа
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может редактировать клиентов.' });
+    }
+    
+    const result = await db.run(
+      usePostgres
+        ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7 WHERE id = $8'
+        : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ? WHERE id = ?',
+      [lastName, firstName, middleName, phone, address, email, notes, req.params.id]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Клиент не найден' });
+    }
+    
+    res.json({ message: 'Клиент обновлен', changes: result.changes });
+  } catch (error) {
+    console.error('Ошибка обновления клиента:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить клиента (только для главного админа)
+app.delete('/api/clients/:id', async (req, res) => {
+  try {
+    const { currentUser } = req.body;
+    
+    // Проверка прав доступа
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может удалять клиентов.' });
+    }
+    
+    const clientId = req.params.id;
+    
+    // Проверяем, есть ли записи у этого клиента
+    const appointments = await db.all(
+      usePostgres 
+        ? 'SELECT COUNT(*) as count FROM appointments WHERE client_id = $1'
+        : 'SELECT COUNT(*) as count FROM appointments WHERE client_id = ?',
+      [clientId]
+    );
+    
+    const appointmentCount = appointments[0]?.count || 0;
+    
+    if (appointmentCount > 0) {
+      return res.status(400).json({ 
+        error: `Невозможно удалить клиента. У него есть ${appointmentCount} записей. Сначала удалите или переназначьте записи.` 
+      });
+    }
+    
+    // Удаляем клиента
+    const result = await db.run(
+      usePostgres ? 'DELETE FROM clients WHERE id = $1' : 'DELETE FROM clients WHERE id = ?',
+      [clientId]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Клиент не найден' });
+    }
+    
+    console.log(`✅ Клиент #${clientId} удален`);
+    
+    res.json({ message: 'Клиент удален', changes: result.changes });
+  } catch (error) {
+    console.error('Ошибка удаления клиента:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== SERVICES ==========
 
 // Получить все услуги
