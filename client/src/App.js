@@ -18,7 +18,6 @@ import { ToastContainer } from './components/Toast';
 import { useToast } from './hooks/useToast';
 import PhoneInput from './components/PhoneInput';
 import Pagination from './components/Pagination';
-import TableFilters from './components/TableFilters';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
