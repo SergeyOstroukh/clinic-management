@@ -146,7 +146,7 @@ app.put('/api/clients/:id', async (req, res) => {
 // Удалить клиента (только для главного админа)
 app.delete('/api/clients/:id', async (req, res) => {
   try {
-    const { currentUser } = req.body;
+    const { currentUser, deleteAppointments } = req.body;
     
     // Проверка прав доступа
     if (!currentUser || currentUser.role !== 'superadmin') {
@@ -165,10 +165,65 @@ app.delete('/api/clients/:id', async (req, res) => {
     
     const appointmentCount = appointments[0]?.count || 0;
     
+    // Если есть записи, обрабатываем их в зависимости от выбора пользователя
+    // По умолчанию, если параметр не передан, обнуляем client_id (оставляем записи)
     if (appointmentCount > 0) {
-      return res.status(400).json({ 
-        error: `Невозможно удалить клиента. У него есть ${appointmentCount} записей. Сначала удалите или переназначьте записи.` 
-      });
+      if (deleteAppointments === true) {
+        // Получаем ID всех записей клиента
+        const clientAppointments = await db.all(
+          usePostgres
+            ? 'SELECT id FROM appointments WHERE client_id = $1'
+            : 'SELECT id FROM appointments WHERE client_id = ?',
+          [clientId]
+        );
+        
+        // Удаляем связанные данные для каждой записи
+        for (const appointment of clientAppointments) {
+          const appointmentId = appointment.id;
+          
+          // Удаляем услуги записи
+          await db.run(
+            usePostgres
+              ? 'DELETE FROM appointment_services WHERE appointment_id = $1'
+              : 'DELETE FROM appointment_services WHERE appointment_id = ?',
+            [appointmentId]
+          );
+          
+          // Удаляем материалы записи
+          await db.run(
+            usePostgres
+              ? 'DELETE FROM appointment_materials WHERE appointment_id = $1'
+              : 'DELETE FROM appointment_materials WHERE appointment_id = ?',
+            [appointmentId]
+          );
+          
+          // Удаляем транзакции материалов, связанные с записью
+          await db.run(
+            usePostgres
+              ? 'UPDATE material_transactions SET appointment_id = NULL WHERE appointment_id = $1'
+              : 'UPDATE material_transactions SET appointment_id = NULL WHERE appointment_id = ?',
+            [appointmentId]
+          );
+        }
+        
+        // Теперь удаляем сами записи
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM appointments WHERE client_id = $1'
+            : 'DELETE FROM appointments WHERE client_id = ?',
+          [clientId]
+        );
+        console.log(`✅ Удалено ${appointmentCount} записей клиента #${clientId} со всеми связанными данными`);
+      } else {
+        // Обнуляем client_id в записях (записи остаются, но без привязки к клиенту)
+        await db.run(
+          usePostgres
+            ? 'UPDATE appointments SET client_id = NULL WHERE client_id = $1'
+            : 'UPDATE appointments SET client_id = NULL WHERE client_id = ?',
+          [clientId]
+        );
+        console.log(`✅ Обнулен client_id для ${appointmentCount} записей (записи сохранены)`);
+      }
     }
     
     // Удаляем клиента
@@ -183,7 +238,12 @@ app.delete('/api/clients/:id', async (req, res) => {
     
     console.log(`✅ Клиент #${clientId} удален`);
     
-    res.json({ message: 'Клиент удален', changes: result.changes });
+    res.json({ 
+      message: 'Клиент удален', 
+      changes: result.changes,
+      appointmentsProcessed: appointmentCount,
+      appointmentsDeleted: deleteAppointments === true
+    });
   } catch (error) {
     console.error('Ошибка удаления клиента:', error);
     res.status(500).json({ error: error.message });

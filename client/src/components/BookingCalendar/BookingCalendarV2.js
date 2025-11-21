@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import ConfirmModal from '../ConfirmModal/ConfirmModal';
+import { useConfirmModal } from '../../hooks/useConfirmModal';
 import './BookingCalendar.css';
 
 const getApiUrl = () => {
@@ -63,7 +65,11 @@ const parseTime = (dateTimeStr) => {
   };
 };
 
-const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete, toast }) => {
+const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete, toast, showConfirm: externalShowConfirm }) => {
+  // Используем внешний showConfirm или создаем свой
+  const { confirmModal, showConfirm: internalShowConfirm } = useConfirmModal();
+  const showConfirm = externalShowConfirm || internalShowConfirm;
+  
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [schedules, setSchedules] = useState([]);
@@ -183,10 +189,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   useEffect(() => {
     const handleAppointmentChange = () => {
       if (selectedDoctor) {
-        loadAppointments().then(() => {
-          // Принудительно обновляем модалку для перерисовки слотов
-          setModalUpdateKey(prev => prev + 1);
-        });
+        // Загружаем записи, но НЕ обновляем modalUpdateKey здесь,
+        // так как это уже делается в функциях createAppointment и cancelAppointment
+        loadAppointments();
       }
       // Обновляем список ближайших слотов
       loadNearestSlots();
@@ -611,19 +616,19 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         : 'Клиент';
       const confirmMessage = `Отменить запись на ${time}?\n\nКлиент: ${clientName}\nТелефон: ${slot.appointment.client_phone || 'не указан'}`;
       
-      if (toast && toast.confirm) {
-        toast.confirm(confirmMessage, () => {
-          cancelAppointment(slot.appointment.id);
-        });
-      } else {
-        // Используем toast.confirm если доступен, иначе window.confirm
-        if (toast && toast.confirm) {
-          toast.confirm(confirmMessage, () => {
+      if (showConfirm) {
+        showConfirm({
+          title: 'Отмена записи',
+          message: confirmMessage,
+          confirmText: 'Да, отменить',
+          cancelText: 'Нет',
+          confirmButtonClass: 'btn-danger',
+          onConfirm: () => {
             cancelAppointment(slot.appointment.id);
-          });
-        } else if (window.confirm(confirmMessage)) {
-          cancelAppointment(slot.appointment.id);
-        }
+          }
+        });
+      } else if (window.confirm(confirmMessage)) {
+        cancelAppointment(slot.appointment.id);
       }
       return;
     }
@@ -654,11 +659,21 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         status: 'cancelled'
       });
       
-      await loadAppointments();
-      window.dispatchEvent(new Event('appointmentCreated'));
+      // Сбрасываем выбранное время
       setSelectedTime(null);
-      // Принудительно обновляем модалку для перерисовки слотов
-      setModalUpdateKey(prev => prev + 1);
+      
+      // Загружаем обновленные записи
+      await loadAppointments();
+      
+      // Отправляем событие для обновления таблицы записей в App.js
+      window.dispatchEvent(new Event('appointmentCreated'));
+      
+      // Обновляем модалку для перерисовки слотов один раз
+      // Используем requestAnimationFrame для синхронизации с рендером
+      requestAnimationFrame(() => {
+        setModalUpdateKey(prev => prev + 1);
+      });
+      
       if (toast) toast.success('✅ Запись отменена');
     } catch (error) {
       console.error('Ошибка отмены записи:', error);
@@ -695,6 +710,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   };
 
   const createAppointment = async (dateTime) => {
+    // Защита от двойного вызова
+    if (creating) {
+      console.log('Запись уже создается, пропускаем повторный вызов');
+      return;
+    }
+    
     setCreating(true);
     try {
       // Если редактируем существующую запись
@@ -721,10 +742,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       await loadAppointments();
       
       // Отправляем событие для обновления таблицы записей в App.js
+      // (App.js сам вызовет loadData, поэтому не нужно дублировать)
       window.dispatchEvent(new Event('appointmentCreated'));
-      
-      // Принудительно обновляем модалку для перерисовки слотов
-      setModalUpdateKey(prev => prev + 1);
       
       // Если редактировали, закрываем модалку и вызываем callback
       if (editingAppointmentId) {
@@ -744,6 +763,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setSelectedServices([]);
         setNotes('');
         if (toast) toast.success('✅ Запись успешно создана!');
+        
+        // Обновляем модалку для перерисовки слотов (только после успешного создания)
+        // Используем requestAnimationFrame для синхронизации с рендером
+        requestAnimationFrame(() => {
+          setModalUpdateKey(prev => prev + 1);
+        });
       }
     } catch (error) {
       console.error('Ошибка создания/обновления записи:', error);
@@ -1152,7 +1177,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         
         return (
         <div 
-          key={`modal-${appointments.length}-${modalUpdateKey}-${selectedSlot.year}-${selectedSlot.month}-${selectedSlot.day}`}
+          key={`modal-${selectedSlot.year}-${selectedSlot.month}-${selectedSlot.day}-${modalUpdateKey}`}
           className="modal-overlay" 
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -1360,7 +1385,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               </button>
               {selectedTime && (
                 <button
-                  onClick={handleCreateAppointment}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!creating) {
+                      handleCreateAppointment();
+                    }
+                  }}
                   disabled={creating || !selectedClient}
                   style={{
                     padding: '10px 30px',
@@ -1486,6 +1518,20 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Модальное окно подтверждения */}
+      {!externalShowConfirm && (
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={confirmModal.onCancel}
+          confirmText={confirmModal.confirmText}
+          cancelText={confirmModal.cancelText}
+          confirmButtonClass={confirmModal.confirmButtonClass}
+        />
       )}
     </div>
   );

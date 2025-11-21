@@ -16,8 +16,10 @@ import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
 import ChangePassword from './components/ChangePassword';
 import { ToastContainer } from './components/Toast';
 import { useToast } from './hooks/useToast';
+import { useConfirmModal } from './hooks/useConfirmModal';
 import PhoneInput from './components/PhoneInput';
 import Pagination from './components/Pagination';
+import ConfirmModal from './components/ConfirmModal/ConfirmModal';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -30,6 +32,9 @@ const API_URL = getApiUrl();
 function App() {
   // Toast уведомления
   const toast = useToast();
+  
+  // Модалка подтверждения
+  const { confirmModal, showConfirm } = useConfirmModal();
   
   // Авторизация
   const [currentUser, setCurrentUser] = useState(null);
@@ -336,23 +341,109 @@ function App() {
   // Создание клиента
   // Удалить клиента
   const handleDeleteClient = async (clientId) => {
-    if (!window.confirm('Вы уверены, что хотите удалить этого клиента? Это действие нельзя отменить.')) {
+    // Проверяем, есть ли у клиента записи
+    const client = clients.find(c => c.id === clientId);
+    if (!client) {
+      toast.error('Клиент не найден');
       return;
     }
     
+    // Загружаем количество записей клиента
+    let appointmentCount = 0;
     try {
-      await axios.delete(`${API_URL}/clients/${clientId}`, {
-        data: { currentUser: currentUser }
-      });
-      
-      // Обновляем список клиентов
-      const updatedClients = clients.filter(c => c.id !== clientId);
-      setClients(updatedClients);
-      
-      toast.success('✅ Клиент успешно удален');
+      const appointmentsResponse = await axios.get(`${API_URL}/clients/${clientId}/appointments`);
+      appointmentCount = appointmentsResponse.data?.length || 0;
     } catch (error) {
-      console.error('Ошибка удаления клиента:', error);
-      toast.error(error.response?.data?.error || 'Ошибка удаления клиента');
+      console.error('Ошибка загрузки записей клиента:', error);
+    }
+    
+    // Если есть записи, спрашиваем что делать с ними
+    if (appointmentCount > 0) {
+      const confirmMessage = `У клиента есть ${appointmentCount} ${appointmentCount === 1 ? 'запись' : appointmentCount < 5 ? 'записи' : 'записей'}.\n\nЧто делать с записями?`;
+      
+      showConfirm({
+        title: 'Удаление клиента',
+        message: confirmMessage,
+        confirmText: 'Удалить записи',
+        cancelText: 'Оставить записи',
+        confirmButtonClass: 'btn-danger',
+        onConfirm: async () => {
+          // Вторая модалка - подтверждение удаления
+          const confirmed = await showConfirm({
+            title: 'Подтверждение удаления',
+            message: 'Вы уверены, что хотите удалить этого клиента? Это действие нельзя отменить.',
+            confirmText: 'Да, удалить',
+            cancelText: 'Отмена',
+            confirmButtonClass: 'btn-danger'
+          });
+          
+          if (confirmed) {
+            try {
+              await axios.delete(`${API_URL}/clients/${clientId}`, {
+                data: { 
+                  currentUser: currentUser,
+                  deleteAppointments: true
+                }
+              });
+              await loadData();
+              toast.success(`✅ Клиент и ${appointmentCount} ${appointmentCount === 1 ? 'запись' : appointmentCount < 5 ? 'записи' : 'записей'} успешно удалены`);
+            } catch (error) {
+              console.error('Ошибка удаления клиента:', error);
+              toast.error(`Ошибка удаления клиента: ${error.response?.data?.error || error.message}`);
+            }
+          }
+        },
+        onCancel: async () => {
+          // Вторая модалка - подтверждение удаления
+          const confirmed = await showConfirm({
+            title: 'Подтверждение удаления',
+            message: 'Вы уверены, что хотите удалить этого клиента? Записи будут сохранены (client_id будет обнулен).',
+            confirmText: 'Да, удалить',
+            cancelText: 'Отмена',
+            confirmButtonClass: 'btn-danger'
+          });
+          
+          if (confirmed) {
+            try {
+              await axios.delete(`${API_URL}/clients/${clientId}`, {
+                data: { 
+                  currentUser: currentUser,
+                  deleteAppointments: false
+                }
+              });
+              await loadData();
+              toast.success(`✅ Клиент удален. ${appointmentCount} ${appointmentCount === 1 ? 'запись' : appointmentCount < 5 ? 'записи' : 'записей'} сохранены (client_id обнулен)`);
+            } catch (error) {
+              console.error('Ошибка удаления клиента:', error);
+              toast.error(`Ошибка удаления клиента: ${error.response?.data?.error || error.message}`);
+            }
+          }
+        }
+      });
+    } else {
+      // Если записей нет, просто подтверждаем удаление
+      showConfirm({
+        title: 'Подтверждение удаления',
+        message: 'Вы уверены, что хотите удалить этого клиента? Это действие нельзя отменить.',
+        confirmText: 'Да, удалить',
+        cancelText: 'Отмена',
+        confirmButtonClass: 'btn-danger',
+        onConfirm: async () => {
+          try {
+            await axios.delete(`${API_URL}/clients/${clientId}`, {
+              data: { 
+                currentUser: currentUser,
+                deleteAppointments: false
+              }
+            });
+            await loadData();
+            toast.success('✅ Клиент успешно удален');
+          } catch (error) {
+            console.error('Ошибка удаления клиента:', error);
+            toast.error(`Ошибка удаления клиента: ${error.response?.data?.error || error.message}`);
+          }
+        }
+      });
     }
   };
 
@@ -524,13 +615,20 @@ function App() {
   };
 
   const handleDeleteService = async (id) => {
-    toast.confirm('Удалить услугу?', async () => {
-      try {
-        await axios.delete(`${API_URL}/services/${id}`);
-        toast.success('✅ Услуга успешно удалена');
-        loadData();
-      } catch (error) {
-        toast.error('Ошибка удаления услуги');
+    showConfirm({
+      title: 'Удаление услуги',
+      message: 'Вы уверены, что хотите удалить эту услугу?',
+      confirmText: 'Да, удалить',
+      cancelText: 'Отмена',
+      confirmButtonClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_URL}/services/${id}`);
+          toast.success('✅ Услуга успешно удалена');
+          loadData();
+        } catch (error) {
+          toast.error('Ошибка удаления услуги');
+        }
       }
     });
   };
@@ -598,13 +696,20 @@ function App() {
   };
 
   const handleDeleteMaterial = async (id) => {
-    toast.confirm('Удалить материал?', async () => {
-      try {
-        await axios.delete(`${API_URL}/materials/${id}`);
-        toast.success('✅ Материал успешно удален');
-        loadData();
-      } catch (error) {
-        toast.error('Ошибка удаления материала');
+    showConfirm({
+      title: 'Удаление материала',
+      message: 'Вы уверены, что хотите удалить этот материал?',
+      confirmText: 'Да, удалить',
+      cancelText: 'Отмена',
+      confirmButtonClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_URL}/materials/${id}`);
+          toast.success('✅ Материал успешно удален');
+          loadData();
+        } catch (error) {
+          toast.error('Ошибка удаления материала');
+        }
       }
     });
   };
@@ -1250,6 +1355,7 @@ function App() {
           <BookingCalendar 
             currentUser={currentUser}
             toast={toast}
+            showConfirm={showConfirm}
             onBack={() => {
               // Если есть клиент для возврата, открываем его карточку
               if (returnToClientId) {
@@ -1288,6 +1394,7 @@ function App() {
           onClose={() => setShowClientCardModal(false)}
           onUpdate={loadData}
           toast={toast}
+          showConfirm={showConfirm}
         />
       )}
 
@@ -1299,6 +1406,7 @@ function App() {
           onClose={() => setShowClientHistoryModal(false)}
           onEditAppointment={handleEditAppointment}
           onCancelAppointment={handleCancelAppointment}
+          showConfirm={showConfirm}
         />
       )}
 
@@ -2149,6 +2257,18 @@ function App() {
 
       {/* Toast уведомления */}
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
+      
+      {/* Модальное окно подтверждения */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={confirmModal.onCancel}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        confirmButtonClass={confirmModal.confirmButtonClass}
+      />
 
       {/* Модальное окно смены пароля */}
       <ChangePassword
