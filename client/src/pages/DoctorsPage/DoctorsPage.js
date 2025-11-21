@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { getFullName } from '../../shared/lib';
+import ChangePassword from '../../components/ChangePassword';
 import './DoctorsPage.css';
 
 const getApiUrl = () => {
@@ -15,6 +16,8 @@ export const DoctorsPage = ({ onNavigate, currentUser }) => {
   const [doctors, setDoctors] = useState([]);
   const [showDoctorModal, setShowDoctorModal] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState(null);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [targetUserForPassword, setTargetUserForPassword] = useState(null);
 
   useEffect(() => {
     loadDoctors();
@@ -81,6 +84,25 @@ export const DoctorsPage = ({ onNavigate, currentUser }) => {
     setEditingDoctor(null);
   };
 
+  const handleChangePassword = async (doctor) => {
+    try {
+      // Получаем пользователя для этого врача
+      const response = await axios.get(`${API_URL}/users?doctor_id=${doctor.id}`);
+      const user = response.data;
+      
+      if (!user) {
+        alert('У этого врача нет аккаунта для входа в систему. Создайте аккаунт при добавлении/редактировании врача.');
+        return;
+      }
+      
+      setTargetUserForPassword(user);
+      setShowChangePasswordModal(true);
+    } catch (error) {
+      console.error('Ошибка получения пользователя:', error);
+      alert('Ошибка получения данных пользователя');
+    }
+  };
+
   const canEdit = currentUser && currentUser.role === 'superadmin';
 
   return (
@@ -136,6 +158,13 @@ export const DoctorsPage = ({ onNavigate, currentUser }) => {
                         ✏️ Редактировать
                       </button>
                       <button 
+                        className="btn btn-small"
+                        onClick={() => handleChangePassword(doctor)}
+                        title="Сменить пароль"
+                      >
+                        🔐 Пароль
+                      </button>
+                      <button 
                         className="btn btn-small btn-danger"
                         onClick={() => handleDelete(doctor.id)}
                       >
@@ -159,23 +188,44 @@ export const DoctorsPage = ({ onNavigate, currentUser }) => {
               doctor={editingDoctor}
               onSave={handleSave}
               onCancel={handleModalClose}
+              currentUser={currentUser}
             />
           </div>
         </div>
+      )}
+
+      {/* Модальное окно смены пароля */}
+      {showChangePasswordModal && (
+        <ChangePassword
+          currentUser={currentUser}
+          targetUser={targetUserForPassword}
+          isOpen={showChangePasswordModal}
+          onClose={() => {
+            setShowChangePasswordModal(false);
+            setTargetUserForPassword(null);
+          }}
+          onSuccess={() => {
+            setShowChangePasswordModal(false);
+            setTargetUserForPassword(null);
+          }}
+        />
       )}
     </div>
   );
 };
 
 // Форма врача
-const DoctorForm = ({ doctor, onSave, onCancel }) => {
+const DoctorForm = ({ doctor, onSave, onCancel, currentUser }) => {
   const [formData, setFormData] = useState({
     lastName: doctor?.lastName || '',
     firstName: doctor?.firstName || '',
     middleName: doctor?.middleName || '',
     specialization: doctor?.specialization || '',
     phone: doctor?.phone || '',
-    email: doctor?.email || ''
+    email: doctor?.email || '',
+    createUser: false,
+    username: '',
+    password: ''
   });
 
   const handleSubmit = (e) => {
@@ -184,7 +234,26 @@ const DoctorForm = ({ doctor, onSave, onCancel }) => {
       alert('Фамилия и имя обязательны');
       return;
     }
-    onSave(formData);
+    
+    // Валидация для создания пользователя
+    if (formData.createUser) {
+      if (!formData.username) {
+        alert('Введите имя пользователя для создания аккаунта');
+        return;
+      }
+      if (!formData.password || formData.password.length < 6) {
+        alert('Пароль должен содержать минимум 6 символов');
+        return;
+      }
+    }
+    
+    // Добавляем currentUser для проверки прав доступа
+    const dataToSave = {
+      ...formData,
+      currentUser: currentUser
+    };
+    
+    onSave(dataToSave);
   };
 
   return (
@@ -227,6 +296,44 @@ const DoctorForm = ({ doctor, onSave, onCancel }) => {
         value={formData.email}
         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
       />
+      
+      {/* Создание пользователя для врача (только при создании нового врача) */}
+      {!doctor && (
+        <div className="form-section">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={formData.createUser}
+              onChange={(e) => setFormData({ ...formData, createUser: e.target.checked })}
+            />
+            <span>Создать пользователя для входа в систему</span>
+          </label>
+          
+          {formData.createUser && (
+            <div className="user-credentials">
+              <input
+                type="text"
+                placeholder="Имя пользователя (логин) *"
+                value={formData.username}
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                required={formData.createUser}
+              />
+              <input
+                type="password"
+                placeholder="Пароль (минимум 6 символов) *"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                required={formData.createUser}
+                minLength={6}
+              />
+              <p className="form-hint">
+                Врач сможет войти в систему с этими данными. Роль будет автоматически установлена как "Врач".
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+      
       <div className="modal-actions">
         <button type="button" className="btn" onClick={onCancel}>
           Отмена

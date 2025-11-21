@@ -95,21 +95,6 @@ const LoginPage = ({ onLoginSuccess }) => {
             {loading ? 'Вход...' : 'Войти'}
           </button>
         </form>
-
-        <div className="login-footer">
-          <p className="login-hint">💡 Учетные данные по умолчанию:</p>
-          <div className="login-hints">
-            <div className="hint-item">
-              <strong>Главный админ:</strong> Admin / admin
-            </div>
-            <div className="hint-item">
-              <strong>Администратор:</strong> Administrator / administrator
-            </div>
-            <div className="hint-item">
-              <strong>Врач:</strong> Doctor1 / doctor
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

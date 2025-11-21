@@ -38,6 +38,58 @@
   margin-bottom: 20px;
 }
 
+.form-section {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  margin-bottom: 15px;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.user-credentials {
+  margin-top: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-credentials input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  transition: border-color 0.3s;
+}
+
+.user-credentials input:focus {
+  outline: none;
+  border-color: #4ecdc4;
+}
+
+.form-hint {
+  margin: 8px 0 0 0;
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
+}
+
 @media (max-width: 768px) {
   .doctors-list {
     grid-template-columns: 1fr;
