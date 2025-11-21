@@ -63,7 +63,7 @@ const parseTime = (dateTimeStr) => {
   };
 };
 
-const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete }) => {
+const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete, toast }) => {
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [schedules, setSchedules] = useState([]);
@@ -559,7 +559,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const handleDayClick = (year, month, day, skipScheduleCheck = false) => {
     const schedule = getDaySchedule(year, month, day);
     if (!skipScheduleCheck && schedule.length === 0) {
-      alert('На этот день нет расписания');
+      if (toast) toast.warning('На этот день нет расписания');
       return;
     }
 
@@ -599,7 +599,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       setShowModal(true);
     } catch (error) {
       console.error('Ошибка загрузки данных:', error);
-      alert('Ошибка загрузки данных врача');
+      if (toast) toast.error('Ошибка загрузки данных врача');
     }
   };
 
@@ -611,8 +611,19 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         : 'Клиент';
       const confirmMessage = `Отменить запись на ${time}?\n\nКлиент: ${clientName}\nТелефон: ${slot.appointment.client_phone || 'не указан'}`;
       
-      if (window.confirm(confirmMessage)) {
-        cancelAppointment(slot.appointment.id);
+      if (toast && toast.confirm) {
+        toast.confirm(confirmMessage, () => {
+          cancelAppointment(slot.appointment.id);
+        });
+      } else {
+        // Используем toast.confirm если доступен, иначе window.confirm
+        if (toast && toast.confirm) {
+          toast.confirm(confirmMessage, () => {
+            cancelAppointment(slot.appointment.id);
+          });
+        } else if (window.confirm(confirmMessage)) {
+          cancelAppointment(slot.appointment.id);
+        }
       }
       return;
     }
@@ -623,11 +634,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   const handleCreateAppointment = () => {
     if (!selectedClient) {
-      alert('Сначала выберите клиента');
+      if (toast) toast.warning('Сначала выберите клиента');
       return;
     }
     if (!selectedTime) {
-      alert('Выберите время');
+      if (toast) toast.warning('Выберите время');
       return;
     }
 
@@ -648,16 +659,16 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       setSelectedTime(null);
       // Принудительно обновляем модалку для перерисовки слотов
       setModalUpdateKey(prev => prev + 1);
-      alert('✅ Запись отменена');
+      if (toast) toast.success('✅ Запись отменена');
     } catch (error) {
       console.error('Ошибка отмены записи:', error);
-      alert(`❌ ${error.response?.data?.error || error.message}`);
+      if (toast) toast.error(`${error.response?.data?.error || error.message}`);
     }
   };
 
   const createNewClient = async () => {
     if (!newClientForm.lastName || !newClientForm.firstName || !newClientForm.phone) {
-      alert('Заполните обязательные поля: Фамилия, Имя, Телефон');
+      if (toast) toast.warning('Заполните обязательные поля: Фамилия, Имя, Телефон');
       return;
     }
 
@@ -676,10 +687,10 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       setShowCreateClientModal(false);
       setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '' });
       
-      alert('✅ Клиент успешно создан!');
+      if (toast) toast.success('✅ Клиент успешно создан!');
     } catch (error) {
       console.error('Ошибка создания клиента:', error);
-      alert(`❌ ${error.response?.data?.error || error.message}`);
+      if (toast) toast.error(`${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -723,7 +734,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         if (onEditComplete) {
           onEditComplete();
         }
-        alert('✅ Запись успешно обновлена!');
+        if (toast) toast.success('✅ Запись успешно обновлена!');
       } else {
         // Сбрасываем только выбранное время и форму, но НЕ закрываем модалку
         // Это позволяет сразу записать еще одного клиента
@@ -732,11 +743,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setClientSearch('');
         setSelectedServices([]);
         setNotes('');
-        alert('✅ Запись успешно создана!');
+        if (toast) toast.success('✅ Запись успешно создана!');
       }
     } catch (error) {
       console.error('Ошибка создания/обновления записи:', error);
-      alert(`❌ ${error.response?.data?.error || error.message}`);
+      if (toast) toast.error(`${error.response?.data?.error || error.message}`);
     } finally {
       setCreating(false);
     }

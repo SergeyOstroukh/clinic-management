@@ -1,0 +1,36 @@
+.phone-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.phone-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s;
+  box-sizing: border-box;
+}
+
+.phone-input:focus {
+  outline: none;
+  border-color: #4ecdc4;
+}
+
+.phone-input-error {
+  border-color: #f44336;
+}
+
+.phone-input-error:focus {
+  border-color: #f44336;
+}
+
+.phone-input-error-message {
+  display: block;
+  color: #f44336;
+  font-size: 0.85rem;
+  margin-top: 4px;
+  margin-left: 4px;
+}
+

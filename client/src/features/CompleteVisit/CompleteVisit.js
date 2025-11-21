@@ -11,7 +11,7 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
-const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
+const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast }) => {
   const [diagnosis, setDiagnosis] = useState(visit.diagnosis || '');
   const [selectedServices, setSelectedServices] = useState(visit.services || []);
   const [selectedMaterials, setSelectedMaterials] = useState(visit.materials || []);
@@ -148,16 +148,22 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
     if (addedMaterialsCount > 0) {
       message += `- Материалов: ${addedMaterialsCount}`;
     }
-    alert(message);
+    if (toast) {
+      toast.info(message);
+    } else {
+      alert(message);
+    }
   };
 
   const handleSubmit = async () => {
     if (!diagnosis.trim()) {
-      alert('Пожалуйста, введите диагноз');
+      if (toast) toast.warning('Пожалуйста, введите диагноз');
+      else alert('Пожалуйста, введите диагноз');
       return;
     }
     if (selectedServices.length === 0) {
-      alert('Пожалуйста, выберите хотя бы одну услугу');
+      if (toast) toast.warning('Пожалуйста, выберите хотя бы одну услугу');
+      else alert('Пожалуйста, выберите хотя бы одну услугу');
       return;
     }
 
@@ -179,7 +185,8 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
       .filter(m => !isNaN(m.material_id)); // Убираем записи с невалидным ID
 
     if (normalizedServices.length === 0) {
-      alert('Ошибка: нет валидных услуг для сохранения. Пожалуйста, выберите услуги заново.');
+      if (toast) toast.error('Ошибка: нет валидных услуг для сохранения. Пожалуйста, выберите услуги заново.');
+      else alert('Ошибка: нет валидных услуг для сохранения. Пожалуйста, выберите услуги заново.');
       return;
     }
 
@@ -201,7 +208,8 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel }) => {
         services: normalizedServices, 
         materials: normalizedMaterials 
       });
-      alert(`Ошибка завершения приема: ${error.response?.data?.error || error.message}`);
+      if (toast) toast.error(`Ошибка завершения приема: ${error.response?.data?.error || error.message}`);
+      else alert(`Ошибка завершения приема: ${error.response?.data?.error || error.message}`);
     } finally {
       setIsSubmitting(false);
     }
