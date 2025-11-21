@@ -42,6 +42,7 @@ function App() {
   
   // Модальные окна
   const [showClientModal, setShowClientModal] = useState(false);
+  const [editingClient, setEditingClient] = useState(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -314,19 +315,52 @@ function App() {
   };
 
   // Создание клиента
+  // Удалить клиента
+  const handleDeleteClient = async (clientId) => {
+    if (!window.confirm('Вы уверены, что хотите удалить этого клиента? Это действие нельзя отменить.')) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API_URL}/clients/${clientId}`, {
+        data: { currentUser: currentUser }
+      });
+      
+      // Обновляем список клиентов
+      const updatedClients = clients.filter(c => c.id !== clientId);
+      setClients(updatedClients);
+      
+      alert('✅ Клиент успешно удален');
+    } catch (error) {
+      console.error('Ошибка удаления клиента:', error);
+      alert(error.response?.data?.error || 'Ошибка удаления клиента');
+    }
+  };
+
   const handleCreateClient = async (e) => {
     e.preventDefault();
     try {
       console.log('Отправка данных клиента:', clientForm);
-      const response = await axios.post(`${API_URL}/clients`, clientForm);
-      console.log('Ответ сервера:', response.data);
-      const newClientId = response.data.id;
       
-      // Если модалка записи открыта, автоматически выбираем нового клиента
-      if (showAppointmentModal) {
-        setAppointmentForm({ ...appointmentForm, client_id: newClientId });
-        // Используем данные из формы для отображения
-        setClientSearchQuery(getFullName(clientForm.lastName, clientForm.firstName, clientForm.middleName));
+      if (editingClient) {
+        // Редактирование существующего клиента
+        await axios.put(`${API_URL}/clients/${editingClient.id}`, {
+          ...clientForm,
+          currentUser: currentUser
+        });
+        alert('✅ Клиент успешно обновлен');
+      } else {
+        // Создание нового клиента
+        const response = await axios.post(`${API_URL}/clients`, clientForm);
+        console.log('Ответ сервера:', response.data);
+        const newClientId = response.data.id;
+        
+        // Если модалка записи открыта, автоматически выбираем нового клиента
+        if (showAppointmentModal) {
+          setAppointmentForm({ ...appointmentForm, client_id: newClientId });
+          // Используем данные из формы для отображения
+          setClientSearchQuery(getFullName(clientForm.lastName, clientForm.firstName, clientForm.middleName));
+        }
       }
       
       // Обновляем данные
@@ -334,11 +368,12 @@ function App() {
       
       // Очищаем форму и закрываем модалку
       setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+      setEditingClient(null);
       setShowClientModal(false);
     } catch (error) {
-      console.error('Ошибка создания клиента:', error);
+      console.error('Ошибка сохранения клиента:', error);
       console.error('Ответ сервера:', error.response?.data);
-      alert(`Ошибка создания клиента: ${error.response?.data?.error || error.message}`);
+      alert(`Ошибка сохранения клиента: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -722,7 +757,11 @@ function App() {
               }).length})</h2>
               <div>
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
-                <button className="btn btn-primary" onClick={() => setShowClientModal(true)}>+ Добавить клиента</button>
+                <button className="btn btn-primary" onClick={() => {
+                  setEditingClient(null);
+                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+                  setShowClientModal(true);
+                }}>+ Добавить клиента</button>
               </div>
             </div>
 
@@ -802,6 +841,38 @@ function App() {
                             >
                               📋 Карточка
                             </button>
+                            {currentUser.role === 'superadmin' && (
+                              <>
+                                <button 
+                                  className="btn btn-small"
+                                  onClick={() => {
+                                    setEditingClient(client);
+                                    setClientForm({
+                                      lastName: client.lastName || '',
+                                      firstName: client.firstName || '',
+                                      middleName: client.middleName || '',
+                                      phone: client.phone || '',
+                                      address: client.address || '',
+                                      email: client.email || '',
+                                      notes: client.notes || ''
+                                    });
+                                    setEditingClient(null);
+                                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+                                    setShowClientModal(true);
+                                  }}
+                                  title="Редактировать клиента"
+                                >
+                                  ✏️ Редактировать
+                                </button>
+                                <button 
+                                  className="btn btn-small btn-danger"
+                                  onClick={() => handleDeleteClient(client.id)}
+                                  title="Удалить клиента"
+                                >
+                                  🗑️ Удалить
+                                </button>
+                              </>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1178,7 +1249,11 @@ function App() {
                 <button
                   type="button"
                   className="btn btn-small"
-                  onClick={() => setShowClientModal(true)}
+                  onClick={() => {
+                    setEditingClient(null);
+                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+                    setShowClientModal(true);
+                  }}
                 >
                   + Создать нового клиента
                 </button>
@@ -1837,18 +1912,19 @@ function App() {
         </div>
       )}
 
-      {/* Модальное окно создания клиента */}
+      {/* Модальное окно создания/редактирования клиента */}
       {showClientModal && (
         <div 
           className="modal-overlay" 
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setShowClientModal(false);
+              setEditingClient(null);
             }
           }}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Новый клиент</h2>
+            <h2>{editingClient ? 'Редактировать клиента' : 'Новый клиент'}</h2>
             <form onSubmit={handleCreateClient}>
               <label>Фамилия *</label>
               <input
@@ -1915,7 +1991,7 @@ function App() {
                   Отмена
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Создать
+                  {editingClient ? 'Сохранить' : 'Создать'}
                 </button>
               </div>
             </form>
