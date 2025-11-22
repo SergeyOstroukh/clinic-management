@@ -776,9 +776,9 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
         )}
       </div>
 
-      {/* Все врачи (для просмотра расписания) */}
-      {doctors.length > 0 && (
-        <div className="not-working-section">
+      {/* Все врачи (для просмотра расписания) - всегда показываем, если есть врачи */}
+      {Array.isArray(doctors) && doctors.length > 0 && (
+        <div className="not-working-section" style={{ display: 'block' }}>
           <div className="section-divider">
             <h3>Все врачи</h3>
             <span className="count-badge">{doctors.length}</span>
@@ -797,10 +797,10 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
               </thead>
               <tbody>
                 {doctors.map((doctor, index) => (
-                  <tr key={doctor.id}>
+                  <tr key={doctor.id || index}>
                     <td className="number-cell">{index + 1}</td>
                     <td>{doctor.lastName} {doctor.firstName} {doctor.middleName || ''}</td>
-                    <td>{doctor.specialization}</td>
+                    <td>{doctor.specialization || '-'}</td>
                     <td>{doctor.phone || '-'}</td>
                     <td>
                       <button 
