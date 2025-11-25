@@ -1057,6 +1057,99 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+// Получить одну запись по ID с услугами и материалами
+app.get('/api/appointments/:id', async (req, res) => {
+  try {
+    const appointment = await db.get(
+      usePostgres
+        ? `SELECT 
+            a.*,
+            d."lastName" as doctor_lastName,
+            d."firstName" as doctor_firstName,
+            d."middleName" as doctor_middleName,
+            d.specialization as doctor_specialization
+          FROM appointments a
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE a.id = $1`
+        : `SELECT 
+            a.*,
+            d."lastName" as doctor_lastName,
+            d."firstName" as doctor_firstName,
+            d."middleName" as doctor_middleName,
+            d.specialization as doctor_specialization
+          FROM appointments a
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          WHERE a.id = ?`,
+      [req.params.id]
+    );
+
+    if (!appointment) {
+      return res.status(404).json({ error: 'Запись не найдена' });
+    }
+
+    // Получаем услуги
+    const services = await db.all(
+      usePostgres
+        ? `SELECT aps.service_id, aps.quantity, s.name, s.price
+           FROM appointment_services aps
+           JOIN services s ON aps.service_id = s.id
+           WHERE aps.appointment_id = $1`
+        : `SELECT aps.service_id, aps.quantity, s.name, s.price
+           FROM appointment_services aps
+           JOIN services s ON aps.service_id = s.id
+           WHERE aps.appointment_id = ?`,
+      [appointment.id]
+    );
+
+    // Получаем материалы
+    const materials = await db.all(
+      usePostgres
+        ? `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit       
+           FROM appointment_materials apm
+           JOIN materials m ON apm.material_id = m.id
+           WHERE apm.appointment_id = $1`
+        : `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit       
+           FROM appointment_materials apm
+           JOIN materials m ON apm.material_id = m.id
+           WHERE apm.appointment_id = ?`,
+      [appointment.id]
+    );
+
+    // Получаем информацию о клиенте
+    const client = await db.get(
+      usePostgres
+        ? `SELECT id, "lastName", "firstName", "middleName", phone FROM clients WHERE id = $1`                                                                 
+        : `SELECT id, "lastName", "firstName", "middleName", phone FROM clients WHERE id = ?`,                                                                 
+      [appointment.client_id]
+    );
+
+    const appointmentWithData = {
+      ...appointment,
+      // Нормализуем called_today: boolean -> 1/0 для совместимости с клиентом                                             
+      called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,                                                               
+      services: services.map(s => ({
+        service_id: s.service_id,
+        name: s.name,
+        price: s.price,
+        quantity: s.quantity
+      })),
+      materials: materials.map(m => ({
+        material_id: m.material_id,
+        name: m.name,
+        price: m.price,
+        quantity: m.quantity,
+        unit: m.unit
+      })),
+      client: client || null
+    };
+
+    res.json(appointmentWithData);
+  } catch (error) {
+    console.error('Ошибка получения записи:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Создать запись
 app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes } = req.body;
@@ -1261,7 +1354,7 @@ app.patch('/api/appointments/:id/complete-payment', async (req, res) => {
 
 // Завершить прием (врач)
 app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
-  const { diagnosis, services, materials } = req.body;
+  const { diagnosis, services, materials, treatment_plan } = req.body;
   
   try {
     // Получаем старые материалы для восстановления остатков
@@ -1326,9 +1419,11 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       }
     }
     
-    // Получаем информацию о записи для автоматического списания
-    const appointment = await db.get(
-      usePostgres ? 'SELECT doctor_id FROM appointments WHERE id = $1' : 'SELECT doctor_id FROM appointments WHERE id = ?',
+    // Получаем информацию о записи (используем один запрос для doctor_id и client_id)
+    const appointmentData = await db.get(
+      usePostgres
+        ? 'SELECT doctor_id, client_id FROM appointments WHERE id = $1'
+        : 'SELECT doctor_id, client_id FROM appointments WHERE id = ?',
       [req.params.id]
     );
     
@@ -1370,7 +1465,7 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
               materialData.price,
               `Автоматическое списание при завершении приема #${req.params.id}`,
               req.params.id,
-              appointment?.doctor_id || null
+              appointmentData?.doctor_id || null
             ]
           );
           
@@ -1422,6 +1517,34 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
         : 'UPDATE appointments SET diagnosis = ?, status = ?, total_price = ? WHERE id = ?',
       [diagnosis, 'ready_for_payment', totalPrice, req.params.id]
     );
+
+    // Сохраняем план лечения, если он был передан и найден клиент
+    if (appointmentData?.client_id && treatment_plan !== undefined) {
+      // Гарантируем, что это строка
+      let normalizedPlan = '';
+      if (treatment_plan !== null && treatment_plan !== undefined) {
+        if (typeof treatment_plan === 'string') {
+          normalizedPlan = treatment_plan.trim();
+        } else if (typeof treatment_plan === 'object') {
+          // Если это объект, не сохраняем (это ошибка)
+          console.warn(`⚠️ План лечения передан как объект для клиента ${appointmentData.client_id}, пропускаем сохранение`);
+          normalizedPlan = '';
+        } else {
+          normalizedPlan = String(treatment_plan).trim();
+        }
+      }
+      
+      await db.run(
+        usePostgres
+          ? 'UPDATE clients SET treatment_plan = $1 WHERE id = $2'
+          : 'UPDATE clients SET treatment_plan = ? WHERE id = ?',
+        [normalizedPlan || null, appointmentData.client_id]
+      );
+      console.log(
+        `✅ План лечения сохранен для клиента ${appointmentData.client_id}:`,
+        normalizedPlan ? `${normalizedPlan.length} символов` : 'пустой'
+      );
+    }
     
     res.json({ message: 'Прием завершен', status: 'ready_for_payment' });
   } catch (error) {

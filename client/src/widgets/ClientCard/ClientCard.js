@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { formatDate, getFullName } from '../../shared/lib';
+import { formatDate, getFullName, calculateServicesTotal, calculateMaterialsTotal } from '../../shared/lib';
 import Tabs from '../../components/Tabs';
+import { ApplyDiscount } from '../../features/ApplyDiscount';
+import { PaymentCalculator } from '../../features/PaymentCalculator';
 import './ClientCard.css';
 
 const getApiUrl = () => {
@@ -24,7 +26,8 @@ const ClientCard = ({
   toast,
   onEditAppointment,
   onCancelAppointment,
-  showConfirm
+  showConfirm,
+  mode = 'card' // 'card' - карточка с вкладками, 'payment' - окно оплаты
 }) => {
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,8 @@ const ClientCard = ({
   const [treatmentPlan, setTreatmentPlan] = useState('');
   const [editingTreatmentPlan, setEditingTreatmentPlan] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [showCompleteVisit, setShowCompleteVisit] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState(0);
 
   const client = clients.find(c => c.id === clientId);
 
@@ -54,9 +59,12 @@ const ClientCard = ({
   const loadClientData = async () => {
     try {
       const response = await axios.get(`${API_URL}/clients/${clientId}`);
-      if (response.data.treatment_plan) {
-        setTreatmentPlan(response.data.treatment_plan);
-      }
+      // Обновляем план лечения (даже если он пустой), гарантируем что это строка
+      const plan = response.data.treatment_plan 
+        ? String(response.data.treatment_plan).trim() 
+        : '';
+      setTreatmentPlan(plan);
+      console.log('План лечения загружен:', plan ? 'есть' : 'пустой', plan);
     } catch (error) {
       console.error('Ошибка загрузки данных клиента:', error);
     }
@@ -67,6 +75,40 @@ const ClientCard = ({
       loadClientHistory();
       loadClientData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, mode]); // Перезагружаем данные при изменении режима
+  
+  // Дополнительная загрузка плана лечения при открытии модалки оплаты
+  useEffect(() => {
+    if (mode === 'payment' && clientId) {
+      loadClientData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, clientId]);
+
+  // Слушаем событие обновления приема для перезагрузки данных
+  useEffect(() => {
+    const handleAppointmentUpdate = () => {
+      if (clientId) {
+        // Перезагружаем данные клиента, включая план лечения
+        loadClientData();
+        loadClientHistory();
+      }
+    };
+    
+    const handleClientDataUpdate = () => {
+      if (clientId) {
+        // Перезагружаем данные клиента при обновлении
+        loadClientData();
+      }
+    };
+    
+    window.addEventListener('appointmentUpdated', handleAppointmentUpdate);
+    window.addEventListener('clientDataUpdated', handleClientDataUpdate);
+    return () => {
+      window.removeEventListener('appointmentUpdated', handleAppointmentUpdate);
+      window.removeEventListener('clientDataUpdated', handleClientDataUpdate);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -141,13 +183,177 @@ const ClientCard = ({
     }
   };
 
-  const handlePrintTreatmentPlan = () => {
+  const handlePrintTreatmentPlan = async (planToPrint = null) => {
+    // Проверяем, что clientId существует
+    if (!clientId) {
+      console.error('❌ clientId не определен для печати плана лечения');
+      if (toast) toast.error('Ошибка: ID клиента не определен');
+      return;
+    }
+    
+    // ИГНОРИРУЕМ параметр planToPrint - всегда используем состояние
+    // (React может передать event объект, поэтому игнорируем параметр)
+    let planValue = '';
+    let clientDataForPrint = client; // Используем текущие данные клиента как fallback
+    
+    // Функция для безопасного извлечения строки из значения
+    const extractString = (value) => {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Проверяем, что это не '[object Object]'
+        if (trimmed === '[object Object]') return '';
+        return trimmed;
+      }
+      if (typeof value === 'object') {
+        // Если это объект, не используем его
+        return '';
+      }
+      const str = String(value).trim();
+      if (str === '[object Object]') return '';
+      return str;
+    };
+    
+    // ПРЯМО используем treatmentPlan из состояния, если он есть
+    const statePlanStr = extractString(treatmentPlan);
+    console.log('📋 Проверяем план лечения из состояния:', {
+      treatmentPlan: treatmentPlan,
+      treatmentPlanType: typeof treatmentPlan,
+      treatmentPlanLength: treatmentPlan?.length,
+      statePlanStr: statePlanStr,
+      statePlanStrLength: statePlanStr.length,
+      hasTreatmentPlan: statePlanStr.length > 0
+    });
+    
+    // Проверяем напрямую treatmentPlan из состояния
+    if (statePlanStr && statePlanStr.length > 0) {
+      // Используем план из состояния напрямую
+      planValue = statePlanStr;
+      console.log('✅ Используем план из состояния для печати:', planValue.substring(0, 100) + '...');
+      
+      // Загружаем данные клиента для печати
+      try {
+        const clientResponse = await axios.get(`${API_URL}/clients/${clientId}`);
+        clientDataForPrint = clientResponse.data;
+        
+        // Если в базе есть более свежий план, используем его
+        const rawPlan = clientResponse.data.treatment_plan;
+        const dbPlanStr = extractString(rawPlan);
+        if (dbPlanStr && dbPlanStr.length > 0) {
+          planValue = dbPlanStr;
+          setTreatmentPlan(dbPlanStr); // Обновляем состояние
+          console.log('✅ Обновлен план из базы (более свежий):', planValue.substring(0, 100) + '...');
+        }
+      } catch (error) {
+        console.warn('⚠️ Не удалось загрузить данные клиента, используем текущие:', error);
+      }
+    } else {
+      // Если в состоянии пусто, загружаем из базы
+      console.log('🔄 План в состоянии пустой, загружаем из базы...', { clientId });
+      try {
+        const clientResponse = await axios.get(`${API_URL}/clients/${clientId}`);
+        clientDataForPrint = clientResponse.data;
+        
+        const rawPlan = clientResponse.data.treatment_plan;
+        const dbPlanStr = extractString(rawPlan);
+        if (dbPlanStr && dbPlanStr.length > 0) {
+          planValue = dbPlanStr;
+          setTreatmentPlan(planValue); // Обновляем состояние
+          console.log('✅ План лечения загружен из базы для печати:', planValue.substring(0, 100) + '...');
+        } else {
+          planValue = '';
+          console.log('❌ План лечения пустой в базе');
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки плана лечения для печати:', error);
+        planValue = '';
+      }
+    }
+    
+    // Финальное преобразование в строку - гарантируем что это строка
+    let plan = '';
+    if (planValue) {
+      if (typeof planValue === 'string') {
+        plan = planValue.trim();
+      } else {
+        console.error('❌ planValue не является строкой!', typeof planValue, planValue);
+        plan = '';
+      }
+    }
+    
+    console.log('Печать плана лечения (ФИНАЛЬНЫЕ данные):', { 
+      plan: plan.substring(0, 200) + (plan.length > 200 ? '...' : ''), 
+      planLength: plan.length, 
+      clientId,
+      planValue: planValue ? planValue.substring(0, 200) + (planValue.length > 200 ? '...' : '') : '',
+      planValueType: typeof planValue,
+      planType: typeof plan,
+      treatmentPlanFromState: treatmentPlan ? treatmentPlan.substring(0, 100) + '...' : '',
+      treatmentPlanFromStateLength: treatmentPlan?.length,
+      willShowPlan: plan && plan.length > 0,
+      clientDataExists: !!clientDataForPrint
+    });
+    
+    // Если план пустой, выводим предупреждение
+    if (!plan || plan.length === 0) {
+      console.warn('⚠️ ВНИМАНИЕ: План лечения пустой! Проверьте базу данных для clientId:', clientId);
+      if (toast) toast.warning('План лечения пустой. Проверьте, что план лечения заполнен врачом.');
+    }
+    
+    // Проверяем, что данные клиента доступны
+    if (!clientDataForPrint) {
+      console.error('❌ Данные клиента не загружены для печати');
+      if (toast) toast.error('Ошибка: данные клиента не загружены');
+      return;
+    }
+    
+    // Формируем HTML для плана лечения ДО создания шаблонной строки
+    let planHtml = '';
+    if (plan && plan.length > 0) {
+      const planLines = plan
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+        .map((line, idx) => {
+          const trimmedLine = line.trim();
+          const isNumbered = /^\d+[.)]\s/.test(trimmedLine);
+          const displayText = isNumbered 
+            ? trimmedLine.replace(/^\d+[.)]\s/, '')
+            : trimmedLine;
+          // Экранируем HTML для безопасности
+          const escapedText = displayText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          return `
+            <div class="treatment-plan-item-print">
+              <span class="item-number">${idx + 1}.</span>
+              <span class="item-text">${escapedText}</span>
+            </div>
+          `;
+        });
+      planHtml = planLines.join('');
+    } else {
+      planHtml = '<p>План лечения не указан</p>';
+    }
+    
+    // Экранируем данные клиента для безопасности (используем загруженные данные)
+    const clientName = getFullName(clientDataForPrint?.lastName, clientDataForPrint?.firstName, clientDataForPrint?.middleName)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const clientPhone = clientDataForPrint?.phone ? String(clientDataForPrint.phone).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const clientAddress = clientDataForPrint?.address ? String(clientDataForPrint.address).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const clientEmail = clientDataForPrint?.email ? String(clientDataForPrint.email).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    
     const printWindow = window.open('', '_blank');
     const printContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>План лечения - ${getFullName(client?.lastName, client?.firstName, client?.middleName)}</title>
+          <title>План лечения - ${clientName}</title>
           <style>
             body {
               font-family: Arial, sans-serif;
@@ -228,35 +434,17 @@ const ClientCard = ({
           
           <div class="patient-info">
             <h2>Информация о пациенте</h2>
-            <p><strong>ФИО:</strong> ${getFullName(client?.lastName, client?.firstName, client?.middleName)}</p>
-            ${client?.phone ? `<p><strong>Телефон:</strong> ${client.phone}</p>` : ''}
-            ${client?.address ? `<p><strong>Адрес:</strong> ${client.address}</p>` : ''}
-            ${client?.email ? `<p><strong>Email:</strong> ${client.email}</p>` : ''}
+            <p><strong>ФИО:</strong> ${clientName}</p>
+            ${clientPhone ? `<p><strong>Телефон:</strong> ${clientPhone}</p>` : ''}
+            ${clientAddress ? `<p><strong>Адрес:</strong> ${clientAddress}</p>` : ''}
+            ${clientEmail ? `<p><strong>Email:</strong> ${clientEmail}</p>` : ''}
             <p><strong>Дата:</strong> ${formatDate(new Date(), 'dd.MM.yyyy')}</p>
           </div>
           
           <div class="treatment-plan">
             <h2>План лечения</h2>
             <div class="treatment-plan-content">
-              ${treatmentPlan 
-                ? treatmentPlan
-                    .split('\n')
-                    .filter(line => line.trim().length > 0)
-                    .map((line, idx) => {
-                      const trimmedLine = line.trim();
-                      const isNumbered = /^\d+[.)]\s/.test(trimmedLine);
-                      const displayText = isNumbered 
-                        ? trimmedLine.replace(/^\d+[.)]\s/, '')
-                        : trimmedLine;
-                      return `
-                        <div class="treatment-plan-item-print">
-                          <span class="item-number">${idx + 1}.</span>
-                          <span class="item-text">${displayText}</span>
-                        </div>
-                      `;
-                    }).join('')
-                : '<p>План лечения не указан</p>'
-              }
+              ${planHtml}
             </div>
           </div>
           
@@ -306,11 +494,375 @@ const ClientCard = ({
     .filter(v => v.diagnosis)
     .sort((a, b) => new Date(b.appointment_date) - new Date(a.appointment_date))[0]?.diagnosis || null;
 
+  // Получаем сегодняшний визит для режима оплаты
+  const getTodayVisit = () => {
+    // Сначала ищем неоплаченные визиты (готовые к оплате или сегодняшние активные)
+    const readyForPayment = clientHistory.find(visit => visit.status === 'ready_for_payment');
+    if (readyForPayment) return readyForPayment;
+    
+    // Ищем сегодняшний визит с активными статусами (не оплаченный)
+    const today = new Date().toISOString().split('T')[0];
+    const todayActiveVisit = clientHistory.find(visit => {
+      const visitDate = new Date(visit.appointment_date).toISOString().split('T')[0];
+      const isNotPaid = visit.status !== 'completed' && visit.paid !== true && visit.paid !== 1;
+      return visitDate === today && isNotPaid && (visit.status === 'scheduled' || visit.status === 'waiting' || visit.status === 'in-progress');
+    });
+    if (todayActiveVisit) return todayActiveVisit;
+    
+    // Если нет неоплаченных, ищем оплаченный визит (completed или paid === true)
+    const paidVisit = clientHistory.find(visit => 
+      visit.status === 'completed' || visit.paid === true || visit.paid === 1
+    );
+    return paidVisit;
+  };
+
+  const todayVisit = getTodayVisit();
+
+  // Расчет сумм для сегодняшнего визита
+  let todayTotal = 0;
+  if (todayVisit) {
+    todayTotal = calculateServicesTotal(todayVisit.services || [], services) +
+                 calculateMaterialsTotal(todayVisit.materials || [], materials);
+  }
+  const finalTodayTotal = todayTotal - discountAmount;
+
+  const handleMarkAsCompleted = async (visitId) => {
+    try {
+      await axios.patch(`${API_URL}/appointments/${visitId}/complete-payment`, { 
+        discount_amount: discountAmount 
+      });
+      setDiscountAmount(0);
+      // Перезагружаем данные после оплаты
+      await loadClientHistory();
+      
+      // Получаем актуальные данные клиента для проверки плана лечения
+      const clientResponse = await axios.get(`${API_URL}/clients/${clientId}`);
+      console.log('Данные клиента после оплаты:', {
+        treatment_plan: clientResponse.data.treatment_plan,
+        treatment_plan_type: typeof clientResponse.data.treatment_plan,
+        treatment_plan_length: clientResponse.data.treatment_plan?.length
+      });
+      
+      const rawPlan = clientResponse.data.treatment_plan;
+      const updatedTreatmentPlan = rawPlan !== null && rawPlan !== undefined
+        ? String(rawPlan).trim()
+        : '';
+      
+      console.log('Обновленный план лечения:', {
+        updatedTreatmentPlan,
+        length: updatedTreatmentPlan.length
+      });
+      
+      setTreatmentPlan(updatedTreatmentPlan);
+      
+      if (toast) toast.success('✅ Оплата завершена!');
+      if (onUpdate) onUpdate();
+      
+      // Оставляем модалку открытой в режиме оплаты, чтобы показать план лечения
+      // Модалка автоматически переключится в режим просмотра оплаченного приема
+    } catch (error) {
+      console.error('Ошибка обновления статуса:', error);
+      if (toast) toast.error('Ошибка завершения оплаты');
+    }
+  };
+
   const tabs = [
     { label: 'История визитов', icon: '📋' },
     { label: 'Карточка пациента', icon: '👤' }
   ];
 
+  // Режим оплаты - показываем форму оплаты для сегодняшнего визита
+  if (mode === 'payment') {
+    // Строгая проверка оплаты: статус completed ИЛИ paid === true/1
+    const isPaid = todayVisit && (
+      todayVisit.status === 'completed' || 
+      todayVisit.paid === true || 
+      todayVisit.paid === 1 ||
+      todayVisit.paid === 'true'
+    );
+    const visitTotal = todayVisit ? (calculateServicesTotal(todayVisit.services || [], services) +
+                                     calculateMaterialsTotal(todayVisit.materials || [], materials) -
+                                     (todayVisit.discount_amount || 0)) : 0;
+
+    return (
+      <div className="client-card-overlay" onClick={onClose}>
+        <div className="client-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+          <div className="client-card-header" style={isPaid ? { background: 'linear-gradient(135deg, #27ae60 0%, #2ecc71 100%)' } : {}}>
+            <div>
+              <h2>{isPaid ? '✅ Прием оплачен' : '💰 Оплата приема'}</h2>
+              <h3>{getFullName(client.lastName, client.firstName, client.middleName)}</h3>
+            </div>
+            <button className="btn-close" onClick={onClose}>✕</button>
+          </div>
+
+          {!todayVisit ? (
+            <div style={{ padding: '20px', textAlign: 'center' }}>
+              <p>Нет активных визитов на сегодня</p>
+              <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
+            </div>
+          ) : isPaid ? (
+            // Режим просмотра для оплаченного приема
+            <div style={{ padding: '20px' }}>
+              <div style={{ 
+                marginBottom: '20px', 
+                padding: '15px', 
+                backgroundColor: '#e8f5e9', 
+                borderRadius: '8px',
+                border: '2px solid #4caf50'
+              }}>
+                <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '2em', marginRight: '10px' }}>✅</span>
+                  <strong style={{ fontSize: '1.2em', color: '#2e7d32' }}>Оплата завершена</strong>
+                </div>
+                <p style={{ textAlign: 'center', color: '#666', margin: 0 }}>
+                  Прием успешно оплачен. Изменения недоступны.
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <h4>📅 Дата приема: {formatDate(todayVisit.appointment_date, 'dd.MM.yyyy HH:mm')}</h4>
+                <p><strong>Врач:</strong> {getDoctorName(todayVisit.doctor)}</p>
+                {todayVisit.diagnosis && (
+                  <p><strong>Диагноз:</strong> {todayVisit.diagnosis}</p>
+                )}
+              </div>
+
+              {/* Услуги */}
+              {todayVisit.services && todayVisit.services.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>🛠️ Услуги:</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd' }}>
+                        <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todayVisit.services.map((s, idx) => {
+                        const service = services.find(sv => sv.id === s.service_id);
+                        if (!service) return null;
+                        const itemTotal = service.price * s.quantity;
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: '8px' }}>{service.name}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Материалы */}
+              {todayVisit.materials && todayVisit.materials.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>🧪 Материалы:</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd' }}>
+                        <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todayVisit.materials.map((m, idx) => {
+                        const material = materials.find(mat => mat.id === m.material_id);
+                        if (!material) return null;
+                        const itemTotal = material.price * m.quantity;
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: '8px' }}>{material.name}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Итого */}
+              <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+                {todayVisit.discount_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <span>Скидка:</span>
+                    <span style={{ color: '#2e7d32', fontWeight: 'bold' }}>-{todayVisit.discount_amount.toFixed(2)} BYN</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '10px', borderTop: '2px solid #ddd' }}>
+                  <strong>Итого оплачено:</strong>
+                  <strong style={{ fontSize: '1.2em', color: '#2e7d32' }}>{visitTotal.toFixed(2)} BYN</strong>
+                </div>
+              </div>
+
+              {/* План лечения */}
+              <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#fff3e0', borderRadius: '8px', border: '1px solid #ffb74d' }}>
+                <h4 style={{ marginTop: 0, marginBottom: '10px' }}>📋 План лечения</h4>
+                {treatmentPlan && treatmentPlan.trim() ? (
+                  <>
+                    <p style={{ color: '#666', fontSize: '0.9em', marginBottom: '10px' }}>
+                      План лечения заполнен врачом. Вы можете распечатать его для пациента.
+                    </p>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={handlePrintTreatmentPlan}
+                      style={{ width: '100%' }}
+                    >
+                      🖨️ Распечатать план лечения
+                    </button>
+                  </>
+                ) : (
+                  <p style={{ color: '#999', fontSize: '0.9em', fontStyle: 'italic' }}>
+                    План лечения не заполнен врачом.
+                  </p>
+                )}
+              </div>
+
+              {/* Кнопки */}
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '20px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <h4>📅 Дата приема: {formatDate(todayVisit.appointment_date, 'dd.MM.yyyy HH:mm')}</h4>
+                <p><strong>Врач:</strong> {getDoctorName(todayVisit.doctor)}</p>
+                {todayVisit.diagnosis && (
+                  <p><strong>Диагноз:</strong> {todayVisit.diagnosis}</p>
+                )}
+              </div>
+
+              {/* Услуги */}
+              {todayVisit.services && todayVisit.services.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>🛠️ Услуги:</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd' }}>
+                        <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todayVisit.services.map((s, idx) => {
+                        const service = services.find(sv => sv.id === s.service_id);
+                        if (!service) return null;
+                        const itemTotal = service.price * s.quantity;
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: '8px' }}>{service.name}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Материалы */}
+              {todayVisit.materials && todayVisit.materials.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>🧪 Материалы:</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd' }}>
+                        <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todayVisit.materials.map((m, idx) => {
+                        const material = materials.find(mat => mat.id === m.material_id);
+                        if (!material) return null;
+                        const itemTotal = material.price * m.quantity;
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                            <td style={{ padding: '8px' }}>{material.name}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
+                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Итого */}
+              <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <strong>Итого:</strong>
+                  <strong>{todayTotal.toFixed(2)} BYN</strong>
+                </div>
+              </div>
+
+              {/* Скидка */}
+              <div style={{ marginBottom: '20px' }}>
+                <ApplyDiscount 
+                  originalTotal={todayTotal}
+                  onDiscountApplied={(amount) => setDiscountAmount(amount)}
+                />
+              </div>
+
+              {/* Итого с учетом скидки */}
+              {discountAmount > 0 && (
+                <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                    <span>Скидка:</span>
+                    <span style={{ color: '#2e7d32', fontWeight: 'bold' }}>-{discountAmount.toFixed(2)} BYN</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '10px', borderTop: '2px solid #4caf50' }}>
+                    <strong>К оплате:</strong>
+                    <strong style={{ fontSize: '1.2em', color: '#2e7d32' }}>{finalTodayTotal.toFixed(2)} BYN</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Калькулятор сдачи */}
+              <div style={{ marginBottom: '20px' }}>
+                <PaymentCalculator totalAmount={finalTodayTotal} />
+              </div>
+
+              {/* Кнопка завершения оплаты */}
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => handleMarkAsCompleted(todayVisit.id)}
+                  disabled={todayVisit.status === 'completed' || todayVisit.paid === true || todayVisit.paid === 1}
+                >
+                  {todayVisit.status === 'completed' || todayVisit.paid === true || todayVisit.paid === 1
+                    ? '✅ Оплачено' 
+                    : '✅ Завершить оплату'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Режим карточки - показываем вкладки
   return (
     <div className="client-card-overlay" onClick={onClose}>
       <div className="client-card" onClick={(e) => e.stopPropagation()}>

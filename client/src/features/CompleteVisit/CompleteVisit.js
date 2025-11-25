@@ -12,9 +12,13 @@ const getApiUrl = () => {
 const API_URL = getApiUrl();
 
 const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast }) => {
+  // Проверяем, оплачен ли прием
+  const isPaid = visit.status === 'completed' || visit.paid === true || visit.paid === 1 || visit.paid === 'true';
+  
   const [diagnosis, setDiagnosis] = useState(visit.diagnosis || '');
   const [selectedServices, setSelectedServices] = useState(visit.services || []);
   const [selectedMaterials, setSelectedMaterials] = useState(visit.materials || []);
+  const [treatmentPlan, setTreatmentPlan] = useState('');
   const [serviceSearch, setServiceSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
   const [compositeServices, setCompositeServices] = useState([]);
@@ -36,11 +40,29 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     loadCompositeServices();
   }, []);
 
+  // Загружаем план лечения клиента
+  useEffect(() => {
+    const loadTreatmentPlan = async () => {
+      if (visit.client_id || visit.client?.id) {
+        const clientId = visit.client_id || visit.client?.id;
+        try {
+          const response = await axios.get(`${API_URL}/clients/${clientId}`);
+          // Всегда обновляем план лечения, даже если он пустой
+          setTreatmentPlan(response.data.treatment_plan || '');
+        } catch (error) {
+          console.error('Ошибка загрузки плана лечения:', error);
+        }
+      }
+    };
+    loadTreatmentPlan();
+  }, [visit.client_id, visit.client?.id, visit.id]); // Перезагружаем при изменении записи
+
   // Обновляем данные при изменении visit (для редактирования)
   useEffect(() => {
     setDiagnosis(visit.diagnosis || '');
     setSelectedServices(visit.services || []);
     setSelectedMaterials(visit.materials || []);
+    // План лечения не обновляем здесь, он загружается отдельно из базы данных
   }, [visit]);
 
   const toggleService = (serviceId) => {
@@ -192,14 +214,18 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
 
     setIsSubmitting(true);
     try {
+      // Сохраняем прием
       await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
         diagnosis,
         services: normalizedServices,
-        materials: normalizedMaterials
+        materials: normalizedMaterials,
+        treatment_plan: treatmentPlan
       });
       
       // Отправляем событие для обновления списка записей
       window.dispatchEvent(new Event('appointmentUpdated'));
+      // Отправляем событие для обновления данных клиента (включая план лечения)
+      window.dispatchEvent(new Event('clientDataUpdated'));
       
       onSuccess();
     } catch (error) {
@@ -219,6 +245,24 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     <div className="complete-visit-form">
       <h3>👨‍⚕️ Завершение приема</h3>
 
+      {isPaid && (
+        <div style={{ 
+          marginBottom: '20px', 
+          padding: '15px', 
+          backgroundColor: '#e8f5e9', 
+          borderRadius: '8px',
+          border: '2px solid #4caf50'
+        }}>
+          <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+            <span style={{ fontSize: '2em', marginRight: '10px' }}>✅</span>
+            <strong style={{ fontSize: '1.2em', color: '#2e7d32' }}>Прием оплачен</strong>
+          </div>
+          <p style={{ textAlign: 'center', color: '#666', margin: 0 }}>
+            Прием успешно оплачен. Изменения недоступны.
+          </p>
+        </div>
+      )}
+
       {/* Диагноз */}
       <div className="form-section">
         <label className="form-label">Диагноз *</label>
@@ -229,7 +273,24 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
           placeholder="Введите диагноз..."
           rows={4}
           required
+          disabled={isPaid}
         />
+      </div>
+
+      {/* План лечения */}
+      <div className="form-section">
+        <label className="form-label">📋 План лечения</label>
+        <textarea
+          className="diagnosis-input"
+          value={treatmentPlan}
+          onChange={(e) => setTreatmentPlan(e.target.value)}
+          placeholder="Введите план лечения пациента (каждый пункт с новой строки)..."
+          rows={8}
+          disabled={isPaid}
+        />
+        <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '8px' }}>
+          💡 Каждый пункт плана лечения будет автоматически пронумерован
+        </div>
       </div>
 
       {/* Услуги и материалы с вкладками */}
@@ -288,7 +349,12 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                          (cs.category && cs.category.toLowerCase().includes(search));
                 })
                 .map(cs => (
-                  <div key={cs.id} className="composite-service-option" onClick={() => handleApplyCompositeService(cs)}>
+                  <div 
+                    key={cs.id} 
+                    className="composite-service-option" 
+                    onClick={() => !isPaid && handleApplyCompositeService(cs)}
+                    style={isPaid ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+                  >
                     <div className="composite-service-header">
                       <h4>{cs.name}</h4>
                       {cs.category && <span className="composite-service-category">{cs.category}</span>}
@@ -375,12 +441,13 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
             <ServiceMaterialSelector
               items={materials}
               selectedItems={selectedMaterials}
-              onToggleItem={toggleMaterial}
-              onUpdateQuantity={updateMaterialQuantity}
-              onRemoveItem={removeMaterial}
+              onToggleItem={isPaid ? () => {} : toggleMaterial}
+              onUpdateQuantity={isPaid ? () => {} : updateMaterialQuantity}
+              onRemoveItem={isPaid ? () => {} : removeMaterial}
               type="material"
               searchQuery={materialSearch}
-              onSearchChange={setMaterialSearch}
+              onSearchChange={isPaid ? () => {} : setMaterialSearch}
+              disabled={isPaid}
             />
             
             {/* Простой список выбранных материалов */}
@@ -402,12 +469,14 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                           value={item.quantity}
                           onChange={(e) => updateMaterialQuantity(item.material_id, e.target.value)}
                           className="quantity-input-simple"
+                          disabled={isPaid}
                         />
                         <button
                           type="button"
                           className="btn-remove-simple"
                           onClick={() => removeMaterial(item.material_id)}
                           title="Удалить"
+                          disabled={isPaid}
                         >
                           ✕
                         </button>
@@ -423,12 +492,18 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
 
       {/* Кнопки */}
       <div className="form-actions">
-        <button className="btn btn-secondary" onClick={onCancel} disabled={isSubmitting}>
+        <button className="btn btn-secondary" onClick={onCancel} disabled={isSubmitting || isPaid}>
           Отмена
         </button>
-        <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? 'Сохранение...' : '✅ Завершить прием'}
-        </button>
+        {isPaid ? (
+          <button className="btn btn-primary" disabled style={{ opacity: 0.6 }}>
+            ✅ Прием оплачен
+          </button>
+        ) : (
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Сохранение...' : '✅ Завершить прием'}
+          </button>
+        )}
       </div>
     </div>
   );

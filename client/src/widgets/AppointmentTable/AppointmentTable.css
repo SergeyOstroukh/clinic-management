@@ -47,6 +47,29 @@
   color: #999;
 }
 
+/* Стиль для оплаченных приемов - более тусклый цвет */
+.appointments-table tr.paid-appointment {
+  background: rgba(0, 0, 0, 0.02);
+  opacity: 0.65;
+}
+
+.appointments-table tr.paid-appointment td {
+  color: #888;
+}
+
+.appointments-table tr.paid-appointment:hover {
+  background: rgba(0, 0, 0, 0.04);
+  opacity: 0.75;
+}
+
+.appointments-table tr.paid-appointment .client-name-link {
+  color: #999;
+}
+
+.appointments-table tr.paid-appointment .client-name-link:hover {
+  color: #777;
+}
+
 @keyframes pulse {
   0%, 100% {
     background: rgba(255, 152, 0, 0.1);

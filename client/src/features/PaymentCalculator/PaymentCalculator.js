@@ -21,6 +21,7 @@ const PaymentCalculator = ({ totalAmount }) => {
           placeholder="0.00"
           value={paidAmount}
           onChange={(e) => setPaidAmount(e.target.value)}
+          onWheel={(e) => e.target.blur()}
           className="paid-input"
         />
         <span>BYN</span>
