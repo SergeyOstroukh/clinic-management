@@ -26,6 +26,9 @@ async function initializeDatabase() {
     await migrateMaterialWriteoffs();
     console.log('✅ Миграция списаний проверена');
     
+    await migrateClientTreatmentPlan();
+    console.log('✅ Миграция плана лечения проверена');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -758,6 +761,42 @@ async function initializeDefaultData() {
     } catch (error) {
       console.log('⚠️ Файл services_data.js не найден, пропускаем импорт услуг');
     }
+  }
+}
+
+// Миграция: добавление поля treatment_plan в таблицу clients
+async function migrateClientTreatmentPlan() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция treatment_plan доступна только для PostgreSQL');
+      return;
+    }
+
+    // Проверяем, существует ли колонка treatment_plan
+    const columnExists = await db.all(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'clients' 
+        AND column_name = 'treatment_plan'
+    `);
+
+    if (columnExists.length === 0) {
+      console.log('   🔄 Добавление поля treatment_plan в таблицу clients...');
+      
+      await db.run(`
+        ALTER TABLE clients 
+        ADD COLUMN treatment_plan TEXT
+      `);
+      
+      console.log('   ✅ Поле treatment_plan добавлено');
+    } else {
+      console.log('   ✅ Поле treatment_plan уже существует');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции treatment_plan:', error.message);
+    // Не прерываем инициализацию, если миграция не удалась
   }
 }
 

@@ -16,48 +16,60 @@
 .client-card {
   background: white;
   border-radius: 16px;
-  max-width: 900px;
+  max-width: 1200px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
 }
 
 .client-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px 25px;
+  align-items: flex-start;
+  padding: 25px 30px;
   border-bottom: 2px solid #f0f0f0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
   position: sticky;
   top: 0;
-  background: white;
   z-index: 10;
 }
 
 .client-card-header h2 {
-  margin: 0;
-  color: #667eea;
+  margin: 0 0 10px 0;
+  color: white;
   font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.client-card-header h3 {
+  margin: 0;
+  color: white;
+  font-size: 1.8rem;
+  font-weight: 700;
 }
 
 .btn-close {
-  background: #ff4757;
-  color: white;
+  background: rgba(255, 255, 255, 0.2);
   border: none;
-  width: 35px;
-  height: 35px;
+  color: white;
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  font-size: 1.3rem;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .btn-close:hover {
-  background: #e63946;
+  background: rgba(255, 255, 255, 0.3);
   transform: scale(1.1);
 }
 
@@ -385,6 +397,274 @@
   color: #333;
 }
 
+/* Статистика */
+.client-stats {
+  display: flex;
+  gap: 40px;
+  padding: 20px 30px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.stat-item {
+  flex: 1;
+  text-align: left;
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #667eea;
+}
+
+/* Обертка для вкладок */
+.client-card-tabs-wrapper {
+  padding: 0 25px;
+}
+
+/* Контент вкладок */
+.tab-content-history,
+.tab-content-patient-card {
+  padding: 20px 0;
+}
+
+.tab-content-history h4,
+.tab-content-patient-card h4 {
+  margin: 0 0 20px 0;
+  color: #667eea;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* История визитов */
+.history-table-wrapper {
+  overflow-x: auto;
+  margin-bottom: 20px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.history-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.history-table tr:hover {
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.visit-date {
+  white-space: nowrap;
+}
+
+.visit-services {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.visit-diagnosis {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-badge-small {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+/* Карточка пациента */
+.patient-card-section {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+}
+
+.patient-card-section h4 {
+  margin: 0 0 15px 0;
+  color: #667eea;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.patient-info-grid {
+  display: grid;
+  gap: 15px;
+}
+
+.info-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: white;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #666;
+  min-width: 120px;
+}
+
+.info-value {
+  color: #333;
+  flex: 1;
+}
+
+/* Диагноз */
+.diagnosis-display {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  border-left: 4px solid #ffc107;
+}
+
+.diagnosis-text {
+  margin: 0 0 10px 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #333;
+}
+
+.diagnosis-empty {
+  margin: 0 0 10px 0;
+  color: #999;
+  font-style: italic;
+}
+
+.diagnosis-note {
+  margin: 10px 0 0 0;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+/* План лечения */
+.treatment-plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 0.9rem;
+}
+
+.treatment-plan-editor {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.treatment-plan-textarea {
+  width: 100%;
+  padding: 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 200px;
+}
+
+.treatment-plan-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.treatment-plan-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.treatment-plan-display {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  border-left: 3px solid #ddd;
+}
+
+.treatment-plan-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.treatment-plan-item {
+  display: flex;
+  gap: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #ddd;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.treatment-plan-item:hover {
+  background: #f0f0f0;
+}
+
+.treatment-plan-item-number {
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e0e0e0;
+  color: #333;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.treatment-plan-item-text {
+  flex: 1;
+  color: #333;
+  font-size: 1rem;
+  line-height: 1.6;
+  padding-top: 2px;
+}
+
+.treatment-plan-empty {
+  color: #999;
+  font-style: italic;
+  text-align: center;
+  padding: 40px 20px;
+}
+
 @media (max-width: 768px) {
   .client-card {
     max-width: 100%;
@@ -393,9 +673,8 @@
   }
 
   .client-card-header,
-  .client-info-section,
-  .current-visit-section,
-  .client-history-section,
+  .client-stats,
+  .client-card-tabs-wrapper,
   .client-card-actions {
     padding: 15px;
   }
@@ -404,13 +683,35 @@
     font-size: 1.2rem;
   }
 
+  .client-card-header h3 {
+    font-size: 1.4rem;
+  }
+
+  .client-stats {
+    gap: 20px;
+    flex-direction: column;
+  }
+
   .history-table {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
   }
 
   .history-table th,
   .history-table td {
     padding: 8px;
+  }
+
+  .patient-info-grid {
+    gap: 10px;
+  }
+
+  .info-item {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .info-label {
+    min-width: auto;
   }
 }
 
