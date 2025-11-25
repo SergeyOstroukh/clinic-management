@@ -957,7 +957,7 @@ function App() {
                               className="client-name-link"
                               onClick={() => {
                                 setSelectedClientId(client.id);
-                                setShowClientHistoryModal(true);
+                                setShowClientCardModal(true);
                               }}
                             >
                               {getFullName(client.lastName, client.firstName, client.middleName)}
@@ -971,7 +971,7 @@ function App() {
                               className="btn btn-small"
                               onClick={() => {
                                 setSelectedClientId(client.id);
-                                setShowClientHistoryModal(true);
+                                setShowClientCardModal(true);
                               }}
                             >
                               📋 Карточка
@@ -1394,6 +1394,8 @@ function App() {
           onClose={() => setShowClientCardModal(false)}
           onUpdate={loadData}
           toast={toast}
+          onEditAppointment={handleEditAppointment}
+          onCancelAppointment={handleCancelAppointment}
           showConfirm={showConfirm}
         />
       )}

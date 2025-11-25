@@ -115,28 +115,72 @@ app.post('/api/clients', async (req, res) => {
   }
 });
 
-// Обновить клиента (только для главного админа)
-app.put('/api/clients/:id', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, currentUser } = req.body;
-  
+// Получить одного клиента по ID
+app.get('/api/clients/:id', async (req, res) => {
   try {
-    // Проверка прав доступа
-    if (!currentUser || currentUser.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может редактировать клиентов.' });
-    }
-    
-    const result = await db.run(
+    const client = await db.get(
       usePostgres
-        ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7 WHERE id = $8'
-        : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ? WHERE id = ?',
-      [lastName, firstName, middleName, phone, address, email, notes, req.params.id]
+        ? 'SELECT * FROM clients WHERE id = $1'
+        : 'SELECT * FROM clients WHERE id = ?',
+      [req.params.id]
     );
     
-    if (result.changes === 0) {
+    if (!client) {
       return res.status(404).json({ error: 'Клиент не найден' });
     }
     
-    res.json({ message: 'Клиент обновлен', changes: result.changes });
+    res.json(client);
+  } catch (error) {
+    console.error('Ошибка получения клиента:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить клиента (только для главного админа или для обновления treatment_plan врачом)
+app.put('/api/clients/:id', async (req, res) => {
+  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser } = req.body;
+  
+  try {
+    if (!currentUser) {
+      return res.status(401).json({ error: 'Не авторизован' });
+    }
+
+    // Если обновляется только treatment_plan, разрешаем врачам
+    const isOnlyTreatmentPlanUpdate = !lastName && !firstName && !middleName && !phone && !address && !email && !notes && treatment_plan !== undefined;
+    
+    if (!isOnlyTreatmentPlanUpdate && currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может редактировать клиентов.' });
+    }
+    
+    if (isOnlyTreatmentPlanUpdate) {
+      // Обновляем только план лечения
+      const result = await db.run(
+        usePostgres
+          ? 'UPDATE clients SET treatment_plan = $1 WHERE id = $2'
+          : 'UPDATE clients SET treatment_plan = ? WHERE id = ?',
+        [treatment_plan || null, req.params.id]
+      );
+      
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Клиент не найден' });
+      }
+      
+      res.json({ message: 'План лечения обновлен', changes: result.changes });
+    } else {
+      // Полное обновление (только для superadmin)
+      const result = await db.run(
+        usePostgres
+          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8 WHERE id = $9'
+          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ? WHERE id = ?',
+        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, req.params.id]
+      );
+      
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Клиент не найден' });
+      }
+      
+      res.json({ message: 'Клиент обновлен', changes: result.changes });
+    }
   } catch (error) {
     console.error('Ошибка обновления клиента:', error);
     res.status(500).json({ error: error.message });
