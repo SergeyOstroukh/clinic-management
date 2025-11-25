@@ -459,7 +459,7 @@ app.patch('/api/appointments/:id/complete-payment', async (req, res) => {
 
 // Завершить прием (врач)
 app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
-  const { diagnosis, services, materials } = req.body;
+  const { diagnosis, services, materials, treatment_plan } = req.body;
   
   try {
     // Удаляем старые услуги и материалы
@@ -537,6 +537,30 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
         : 'UPDATE appointments SET diagnosis = ?, status = ?, total_price = ? WHERE id = ?',
       [diagnosis, 'ready_for_payment', totalPrice, req.params.id]
     );
+
+    // Сохраняем план лечения в карточку клиента
+    if (treatment_plan !== undefined) {
+      const appointmentData = await db.get(
+        usePostgres
+          ? 'SELECT client_id FROM appointments WHERE id = $1'
+          : 'SELECT client_id FROM appointments WHERE id = ?',
+        [req.params.id]
+      );
+
+      if (appointmentData?.client_id) {
+        const normalizedPlan = treatment_plan ? treatment_plan.trim() : '';
+        await db.run(
+          usePostgres
+            ? 'UPDATE clients SET treatment_plan = $1 WHERE id = $2'
+            : 'UPDATE clients SET treatment_plan = ? WHERE id = ?',
+          [normalizedPlan || null, appointmentData.client_id]
+        );
+        console.log(
+          `✅ [new] План лечения сохранен для клиента ${appointmentData.client_id}:`,
+          normalizedPlan ? `${normalizedPlan.length} символов` : 'пустой'
+        );
+      }
+    }
     
     res.json({ message: 'Прием завершен', status: 'ready_for_payment' });
   } catch (error) {

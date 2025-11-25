@@ -20,6 +20,7 @@ import { useConfirmModal } from './hooks/useConfirmModal';
 import PhoneInput from './components/PhoneInput';
 import Pagination from './components/Pagination';
 import ConfirmModal from './components/ConfirmModal/ConfirmModal';
+import { CompleteVisit } from './features/CompleteVisit';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -62,7 +63,10 @@ function App() {
   const [showClientCardModal, setShowClientCardModal] = useState(false);
   const [showClientHistoryModal, setShowClientHistoryModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showCompleteVisitModal, setShowCompleteVisitModal] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState(null);
+  const [selectedClientCardMode, setSelectedClientCardMode] = useState('card');
+  const [selectedAppointmentForComplete, setSelectedAppointmentForComplete] = useState(null);
   
   // Поиск и выбор
   const [clientSearchQuery, setClientSearchQuery] = useState('');
@@ -293,9 +297,24 @@ function App() {
   };
 
   // Открыть карточку клиента
-  const openClientCard = (clientId) => {
-    setSelectedClientId(clientId);
-    setShowClientCardModal(true);
+  const openClientCard = async (clientId, appointment = null, mode = 'card') => {
+    // Для врача открываем форму приема, если есть запись
+    if (currentUser.role === 'doctor' && appointment) {
+      try {
+        // Загружаем полные данные записи с услугами и материалами
+        const response = await axios.get(`${API_URL}/appointments/${appointment.id}`);
+        setSelectedAppointmentForComplete(response.data);
+        setShowCompleteVisitModal(true);
+      } catch (error) {
+        console.error('Ошибка загрузки записи:', error);
+        toast.error('Ошибка загрузки записи');
+      }
+    } else {
+      // Для администраторов открываем карточку клиента
+      setSelectedClientId(clientId);
+      setSelectedClientCardMode(mode); // Сохраняем режим
+      setShowClientCardModal(true);
+    }
   };
 
   // Вспомогательные функции для таблицы
@@ -330,12 +349,26 @@ function App() {
     return '-';
   };
 
-  const calculateAppointmentTotal = (servicesList) => {
-    if (!servicesList || servicesList.length === 0) return 0;
-    return servicesList.reduce((sum, s) => {
-      const service = services.find(serv => serv.id === s.service_id);
-      return sum + (service ? service.price * s.quantity : 0);
-    }, 0);
+  const calculateAppointmentTotal = (servicesList, materialsList) => {
+    let total = 0;
+    
+    // Считаем услуги
+    if (servicesList && servicesList.length > 0) {
+      total += servicesList.reduce((sum, s) => {
+        const service = services.find(serv => serv.id === s.service_id);
+        return sum + (service ? service.price * s.quantity : 0);
+      }, 0);
+    }
+    
+    // Считаем материалы
+    if (materialsList && materialsList.length > 0) {
+      total += materialsList.reduce((sum, m) => {
+        const material = materials.find(mat => mat.id === m.material_id);
+        return sum + (material ? material.price * m.quantity : 0);
+      }, 0);
+    }
+    
+    return total;
   };
 
   // Создание клиента
@@ -805,7 +838,7 @@ function App() {
         <AppointmentTable
           appointments={displayAppointments}
           clients={clients}
-          onClientClick={openClientCard}
+          onClientClick={(clientId, appointment) => openClientCard(clientId, appointment, 'payment')}
           onCallStatusToggle={toggleCallStatus}
           onStatusChange={updateAppointmentStatus}
           onEditAppointment={handleEditAppointment}
@@ -1391,12 +1424,16 @@ function App() {
           materials={materials}
           doctors={doctors}
           currentUser={currentUser}
-          onClose={() => setShowClientCardModal(false)}
+          onClose={() => {
+            setShowClientCardModal(false);
+            setSelectedClientCardMode('card');
+          }}
           onUpdate={loadData}
           toast={toast}
           onEditAppointment={handleEditAppointment}
           onCancelAppointment={handleCancelAppointment}
           showConfirm={showConfirm}
+          mode={selectedClientCardMode}
         />
       )}
 
@@ -1410,6 +1447,37 @@ function App() {
           onCancelAppointment={handleCancelAppointment}
           showConfirm={showConfirm}
         />
+      )}
+
+      {/* Модальное окно формы приема для врача */}
+      {showCompleteVisitModal && selectedAppointmentForComplete && (
+        <div className="modal-overlay" onClick={() => {
+          setShowCompleteVisitModal(false);
+          setSelectedAppointmentForComplete(null);
+        }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ 
+            maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <CompleteVisit
+              visit={selectedAppointmentForComplete}
+              services={services}
+              materials={materials}
+              onSuccess={async () => {
+                setShowCompleteVisitModal(false);
+                setSelectedAppointmentForComplete(null);
+                await loadData(); // Обновляем все данные, включая клиентов
+                // Отправляем событие для обновления карточек клиентов
+                window.dispatchEvent(new Event('appointmentUpdated'));
+                window.dispatchEvent(new Event('clientDataUpdated'));
+                toast.success('✅ Информация о приеме сохранена');
+              }}
+              onCancel={() => {
+                setShowCompleteVisitModal(false);
+                setSelectedAppointmentForComplete(null);
+              }}
+              toast={toast}
+            />
+          </div>
+        </div>
       )}
 
       {/* Модальные окна для создания/редактирования (упрощенная версия) */}

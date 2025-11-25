@@ -59,11 +59,13 @@ const AppointmentTable = ({
             <tr 
               key={apt.id}
               className={
-                apt.status === 'ready_for_payment' 
-                  ? 'ready-for-payment' 
-                  : apt.status === 'cancelled' 
-                    ? 'cancelled' 
-                    : ''
+                apt.paid === true || apt.paid === 1 || apt.status === 'completed'
+                  ? 'paid-appointment'
+                  : apt.status === 'ready_for_payment' 
+                    ? 'ready-for-payment' 
+                    : apt.status === 'cancelled' 
+                      ? 'cancelled' 
+                      : ''
               }
             >
               <td className="number-cell">{index + 1}</td>
@@ -73,7 +75,7 @@ const AppointmentTable = ({
               <td className="client-cell">
                 <span
                   className="client-name-link"
-                  onClick={() => onClientClick(apt.client_id)}
+                  onClick={() => onClientClick(apt.client_id, apt)}
                 >
                   {getClientName(apt.client_id)}
                 </span>
@@ -99,7 +101,7 @@ const AppointmentTable = ({
                 <td className="doctor-cell">{getDoctorName(apt)}</td>
               )}
               {showPrice && (
-                <td className="price-cell">{calculateTotal(apt.services).toFixed(2)} BYN</td>
+                <td className="price-cell">{calculateTotal(apt.services, apt.materials).toFixed(2)} BYN</td>
               )}
               <td className="status-cell">
                 {currentUser && currentUser.role === 'doctor' ? (

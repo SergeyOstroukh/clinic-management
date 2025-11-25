@@ -33,6 +33,14 @@
   font-size: 1.2rem;
   font-weight: 600;
   text-align: right;
+  /* Убираем стрелочки (spinner) у input[type="number"] */
+  -moz-appearance: textfield;
+}
+
+.paid-input::-webkit-outer-spin-button,
+.paid-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .paid-input:focus {
