@@ -244,9 +244,9 @@ const ClientCard = ({
                     .filter(line => line.trim().length > 0)
                     .map((line, idx) => {
                       const trimmedLine = line.trim();
-                      const isNumbered = /^\d+[\.\)]\s/.test(trimmedLine);
+                      const isNumbered = /^\d+[.)]\s/.test(trimmedLine);
                       const displayText = isNumbered 
-                        ? trimmedLine.replace(/^\d+[\.\)]\s/, '')
+                        ? trimmedLine.replace(/^\d+[.)]\s/, '')
                         : trimmedLine;
                       return `
                         <div class="treatment-plan-item-print">
@@ -558,7 +558,7 @@ const ClientCard = ({
                               .map((line, idx) => {
                                 const trimmedLine = line.trim();
                                 // Определяем тип пункта по началу строки
-                                const isNumbered = /^\d+[\.\)]\s/.test(trimmedLine);
+                                const isNumbered = /^\d+[.)]\s/.test(trimmedLine);
                                 const isBullet = /^[-•*]\s/.test(trimmedLine);
                                 
                                 return (
@@ -571,7 +571,7 @@ const ClientCard = ({
                                     </div>
                                     <div className="treatment-plan-item-text">
                                       {isNumbered || isBullet 
-                                        ? trimmedLine.replace(/^[-•*\d+\.\)]\s/, '')
+                                        ? trimmedLine.replace(/^[-•*\d+.)]\s/, '')
                                         : trimmedLine
                                       }
                                     </div>
