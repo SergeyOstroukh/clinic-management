@@ -35,7 +35,6 @@ const ClientCard = ({
   const [treatmentPlan, setTreatmentPlan] = useState('');
   const [editingTreatmentPlan, setEditingTreatmentPlan] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
-  const [showCompleteVisit, setShowCompleteVisit] = useState(false);
   const [discountAmount, setDiscountAmount] = useState(0);
 
   const client = clients.find(c => c.id === clientId);
