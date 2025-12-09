@@ -3542,7 +3542,7 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
       SELECT 
         a.id,
         ${usePostgres 
-          ? "TO_CHAR(a.appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')" 
+          ? "TO_CHAR(a.appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text" 
           : "strftime('%Y-%m-%d %H:%M:%S', a.appointment_date)"} as appointment_date,
         a.status,
         a.notes,
@@ -3600,8 +3600,64 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
           const seconds = String(normalizedAppointmentDate.getSeconds()).padStart(2, '0');
           normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
         } else {
-          // Если это строка, нормализуем
-          normalizedAppointmentDate = normalizeAppointmentDate(String(normalizedAppointmentDate));
+          // Если это строка, проверяем формат
+          const str = String(normalizedAppointmentDate);
+          
+          // Если это формат типа "Wed Dec 10 2025 13:00:00 GMT+0300" или "Wed Dec 10 2025 13:" (результат toString()),
+          // пытаемся распарсить через new Date и переформатировать
+          if (str.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:/)) {
+            try {
+              // Если строка обрезана (например "Wed Dec 10 2025 13:"), дополняем её
+              let dateStr = str;
+              if (dateStr.match(/:\s*$/)) {
+                // Если строка заканчивается на ":", это обрезанный формат
+                // Пытаемся восстановить из базы данных напрямую
+                const dbDate = await db.get(
+                  usePostgres
+                    ? `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`
+                    : `SELECT strftime('%Y-%m-%d %H:%M:%S', appointment_date) as appointment_date FROM appointments WHERE id = ?`,
+                  [appointment.id]
+                );
+                if (dbDate && dbDate.appointment_date) {
+                  normalizedAppointmentDate = String(dbDate.appointment_date);
+                } else {
+                  // Если не получилось получить из БД, пытаемся парсить как есть
+                  const dateObj = new Date(dateStr);
+                  if (!isNaN(dateObj.getTime())) {
+                    const year = dateObj.getFullYear();
+                    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    const day = String(dateObj.getDate()).padStart(2, '0');
+                    const hours = String(dateObj.getHours()).padStart(2, '0');
+                    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+                    const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+                    normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                  } else {
+                    normalizedAppointmentDate = normalizeAppointmentDate(str);
+                  }
+                }
+              } else {
+                // Если строка полная, парсим через new Date
+                const dateObj = new Date(dateStr);
+                if (!isNaN(dateObj.getTime())) {
+                  const year = dateObj.getFullYear();
+                  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                  const day = String(dateObj.getDate()).padStart(2, '0');
+                  const hours = String(dateObj.getHours()).padStart(2, '0');
+                  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+                  const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+                  normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                } else {
+                  normalizedAppointmentDate = normalizeAppointmentDate(str);
+                }
+              }
+            } catch (e) {
+              console.error('Ошибка парсинга даты:', e, str);
+              normalizedAppointmentDate = normalizeAppointmentDate(str);
+            }
+          } else {
+            // Если это уже правильный формат, просто нормализуем
+            normalizedAppointmentDate = normalizeAppointmentDate(str);
+          }
         }
       }
       
@@ -3629,7 +3685,14 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
       type: typeof apt.appointment_date
     })));
     
-    res.json(appointmentsWithServices);
+    // ВАЖНО: Убеждаемся, что все appointment_date - это строки, а не объекты Date
+    // Это нужно для правильной сериализации в JSON
+    const finalAppointments = appointmentsWithServices.map(apt => ({
+      ...apt,
+      appointment_date: String(apt.appointment_date) // Явно преобразуем в строку
+    }));
+    
+    res.json(finalAppointments);
   } catch (error) {
     console.error('Ошибка получения записей врача:', error);
     res.status(500).json({ error: error.message });
