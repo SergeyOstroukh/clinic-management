@@ -188,12 +188,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   // Обработчик события отмены/создания записи - обновляем календарь
   useEffect(() => {
     const handleAppointmentChange = () => {
-      if (selectedDoctor) {
-        // Загружаем записи, но НЕ обновляем modalUpdateKey здесь,
-        // так как это уже делается в функциях createAppointment и cancelAppointment
-        loadAppointments();
-      }
-      // Обновляем список ближайших слотов
+      // НЕ загружаем записи здесь, так как это уже делается в функциях createAppointment и cancelAppointment
+      // Только обновляем список ближайших слотов
       loadNearestSlots();
     };
     
@@ -375,7 +371,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         `${API_URL}/doctors/${selectedDoctor.id}/monthly-appointments?month=${currentMonth}&year=${currentYear}`
       );
       // Создаем новый массив чтобы React увидел изменения
-      setAppointments([...response.data]);
+      // Используем JSON.parse(JSON.stringify()) для глубокого копирования и гарантии нового объекта
+      setAppointments(JSON.parse(JSON.stringify(response.data)));
     } catch (error) {
       console.error('Ошибка загрузки записей:', error);
     }
@@ -513,14 +510,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const dayAppointments = appointments.filter(apt => {
       if (!apt.appointment_date || apt.status === 'cancelled') return false;
       
-      // Нормализуем формат даты записи
-      let normalizedDate = apt.appointment_date.replace('T', ' ');
-      if (normalizedDate.includes('Z')) {
-        normalizedDate = normalizedDate.replace('Z', '');
-      }
-      if (normalizedDate.includes('+')) {
-        normalizedDate = normalizedDate.split('+')[0];
-      }
+      // Используем функцию normalizeDateString для единообразной нормализации
+      const normalizedDate = normalizeDateString(apt.appointment_date);
       
       // Проверяем, начинается ли с нужной даты
       return normalizedDate.startsWith(dateStr);
@@ -668,11 +659,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       // Отправляем событие для обновления таблицы записей в App.js
       window.dispatchEvent(new Event('appointmentCreated'));
       
-      // Обновляем модалку для перерисовки слотов один раз
-      // Используем requestAnimationFrame для синхронизации с рендером
-      requestAnimationFrame(() => {
+      // Обновляем модалку для перерисовки слотов после обновления appointments
+      // Используем setTimeout для гарантии, что React обновил состояние appointments
+      setTimeout(() => {
         setModalUpdateKey(prev => prev + 1);
-      });
+      }, 100);
       
       if (toast) toast.success('✅ Запись отменена');
     } catch (error) {
@@ -764,11 +755,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setNotes('');
         if (toast) toast.success('✅ Запись успешно создана!');
         
-        // Обновляем модалку для перерисовки слотов (только после успешного создания)
-        // Используем requestAnimationFrame для синхронизации с рендером
-        requestAnimationFrame(() => {
+        // Обновляем модалку для перерисовки слотов после обновления appointments
+        // Используем setTimeout для гарантии, что React обновил состояние appointments
+        setTimeout(() => {
           setModalUpdateKey(prev => prev + 1);
-        });
+        }, 100);
       }
     } catch (error) {
       console.error('Ошибка создания/обновления записи:', error);
