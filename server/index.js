@@ -3561,6 +3561,13 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     
     const appointments = await db.all(query, [doctorId, startDate, endDate]);
     
+    console.log('Получены записи из БД (первые 3):', appointments.slice(0, 3).map(apt => ({
+      id: apt.id,
+      appointment_date: apt.appointment_date,
+      type: typeof apt.appointment_date,
+      constructor: apt.appointment_date?.constructor?.name
+    })));
+    
     // Получаем услуги для каждой записи
     const appointmentsWithServices = await Promise.all(appointments.map(async (appointment) => {
       const services = await db.all(
@@ -3579,17 +3586,48 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
       // Нормализуем appointment_date для корректного отображения времени
       // Теперь appointment_date уже приходит в формате строки YYYY-MM-DD HH24:MI:SS из SQL
       let normalizedAppointmentDate = appointment.appointment_date;
+      
+      // ВАЖНО: PostgreSQL может вернуть Date объект даже если мы использовали TO_CHAR
+      // Преобразуем в строку явно
       if (normalizedAppointmentDate) {
-        // Преобразуем в строку на случай, если это все еще объект
-        normalizedAppointmentDate = normalizeAppointmentDate(String(normalizedAppointmentDate));
+        if (normalizedAppointmentDate instanceof Date) {
+          // Если это объект Date, форматируем вручную
+          const year = normalizedAppointmentDate.getFullYear();
+          const month = String(normalizedAppointmentDate.getMonth() + 1).padStart(2, '0');
+          const day = String(normalizedAppointmentDate.getDate()).padStart(2, '0');
+          const hours = String(normalizedAppointmentDate.getHours()).padStart(2, '0');
+          const minutes = String(normalizedAppointmentDate.getMinutes()).padStart(2, '0');
+          const seconds = String(normalizedAppointmentDate.getSeconds()).padStart(2, '0');
+          normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        } else {
+          // Если это строка, нормализуем
+          normalizedAppointmentDate = normalizeAppointmentDate(String(normalizedAppointmentDate));
+        }
       }
       
-      return {
+      const result = {
         ...appointment,
         appointment_date: normalizedAppointmentDate,
         services: services
       };
+      
+      // Логируем для отладки
+      if (appointment.id === 43 || appointment.id === 42) {
+        console.log('Результат для записи', appointment.id, ':', {
+          original: appointment.appointment_date,
+          normalized: normalizedAppointmentDate,
+          type: typeof normalizedAppointmentDate
+        });
+      }
+      
+      return result;
     }));
+    
+    console.log('Отправка записей клиенту (первые 3):', appointmentsWithServices.slice(0, 3).map(apt => ({
+      id: apt.id,
+      appointment_date: apt.appointment_date,
+      type: typeof apt.appointment_date
+    })));
     
     res.json(appointmentsWithServices);
   } catch (error) {
