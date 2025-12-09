@@ -30,27 +30,44 @@ const AppointmentTableByDoctor = ({
     // парсим время напрямую без конвертации timezone
     if (typeof dateStr === 'string') {
       // Нормализуем формат: убираем 'T', заменяем на пробел, убираем timezone
-      let normalized = dateStr.replace('T', ' ');
+      let normalized = dateStr.replace('T', ' ').trim();
       if (normalized.includes('Z')) {
         normalized = normalized.replace('Z', '');
       }
       if (normalized.includes('+')) {
-        normalized = normalized.split('+')[0];
+        normalized = normalized.split('+')[0].trim();
       }
-      if (normalized.includes('-', 10) && normalized.length >= 16) {
-        // Формат 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM'
-        const timePart = normalized.split(' ')[1];
-        if (timePart) {
-          const [hours, minutes] = timePart.split(':');
-          if (hours && minutes) {
-            return `${String(parseInt(hours, 10)).padStart(2, '0')}:${String(parseInt(minutes, 10)).padStart(2, '0')}`;
-          }
-        }
+      // Убираем timezone в формате -HH:MM
+      if (normalized.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}-\d{2}:\d{2}$/)) {
+        normalized = normalized.substring(0, 19);
+      }
+      
+      // Проверяем формат 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM'
+      const dateTimeMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+      if (dateTimeMatch) {
+        const [, , hours, minutes] = dateTimeMatch;
+        // ВАЖНО: убеждаемся, что minutes не undefined и не пустая строка
+        const hoursNum = parseInt(hours, 10) || 0;
+        const minutesNum = parseInt(minutes, 10) || 0;
+        
+        // Возвращаем время в формате HH:MM, сохраняя минуты как есть
+        return `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`;
       }
     }
     // Для других форматов используем стандартный парсинг
-    const date = new Date(dateStr);
-    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    // ВАЖНО: new Date() может конвертировать timezone, поэтому стараемся избегать этого
+    try {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        // Используем getHours и getMinutes напрямую
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
+      }
+    } catch (e) {
+      console.error('Ошибка форматирования времени:', e, dateStr);
+    }
+    return '--:--';
   };
 
   // Группируем записи по врачам

@@ -26,8 +26,22 @@ export const formatTime = (date) => {
     const dateTimeMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
     if (dateTimeMatch) {
       const [, , hours, minutes] = dateTimeMatch;
+      // ВАЖНО: убеждаемся, что minutes не undefined и не пустая строка
+      const hoursNum = parseInt(hours, 10) || 0;
+      const minutesNum = parseInt(minutes, 10) || 0;
+      
+      console.log('formatTime парсинг:', {
+        input: date,
+        normalized,
+        hours,
+        minutes,
+        hoursNum,
+        minutesNum,
+        result: `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`
+      });
+      
       // Возвращаем время в формате HH:MM, сохраняя минуты как есть
-      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+      return `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`;
     }
   }
   // Для других форматов используем стандартный парсинг
@@ -35,7 +49,12 @@ export const formatTime = (date) => {
   try {
     const dateObj = new Date(date);
     if (!isNaN(dateObj.getTime())) {
-      return format(dateObj, 'HH:mm');
+      const result = format(dateObj, 'HH:mm');
+      console.log('formatTime через new Date:', {
+        input: date,
+        result
+      });
+      return result;
     }
   } catch (e) {
     console.error('Ошибка форматирования времени:', e, date);
