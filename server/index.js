@@ -1193,11 +1193,12 @@ app.post('/api/appointments', async (req, res) => {
     console.log('Создание записи - нормализованная дата:', dateToSave);
     
     // Проверяем, нет ли уже записи на это время для этого врача
+    // ВАЖНО: используем точное сравнение строк, а не timestamp, чтобы не терять минуты
     const existingAppointment = await db.get(
       usePostgres
         ? `SELECT id, appointment_date FROM appointments 
            WHERE doctor_id = $1 
-           AND appointment_date::timestamp(0) = $2::timestamp(0)
+           AND appointment_date = $2
            AND status != $3`
         : 'SELECT id FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status != ?',
       [doctor_id, dateToSave, 'cancelled']
@@ -1212,18 +1213,41 @@ app.post('/api/appointments', async (req, res) => {
     // Создаем запись
     let appointmentId;
     
+    console.log('Сохранение в БД:', {
+      dateToSave,
+      length: dateToSave.length,
+      format: dateToSave.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) ? 'правильный' : 'неправильный'
+    });
+    
     if (usePostgres) {
       const result = await db.query(
-        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, appointment_date',
         [client_id, dateToSave, doctor_id, notes, 'scheduled']
       );
       appointmentId = result[0].id;
+      
+      // Проверяем, что сохранилось
+      const savedDate = result[0].appointment_date;
+      console.log('Сохранено в БД:', {
+        id: appointmentId,
+        savedDate,
+        type: typeof savedDate,
+        length: String(savedDate).length
+      });
     } else {
       const result = await db.run(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES (?, ?, ?, ?, ?)',
         [client_id, dateToSave, doctor_id, notes, 'scheduled']
       );
       appointmentId = result.lastID;
+      
+      // Проверяем, что сохранилось
+      const saved = await db.get('SELECT appointment_date FROM appointments WHERE id = ?', [appointmentId]);
+      console.log('Сохранено в БД:', {
+        id: appointmentId,
+        savedDate: saved?.appointment_date,
+        type: typeof saved?.appointment_date
+      });
     }
     
     // Добавляем услуги
