@@ -32,14 +32,29 @@ const formatDateTime = (year, month, day, hours, minutes) => {
 const normalizeDateString = (dateStr) => {
   if (!dateStr) return '';
   
+  // Преобразуем в строку, если это не строка
+  let str = String(dateStr);
+  
   // Нормализуем: убираем 'T', заменяем на пробел, убираем timezone
-  let normalized = dateStr.replace('T', ' ');
+  let normalized = str.replace('T', ' ');
+  
+  // Убираем timezone (Z или +HH:MM или -HH:MM)
   if (normalized.includes('Z')) {
     normalized = normalized.replace('Z', '');
   }
-  if (normalized.includes('+')) {
-    normalized = normalized.split('+')[0];
+  // Убираем timezone в формате +HH:MM или -HH:MM
+  const timezoneRegex = /[+-]\d{2}:\d{2}$/;
+  if (timezoneRegex.test(normalized)) {
+    normalized = normalized.replace(timezoneRegex, '');
   }
+  // Убираем timezone в формате +HHMM или -HHMM (без двоеточия)
+  const timezoneRegex2 = /[+-]\d{4}$/;
+  if (timezoneRegex2.test(normalized)) {
+    normalized = normalized.replace(timezoneRegex2, '');
+  }
+  
+  // Убираем лишние пробелы
+  normalized = normalized.trim();
   
   return normalized;
 };
@@ -56,12 +71,25 @@ const parseTime = (dateTimeStr) => {
   
   // Парсим время (часть после пробела)
   const timePart = normalized.split(' ')[1];
-  if (!timePart) return { hours: 0, minutes: 0 };
+  if (!timePart) {
+    // Если нет пробела, возможно формат другой - пробуем парсить как есть
+    const match = normalized.match(/(\d{2}):(\d{2})/);
+    if (match) {
+      return {
+        hours: parseInt(match[1]) || 0,
+        minutes: parseInt(match[2]) || 0
+      };
+    }
+    return { hours: 0, minutes: 0 };
+  }
   
   const parts = timePart.split(':');
+  const hours = parseInt(parts[0], 10) || 0;
+  const minutes = parseInt(parts[1], 10) || 0;
+  
   return {
-    hours: parseInt(parts[0]) || 0,
-    minutes: parseInt(parts[1]) || 0
+    hours: isNaN(hours) ? 0 : hours,
+    minutes: isNaN(minutes) ? 0 : minutes
   };
 };
 
@@ -184,6 +212,19 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDoctor, currentYear, currentMonth]);
+
+  // Автоматически обновляем слоты в модалке при изменении appointments
+  useEffect(() => {
+    if (showModal && selectedSlot) {
+      // Пересчитываем слоты с актуальными данными appointments
+      const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+      // Обновляем только если есть изменения (чтобы избежать бесконечного цикла)
+      if (JSON.stringify(updatedSlots.slots) !== JSON.stringify(selectedSlot.slots)) {
+        setSelectedSlot(updatedSlots);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointments, showModal]);
 
   // Обработчик события отмены/создания записи - обновляем календарь
   useEffect(() => {
@@ -372,7 +413,16 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       );
       // Создаем новый массив чтобы React увидел изменения
       // Используем JSON.parse(JSON.stringify()) для глубокого копирования и гарантии нового объекта
-      setAppointments(JSON.parse(JSON.stringify(response.data)));
+      const newAppointments = JSON.parse(JSON.stringify(response.data));
+      setAppointments(newAppointments);
+      
+      // Логируем для отладки (можно убрать в продакшене)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Загружены записи:', newAppointments.length);
+        if (newAppointments.length > 0) {
+          console.log('Пример записи:', newAppointments[0]);
+        }
+      }
     } catch (error) {
       console.error('Ошибка загрузки записей:', error);
     }
@@ -522,18 +572,23 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     schedule.forEach(s => {
       const times = generateTimeSlots(s.start_time, s.end_time);
       times.forEach(time => {
+        const [slotHour, slotMinute] = time.split(':').map(Number);
+        
+        // Более надежное сравнение времени
         const isBooked = dayAppointments.some(apt => {
           const aptTime = parseTime(apt.appointment_date);
-          const slotTime = time.split(':');
-          return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
+          // Сравниваем часы и минуты
+          return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
         });
 
         // Проверяем, является ли слот прошедшим
-        const [slotHour, slotMinute] = time.split(':').map(Number);
         const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
         const now = new Date();
         // Сравниваем с точностью до минуты
         now.setSeconds(0, 0);
+        now.setMilliseconds(0);
+        slotDateTime.setSeconds(0, 0);
+        slotDateTime.setMilliseconds(0);
         const isPast = slotDateTime.getTime() < now.getTime();
 
         allSlots.push({
@@ -542,8 +597,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           isPast,
           appointment: isBooked ? dayAppointments.find(apt => {
             const aptTime = parseTime(apt.appointment_date);
-            const slotTime = time.split(':');
-            return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
+            return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
           }) : null
         });
       });
@@ -757,9 +811,15 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         
         // Обновляем модалку для перерисовки слотов после обновления appointments
         // Используем setTimeout для гарантии, что React обновил состояние appointments
+        // Увеличиваем время ожидания и принудительно обновляем selectedSlot
         setTimeout(() => {
+          // Принудительно пересчитываем слоты с актуальными данными
+          if (selectedSlot) {
+            const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+            setSelectedSlot(updatedSlots);
+          }
           setModalUpdateKey(prev => prev + 1);
-        }, 100);
+        }, 200);
       }
     } catch (error) {
       console.error('Ошибка создания/обновления записи:', error);
