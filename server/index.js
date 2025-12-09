@@ -39,8 +39,13 @@ function param(index) {
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
   
+  console.log('=== normalizeAppointmentDate ===');
+  console.log('Входная строка:', dateString);
+  console.log('Тип:', typeof dateString);
+  
   // Преобразуем в строку
   let normalized = String(dateString);
+  console.log('После String():', normalized);
   
   // Убираем 'T' и заменяем на пробел
   normalized = normalized.replace('T', ' ').trim();
@@ -56,19 +61,28 @@ function normalizeAppointmentDate(dateString) {
     normalized = normalized.substring(0, 19);
   }
   
+  console.log('После удаления timezone:', normalized);
+  
   // Убеждаемся, что есть секунды (если формат YYYY-MM-DD HH:MM)
   if (normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)) {
     normalized = normalized + ':00';
+    console.log('Добавлены секунды:', normalized);
   }
   
   // Обрезаем до формата YYYY-MM-DD HH:MM:SS (ровно 19 символов)
+  // ВАЖНО: НЕ обрезаем если строка уже правильной длины!
   if (normalized.length > 19) {
+    console.log('⚠️ Строка длиннее 19 символов, обрезаем:', normalized, '->', normalized.substring(0, 19));
     normalized = normalized.substring(0, 19);
   }
   
   // Проверяем, что формат правильный
-  if (!normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+  const timeMatch = normalized.match(/^\d{4}-\d{2}-\d{2} (\d{2}):(\d{2}):(\d{2})$/);
+  if (!timeMatch) {
     console.error('⚠️ Предупреждение: неправильный формат даты после нормализации:', normalized, 'исходная:', dateString);
+  } else {
+    console.log('✅ Формат правильный:', normalized);
+    console.log('Время:', timeMatch[1] + ':' + timeMatch[2] + ':' + timeMatch[3]);
   }
   
   return normalized;
@@ -1228,12 +1242,28 @@ app.post('/api/appointments', async (req, res) => {
       
       // Проверяем, что сохранилось
       const savedDate = result[0].appointment_date;
-      console.log('Сохранено в БД:', {
-        id: appointmentId,
-        savedDate,
-        type: typeof savedDate,
-        length: String(savedDate).length
-      });
+      console.log('=== СОХРАНЕНО В БД (PostgreSQL) ===');
+      console.log('ID:', appointmentId);
+      console.log('Сохраненная дата:', savedDate);
+      console.log('Тип:', typeof savedDate);
+      console.log('Длина:', String(savedDate).length);
+      console.log('Формат:', String(savedDate));
+      
+      // ВАЖНО: Преобразуем в строку для возврата клиенту
+      let dateForResponse = String(savedDate);
+      if (dateForResponse instanceof Date || dateForResponse.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}/)) {
+        // Если это объект Date или формат toString(), получаем из БД заново
+        const dbCheck = await db.get(
+          `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`,
+          [appointmentId]
+        );
+        if (dbCheck && dbCheck.appointment_date) {
+          dateForResponse = String(dbCheck.appointment_date);
+          console.log('Получено из БД заново:', dateForResponse);
+        }
+      }
+      
+      console.log('Дата для ответа клиенту:', dateForResponse);
     } else {
       const result = await db.run(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES (?, ?, ?, ?, ?)',
@@ -1262,10 +1292,26 @@ app.post('/api/appointments', async (req, res) => {
       }
     }
     
+    // ВАЖНО: Получаем сохраненную дату из БД для возврата клиенту
+    // Это гарантирует, что мы возвращаем то, что реально сохранилось
+    let finalAppointmentDate = dateToSave;
+    if (usePostgres) {
+      const saved = await db.get(
+        `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`,
+        [appointmentId]
+      );
+      if (saved && saved.appointment_date) {
+        finalAppointmentDate = String(saved.appointment_date);
+        console.log('=== ОТВЕТ КЛИЕНТУ ===');
+        console.log('Дата для ответа:', finalAppointmentDate);
+        console.log('Время:', finalAppointmentDate.split(' ')[1]);
+      }
+    }
+    
     res.json({
       id: appointmentId,
       client_id,
-      appointment_date: dateToSave,
+      appointment_date: finalAppointmentDate,
       doctor_id,
       services,
       notes

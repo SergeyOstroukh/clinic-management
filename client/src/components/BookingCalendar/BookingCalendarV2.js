@@ -732,18 +732,18 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const hours = parseInt(timeParts[0], 10) || 0;
     const minutes = parseInt(timeParts[1], 10) || 0;
     
-    console.log('Создание записи:', {
-      selectedTime,
-      hours,
-      minutes,
-      year: selectedSlot.year,
-      month: selectedSlot.month,
-      day: selectedSlot.day
-    });
+    // ВАЖНО: Проверяем, что минуты не теряются
+    console.log('=== СОЗДАНИЕ ЗАПИСИ ===');
+    console.log('Выбранное время:', selectedTime);
+    console.log('Часы:', hours, 'Минуты:', minutes);
+    console.log('Дата:', selectedSlot.year, selectedSlot.month, selectedSlot.day);
     
     const dateTime = formatDateTime(selectedSlot.year, selectedSlot.month, selectedSlot.day, hours, minutes);
     
     console.log('Сформированная дата для отправки:', dateTime);
+    console.log('Длина строки:', dateTime.length);
+    console.log('Формат правильный?', dateTime.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) ? 'ДА' : 'НЕТ');
+    console.log('Время в строке:', dateTime.split(' ')[1]);
     
     createAppointment(dateTime);
   };
