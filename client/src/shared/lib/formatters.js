@@ -6,34 +6,49 @@ export const formatDate = (date, formatStr = 'd MMMM yyyy HH:mm') => {
 };
 
 export const formatTime = (date) => {
-  // Если это строка в формате 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM',
-  // парсим время напрямую без конвертации timezone
-  if (typeof date === 'string') {
-    // Нормализуем формат: убираем 'T', заменяем на пробел, убираем timezone
-    let normalized = date.replace('T', ' ').trim();
-    if (normalized.includes('Z')) {
-      normalized = normalized.replace('Z', '');
-    }
-    if (normalized.includes('+')) {
-      normalized = normalized.split('+')[0].trim();
-    }
-    // Убираем timezone в формате -HH:MM
-    if (normalized.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}-\d{2}:\d{2}$/)) {
-      normalized = normalized.substring(0, 19);
-    }
-    
-    // Проверяем формат 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM'
-    const dateTimeMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (dateTimeMatch) {
-      const [, , hours, minutes] = dateTimeMatch;
-      // ВАЖНО: убеждаемся, что minutes не undefined и не пустая строка
-      const hoursNum = parseInt(hours, 10) || 0;
-      const minutesNum = parseInt(minutes, 10) || 0;
-      
-      // Возвращаем время в формате HH:MM, сохраняя минуты как есть
-      return `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`;
+  if (!date) return '--:--';
+  
+  // Преобразуем в строку
+  let dateStr = String(date).trim();
+  
+  // Если это формат типа "Wed Dec 10 2025 17:" (результат toString() от Date)
+  // Пытаемся извлечь время из этой строки
+  if (dateStr.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+(\d{1,2}):(\d{0,2})/)) {
+    const timeMatch = dateStr.match(/\s+(\d{1,2}):(\d{0,2})/);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1], 10) || 0;
+      const minutes = parseInt(timeMatch[2] || '0', 10) || 0;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     }
   }
+  
+  // Если это строка в формате 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM',
+  // парсим время напрямую без конвертации timezone
+  // Нормализуем формат: убираем 'T', заменяем на пробел, убираем timezone
+  let normalized = dateStr.replace('T', ' ').trim();
+  if (normalized.includes('Z')) {
+    normalized = normalized.replace('Z', '');
+  }
+  if (normalized.includes('+')) {
+    normalized = normalized.split('+')[0].trim();
+  }
+  // Убираем timezone в формате -HH:MM
+  if (normalized.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}-\d{2}:\d{2}$/)) {
+    normalized = normalized.substring(0, 19);
+  }
+  
+  // Проверяем формат 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM'
+  const dateTimeMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (dateTimeMatch) {
+    const [, , hours, minutes] = dateTimeMatch;
+    // ВАЖНО: убеждаемся, что minutes не undefined и не пустая строка
+    const hoursNum = parseInt(hours, 10) || 0;
+    const minutesNum = parseInt(minutes || '0', 10) || 0;
+    
+    // Возвращаем время в формате HH:MM, сохраняя минуты как есть
+    return `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`;
+  }
+  
   // Для других форматов используем стандартный парсинг
   // ВАЖНО: new Date() может конвертировать timezone, поэтому стараемся избегать этого
   try {
