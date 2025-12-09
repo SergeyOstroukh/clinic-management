@@ -33,7 +33,35 @@ const normalizeDateString = (dateStr) => {
   if (!dateStr) return '';
   
   // Преобразуем в строку на случай, если это объект Date или другой тип
-  let str = String(dateStr);
+  let str = String(dateStr).trim();
+  
+  // Убираем лишние кавычки и пробелы в начале
+  str = str.replace(/^["'\s]+|["'\s]+$/g, '');
+  
+  // Если строка начинается с "ue" или похоже на обрезанный формат типа "ue Dec 09 2025 19:"
+  // Пытаемся распарсить как дату в формате "Dec 09 2025 19:00" или подобном
+  if (str.match(/^[a-z]{2,3}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:/i)) {
+    try {
+      // Пытаемся восстановить полную строку и распарсить
+      // "ue Dec 09 2025 19:" -> "Dec 09 2025 19:00"
+      const match = str.match(/([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{0,2})/);
+      if (match) {
+        const [, monthName, day, year, hours, minutes = '00'] = match;
+        const monthMap = {
+          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+          'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+          'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+        };
+        const month = monthMap[monthName] || '01';
+        const dayPadded = String(day).padStart(2, '0');
+        const hoursPadded = String(hours).padStart(2, '0');
+        const minutesPadded = String(minutes).padStart(2, '0');
+        str = `${year}-${month}-${dayPadded} ${hoursPadded}:${minutesPadded}:00`;
+      }
+    } catch (e) {
+      console.error('Ошибка парсинга обрезанного формата даты:', e, dateStr);
+    }
+  }
   
   // Если это объект Date в строковом виде, пытаемся извлечь дату
   if (str === '[object Object]' || str === '[object Date]') {

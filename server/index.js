@@ -3521,7 +3521,9 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     const query = `
       SELECT 
         a.id,
-        a.appointment_date,
+        ${usePostgres 
+          ? "TO_CHAR(a.appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')" 
+          : "strftime('%Y-%m-%d %H:%M:%S', a.appointment_date)"} as appointment_date,
         a.status,
         a.notes,
         a.diagnosis,
@@ -3532,8 +3534,8 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
       FROM appointments a
       JOIN clients c ON a.client_id = c.id
       WHERE a.doctor_id = ${usePostgres ? '$1' : '?'}
-        AND DATE(a.appointment_date) >= ${usePostgres ? '$2' : '?'}
-        AND DATE(a.appointment_date) <= ${usePostgres ? '$3' : '?'}
+        AND DATE(a.appointment_date${usePostgres ? '::timestamp' : ''}) >= ${usePostgres ? '$2' : '?'}
+        AND DATE(a.appointment_date${usePostgres ? '::timestamp' : ''}) <= ${usePostgres ? '$3' : '?'}
       ORDER BY a.appointment_date
     `;
     
@@ -3555,9 +3557,11 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
       );
       
       // Нормализуем appointment_date для корректного отображения времени
+      // Теперь appointment_date уже приходит в формате строки YYYY-MM-DD HH24:MI:SS из SQL
       let normalizedAppointmentDate = appointment.appointment_date;
       if (normalizedAppointmentDate) {
-        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+        // Преобразуем в строку на случай, если это все еще объект
+        normalizedAppointmentDate = normalizeAppointmentDate(String(normalizedAppointmentDate));
       }
       
       return {
