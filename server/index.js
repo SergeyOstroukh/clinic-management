@@ -1016,17 +1016,39 @@ app.delete('/api/composite-services/:id', async (req, res) => {
 // Получить все записи с информацией о клиентах и услугах
 app.get('/api/appointments', async (req, res) => {
   try {
-    const appointments = await db.all(`
-      SELECT 
-        a.*,
-        d."lastName" as doctor_lastName,
-        d."firstName" as doctor_firstName,
-        d."middleName" as doctor_middleName,
-        d.specialization as doctor_specialization
-      FROM appointments a
-      LEFT JOIN doctors d ON a.doctor_id = d.id
-      ORDER BY a.id ASC
-    `);
+    // ВАЖНО: Для PostgreSQL используем TO_CHAR чтобы получить appointment_date в правильном формате
+    const appointments = await db.all(
+      usePostgres
+        ? `SELECT 
+            a.id,
+            a.client_id,
+            ${usePostgres ? "TO_CHAR(a.appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text" : "a.appointment_date"} as appointment_date,
+            a.doctor_id,
+            a.status,
+            a.notes,
+            a.diagnosis,
+            a.total_price,
+            a.discount_amount,
+            a.paid,
+            a.called_today,
+            a.created_at,
+            d."lastName" as doctor_lastName,
+            d."firstName" as doctor_firstName,
+            d."middleName" as doctor_middleName,
+            d.specialization as doctor_specialization
+          FROM appointments a
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          ORDER BY a.id ASC`
+        : `SELECT 
+            a.*,
+            d.lastName as doctor_lastName,
+            d.firstName as doctor_firstName,
+            d.middleName as doctor_middleName,
+            d.specialization as doctor_specialization
+          FROM appointments a
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          ORDER BY a.id ASC`
+    );
     
     // Получаем услуги и материалы для каждой записи
     const appointmentsWithData = await Promise.all(appointments.map(async (appointment) => {
@@ -1058,10 +1080,33 @@ app.get('/api/appointments', async (req, res) => {
         [appointment.id]
       );
       
-      // Нормализуем appointment_date для корректного отображения времени
-      let normalizedAppointmentDate = appointment.appointment_date;
-      if (normalizedAppointmentDate) {
-        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+      // ВАЖНО: Получаем appointment_date из БД напрямую в правильном формате
+      // Это гарантирует, что мы получаем правильное время с минутами
+      let normalizedAppointmentDate;
+      const dbDate = await db.get(
+        usePostgres
+          ? `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`
+          : `SELECT strftime('%Y-%m-%d %H:%M:%S', appointment_date) as appointment_date FROM appointments WHERE id = ?`,
+        [appointment.id]
+      );
+      
+      if (dbDate && dbDate.appointment_date) {
+        normalizedAppointmentDate = String(dbDate.appointment_date);
+      } else {
+        // Fallback: используем то, что пришло из первого запроса
+        let dateStr = appointment.appointment_date;
+        
+        if (dateStr instanceof Date) {
+          const year = dateStr.getFullYear();
+          const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+          const day = String(dateStr.getDate()).padStart(2, '0');
+          const hours = String(dateStr.getHours()).padStart(2, '0');
+          const minutes = String(dateStr.getMinutes()).padStart(2, '0');
+          const seconds = String(dateStr.getSeconds()).padStart(2, '0');
+          normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        } else {
+          normalizedAppointmentDate = normalizeAppointmentDate(String(dateStr));
+        }
       }
       
       return {
