@@ -3585,15 +3585,44 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     
     const appointments = await db.all(query, [doctorId, startDate, endDate]);
     
-    console.log('Получены записи из БД (первые 3):', appointments.slice(0, 3).map(apt => ({
+    // ВАЖНО: Преобразуем appointment_date в строку сразу после получения из БД
+    // Это нужно, потому что драйвер PostgreSQL может вернуть объект Date даже после TO_CHAR
+    const appointmentsWithStringDates = appointments.map(apt => {
+      let dateStr = apt.appointment_date;
+      
+      // Если это объект Date, преобразуем в строку
+      if (dateStr instanceof Date) {
+        const year = dateStr.getFullYear();
+        const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+        const day = String(dateStr.getDate()).padStart(2, '0');
+        const hours = String(dateStr.getHours()).padStart(2, '0');
+        const minutes = String(dateStr.getMinutes()).padStart(2, '0');
+        const seconds = String(dateStr.getSeconds()).padStart(2, '0');
+        dateStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      } else {
+        // Если это строка, убеждаемся что она в правильном формате
+        dateStr = String(dateStr);
+        // Если это формат типа "Wed Dec 10 2025 17:", получаем из БД напрямую
+        if (dateStr.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:/)) {
+          // Это обрезанный формат - нужно получить из БД
+          // Но это асинхронно, поэтому пока оставляем как есть - обработаем ниже
+        }
+      }
+      
+      return {
+        ...apt,
+        appointment_date: dateStr
+      };
+    });
+    
+    console.log('Получены записи из БД (первые 3):', appointmentsWithStringDates.slice(0, 3).map(apt => ({
       id: apt.id,
       appointment_date: apt.appointment_date,
-      type: typeof apt.appointment_date,
-      constructor: apt.appointment_date?.constructor?.name
+      type: typeof apt.appointment_date
     })));
     
     // Получаем услуги для каждой записи
-    const appointmentsWithServices = await Promise.all(appointments.map(async (appointment) => {
+    const appointmentsWithServices = await Promise.all(appointmentsWithStringDates.map(async (appointment) => {
       const services = await db.all(
         usePostgres
           ? `SELECT aps.service_id, aps.quantity, s.name, s.price 

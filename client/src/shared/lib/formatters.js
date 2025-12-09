@@ -30,16 +30,6 @@ export const formatTime = (date) => {
       const hoursNum = parseInt(hours, 10) || 0;
       const minutesNum = parseInt(minutes, 10) || 0;
       
-      console.log('formatTime парсинг:', {
-        input: date,
-        normalized,
-        hours,
-        minutes,
-        hoursNum,
-        minutesNum,
-        result: `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`
-      });
-      
       // Возвращаем время в формате HH:MM, сохраняя минуты как есть
       return `${String(hoursNum).padStart(2, '0')}:${String(minutesNum).padStart(2, '0')}`;
     }
@@ -49,12 +39,7 @@ export const formatTime = (date) => {
   try {
     const dateObj = new Date(date);
     if (!isNaN(dateObj.getTime())) {
-      const result = format(dateObj, 'HH:mm');
-      console.log('formatTime через new Date:', {
-        input: date,
-        result
-      });
-      return result;
+      return format(dateObj, 'HH:mm');
     }
   } catch (e) {
     console.error('Ошибка форматирования времени:', e, date);
