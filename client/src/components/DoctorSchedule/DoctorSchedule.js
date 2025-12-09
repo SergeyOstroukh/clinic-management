@@ -232,6 +232,29 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
   };
 
   const formatTime = (dateString) => {
+    // Если это строка в формате 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM',
+    // парсим время напрямую без конвертации timezone
+    if (typeof dateString === 'string') {
+      // Нормализуем формат: убираем 'T', заменяем на пробел, убираем timezone
+      let normalized = dateString.replace('T', ' ');
+      if (normalized.includes('Z')) {
+        normalized = normalized.replace('Z', '');
+      }
+      if (normalized.includes('+')) {
+        normalized = normalized.split('+')[0];
+      }
+      if (normalized.includes('-', 10) && normalized.length >= 16) {
+        // Формат 'YYYY-MM-DD HH:MM:SS' или 'YYYY-MM-DD HH:MM'
+        const timePart = normalized.split(' ')[1];
+        if (timePart) {
+          const [hours, minutes] = timePart.split(':');
+          if (hours && minutes) {
+            return `${String(parseInt(hours, 10)).padStart(2, '0')}:${String(parseInt(minutes, 10)).padStart(2, '0')}`;
+          }
+        }
+      }
+    }
+    // Для других форматов используем стандартный парсинг
     const date = new Date(dateString);
     return date.toLocaleTimeString('ru-RU', { 
       hour: '2-digit',

@@ -1031,8 +1031,15 @@ app.get('/api/appointments', async (req, res) => {
         [appointment.id]
       );
       
+      // Нормализуем appointment_date для корректного отображения времени
+      let normalizedAppointmentDate = appointment.appointment_date;
+      if (normalizedAppointmentDate) {
+        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+      }
+      
       return {
         ...appointment,
+        appointment_date: normalizedAppointmentDate,
         // Нормализуем called_today: boolean -> 1/0 для совместимости с клиентом
         called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,
         services: services.map(s => ({
@@ -1123,8 +1130,15 @@ app.get('/api/appointments/:id', async (req, res) => {
       [appointment.client_id]
     );
 
+    // Нормализуем appointment_date для корректного отображения времени
+    let normalizedAppointmentDate = appointment.appointment_date;
+    if (normalizedAppointmentDate) {
+      normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+    }
+    
     const appointmentWithData = {
       ...appointment,
+      appointment_date: normalizedAppointmentDate,
       // Нормализуем called_today: boolean -> 1/0 для совместимости с клиентом                                             
       called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,                                                               
       services: services.map(s => ({
@@ -1520,20 +1534,7 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
 
     // Сохраняем план лечения, если он был передан и найден клиент
     if (appointmentData?.client_id && treatment_plan !== undefined) {
-      // Гарантируем, что это строка
-      let normalizedPlan = '';
-      if (treatment_plan !== null && treatment_plan !== undefined) {
-        if (typeof treatment_plan === 'string') {
-          normalizedPlan = treatment_plan.trim();
-        } else if (typeof treatment_plan === 'object') {
-          // Если это объект, не сохраняем (это ошибка)
-          console.warn(`⚠️ План лечения передан как объект для клиента ${appointmentData.client_id}, пропускаем сохранение`);
-          normalizedPlan = '';
-        } else {
-          normalizedPlan = String(treatment_plan).trim();
-        }
-      }
-      
+      const normalizedPlan = treatment_plan ? treatment_plan.trim() : '';
       await db.run(
         usePostgres
           ? 'UPDATE clients SET treatment_plan = $1 WHERE id = $2'
@@ -1598,8 +1599,15 @@ app.get('/api/clients/:id/appointments', async (req, res) => {
         [appointment.doctor_id]
       );
       
+      // Нормализуем appointment_date для корректного отображения времени
+      let normalizedAppointmentDate = appointment.appointment_date;
+      if (normalizedAppointmentDate) {
+        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+      }
+      
       return {
         ...appointment,
+        appointment_date: normalizedAppointmentDate,
         services: services.map(s => ({
           service_id: s.service_id,
           name: s.name,
@@ -3546,8 +3554,15 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
         [appointment.id]
       );
       
+      // Нормализуем appointment_date для корректного отображения времени
+      let normalizedAppointmentDate = appointment.appointment_date;
+      if (normalizedAppointmentDate) {
+        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+      }
+      
       return {
         ...appointment,
+        appointment_date: normalizedAppointmentDate,
         services: services
       };
     }));
@@ -3583,7 +3598,20 @@ app.get('/api/doctors/:id/daily-appointments', async (req, res) => {
     `;
     
     const appointments = await db.all(query, [doctorId, date]);
-    res.json(appointments);
+    
+    // Нормализуем appointment_date для корректного отображения времени
+    const normalizedAppointments = appointments.map(appointment => {
+      let normalizedAppointmentDate = appointment.appointment_date;
+      if (normalizedAppointmentDate) {
+        normalizedAppointmentDate = normalizeAppointmentDate(normalizedAppointmentDate.toString());
+      }
+      return {
+        ...appointment,
+        appointment_date: normalizedAppointmentDate
+      };
+    });
+    
+    res.json(normalizedAppointments);
   } catch (error) {
     console.error('Ошибка получения записей врача на день:', error);
     res.status(500).json({ error: error.message });

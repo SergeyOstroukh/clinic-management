@@ -4,7 +4,7 @@ import axios from 'axios';
 
 // FSD imports
 import { getTodayDateString, getFullName } from './shared/lib';
-import { AppointmentTable, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
+import { AppointmentTable, AppointmentTableByDoctor, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { AdministratorsPage } from './pages/AdministratorsPage';
 import { StatisticsPage } from './pages/StatisticsPage';
@@ -91,6 +91,9 @@ function App() {
   
   // Фильтр по дате
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
+  
+  // Вид таблицы записей (table или byDoctor)
+  const [appointmentsViewMode, setAppointmentsViewMode] = useState('table');
   
   // Редактирование
   const [editingService, setEditingService] = useState(null);
@@ -830,27 +833,52 @@ function App() {
               >
                 Сегодня
               </button>
+              {currentUser.role !== 'doctor' && (
+                <button
+                  className={`btn btn-small ${appointmentsViewMode === 'byDoctor' ? 'btn-primary' : ''}`}
+                  onClick={() => setAppointmentsViewMode(appointmentsViewMode === 'table' ? 'byDoctor' : 'table')}
+                  title={appointmentsViewMode === 'table' ? 'Показать по врачам' : 'Показать таблицу'}
+                >
+                  {appointmentsViewMode === 'table' ? '🗂️ Таблица' : '👨‍⚕️ По врачам'}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* Таблица записей */}
-        <AppointmentTable
-          appointments={displayAppointments}
-          clients={clients}
-          onClientClick={(clientId, appointment) => openClientCard(clientId, appointment, 'payment')}
-          onCallStatusToggle={toggleCallStatus}
-          onStatusChange={updateAppointmentStatus}
-          onEditAppointment={handleEditAppointment}
-          onCancelAppointment={handleCancelAppointment}
-          getServiceNames={getServiceNames}
-          getDoctorName={getDoctorName}
-          calculateTotal={calculateAppointmentTotal}
-          showPhoneIcon={currentUser.role !== 'doctor'}
-          showDoctor={true}
-          showPrice={currentUser.role !== 'doctor'}
-          currentUser={currentUser}
-        />
+        {appointmentsViewMode === 'byDoctor' && currentUser.role !== 'doctor' ? (
+          <AppointmentTableByDoctor
+            appointments={displayAppointments}
+            clients={clients}
+            doctors={doctors}
+            onClientClick={(clientId, appointment) => openClientCard(clientId, appointment, 'payment')}
+            onCallStatusToggle={toggleCallStatus}
+            onStatusChange={updateAppointmentStatus}
+            onEditAppointment={handleEditAppointment}
+            onCancelAppointment={handleCancelAppointment}
+            getServiceNames={getServiceNames}
+            calculateTotal={calculateAppointmentTotal}
+            currentUser={currentUser}
+          />
+        ) : (
+          <AppointmentTable
+            appointments={displayAppointments}
+            clients={clients}
+            onClientClick={(clientId, appointment) => openClientCard(clientId, appointment, 'payment')}
+            onCallStatusToggle={toggleCallStatus}
+            onStatusChange={updateAppointmentStatus}
+            onEditAppointment={handleEditAppointment}
+            onCancelAppointment={handleCancelAppointment}
+            getServiceNames={getServiceNames}
+            getDoctorName={getDoctorName}
+            calculateTotal={calculateAppointmentTotal}
+            showPhoneIcon={currentUser.role !== 'doctor'}
+            showDoctor={true}
+            showPrice={currentUser.role !== 'doctor'}
+            currentUser={currentUser}
+          />
+        )}
       </div>
     );
   };
