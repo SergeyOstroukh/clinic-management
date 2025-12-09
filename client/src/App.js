@@ -66,6 +66,7 @@ function App() {
   const [showCompleteVisitModal, setShowCompleteVisitModal] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedClientCardMode, setSelectedClientCardMode] = useState('card');
+  const [selectedAppointmentForPayment, setSelectedAppointmentForPayment] = useState(null);
   const [selectedAppointmentForComplete, setSelectedAppointmentForComplete] = useState(null);
   
   // Поиск и выбор
@@ -316,6 +317,12 @@ function App() {
       // Для администраторов открываем карточку клиента
       setSelectedClientId(clientId);
       setSelectedClientCardMode(mode); // Сохраняем режим
+      // Сохраняем конкретный визит для режима оплаты
+      if (mode === 'payment' && appointment) {
+        setSelectedAppointmentForPayment(appointment);
+      } else {
+        setSelectedAppointmentForPayment(null);
+      }
       setShowClientCardModal(true);
     }
   };
@@ -1455,6 +1462,7 @@ function App() {
           onClose={() => {
             setShowClientCardModal(false);
             setSelectedClientCardMode('card');
+            setSelectedAppointmentForPayment(null);
           }}
           onUpdate={loadData}
           toast={toast}
@@ -1462,6 +1470,7 @@ function App() {
           onCancelAppointment={handleCancelAppointment}
           showConfirm={showConfirm}
           mode={selectedClientCardMode}
+          selectedAppointment={selectedAppointmentForPayment}
         />
       )}
 

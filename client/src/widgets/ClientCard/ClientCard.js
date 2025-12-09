@@ -27,7 +27,8 @@ const ClientCard = ({
   onEditAppointment,
   onCancelAppointment,
   showConfirm,
-  mode = 'card' // 'card' - карточка с вкладками, 'payment' - окно оплаты
+  mode = 'card', // 'card' - карточка с вкладками, 'payment' - окно оплаты
+  selectedAppointment = null // Конкретный визит для отображения в режиме оплаты
 }) => {
   const [clientHistory, setClientHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -495,7 +496,17 @@ const ClientCard = ({
 
   // Получаем сегодняшний визит для режима оплаты
   const getTodayVisit = () => {
+    // Если передан конкретный визит, используем его (приоритет)
+    if (selectedAppointment && mode === 'payment') {
+      // Ищем этот визит в истории клиента по ID
+      const foundVisit = clientHistory.find(visit => visit.id === selectedAppointment.id);
+      if (foundVisit) return foundVisit;
+      // Если не найден в истории, используем переданный визит напрямую
+      return selectedAppointment;
+    }
+    
     // Сначала ищем неоплаченные визиты (готовые к оплате или сегодняшние активные)
+    // Это правильный порядок - сначала показываем неоплаченные для оплаты
     const readyForPayment = clientHistory.find(visit => visit.status === 'ready_for_payment');
     if (readyForPayment) return readyForPayment;
     
@@ -508,10 +519,11 @@ const ClientCard = ({
     });
     if (todayActiveVisit) return todayActiveVisit;
     
-    // Если нет неоплаченных, ищем оплаченный визит (completed или paid === true)
-    const paidVisit = clientHistory.find(visit => 
-      visit.status === 'completed' || visit.paid === true || visit.paid === 1
-    );
+    // Только если нет неоплаченных, ищем оплаченный визит (completed или paid === true)
+    // Это нужно для отображения после завершения оплаты
+    const paidVisit = clientHistory
+      .filter(visit => visit.status === 'completed' || visit.paid === true || visit.paid === 1)
+      .sort((a, b) => new Date(b.appointment_date) - new Date(a.appointment_date))[0];
     return paidVisit;
   };
 
@@ -531,6 +543,7 @@ const ClientCard = ({
         discount_amount: discountAmount 
       });
       setDiscountAmount(0);
+      
       // Перезагружаем данные после оплаты
       await loadClientHistory();
       
@@ -555,10 +568,18 @@ const ClientCard = ({
       setTreatmentPlan(updatedTreatmentPlan);
       
       if (toast) toast.success('✅ Оплата завершена!');
-      if (onUpdate) onUpdate();
       
-      // Оставляем модалку открытой в режиме оплаты, чтобы показать план лечения
+      // Вызываем onUpdate для обновления данных в родительском компоненте
+      // НО НЕ закрываем модалку - она должна остаться открытой в режиме просмотра оплаченного приема
+      if (onUpdate) {
+        // Используем setTimeout чтобы дать время React обновить состояние
+        setTimeout(() => {
+          onUpdate();
+        }, 100);
+      }
+      
       // Модалка автоматически переключится в режим просмотра оплаченного приема
+      // благодаря обновленному clientHistory и проверке isPaid
     } catch (error) {
       console.error('Ошибка обновления статуса:', error);
       if (toast) toast.error('Ошибка завершения оплаты');
