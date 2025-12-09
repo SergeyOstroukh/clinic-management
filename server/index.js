@@ -39,23 +39,36 @@ function param(index) {
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
   
-  let normalized = dateString;
+  // Преобразуем в строку
+  let normalized = String(dateString);
+  
   // Убираем 'T' и заменяем на пробел
-  normalized = normalized.replace('T', ' ');
+  normalized = normalized.replace('T', ' ').trim();
   // Убираем timezone (Z или +HH:MM)
   if (normalized.includes('Z')) {
     normalized = normalized.replace('Z', '');
   }
   if (normalized.includes('+')) {
-    normalized = normalized.split('+')[0];
+    normalized = normalized.split('+')[0].trim();
   }
-  // Убеждаемся, что есть секунды
+  // Убираем timezone в формате -HH:MM
+  if (normalized.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}-\d{2}:\d{2}$/)) {
+    normalized = normalized.substring(0, 19);
+  }
+  
+  // Убеждаемся, что есть секунды (если формат YYYY-MM-DD HH:MM)
   if (normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)) {
     normalized = normalized + ':00';
   }
-  // Обрезаем до формата YYYY-MM-DD HH:MM:SS
+  
+  // Обрезаем до формата YYYY-MM-DD HH:MM:SS (ровно 19 символов)
   if (normalized.length > 19) {
     normalized = normalized.substring(0, 19);
+  }
+  
+  // Проверяем, что формат правильный
+  if (!normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+    console.error('⚠️ Предупреждение: неправильный формат даты после нормализации:', normalized, 'исходная:', dateString);
   }
   
   return normalized;
@@ -1169,8 +1182,15 @@ app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes } = req.body;
   
   try {
+    console.log('Создание записи - полученные данные:', {
+      appointment_date,
+      type: typeof appointment_date
+    });
+    
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
+    
+    console.log('Создание записи - нормализованная дата:', dateToSave);
     
     // Проверяем, нет ли уже записи на это время для этого врача
     const existingAppointment = await db.get(

@@ -727,9 +727,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return;
     }
 
-    const [hours, minutes] = selectedTime.split(':').map(Number);
+    // Парсим время, убеждаясь что минуты не теряются
+    const timeParts = selectedTime.split(':');
+    const hours = parseInt(timeParts[0], 10) || 0;
+    const minutes = parseInt(timeParts[1], 10) || 0;
+    
+    console.log('Создание записи:', {
+      selectedTime,
+      hours,
+      minutes,
+      year: selectedSlot.year,
+      month: selectedSlot.month,
+      day: selectedSlot.day
+    });
+    
     const dateTime = formatDateTime(selectedSlot.year, selectedSlot.month, selectedSlot.day, hours, minutes);
-
+    
+    console.log('Сформированная дата для отправки:', dateTime);
+    
     createAppointment(dateTime);
   };
 
