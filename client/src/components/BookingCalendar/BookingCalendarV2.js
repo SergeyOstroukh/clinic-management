@@ -1021,9 +1021,20 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       
       // Сбрасываем выбранное время
       setSelectedTime(null);
+      setSelectedSlotDoctor(null);
       
       // Загружаем обновленные записи
-      await loadAppointments();
+      if (showAllDoctorsMode) {
+        // В режиме всех врачей перезагружаем данные всех врачей
+        await loadAllDoctorsData();
+        // Обновляем слоты в модалке
+        if (selectedSlot) {
+          const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+          setSelectedSlot(updatedSlots);
+        }
+      } else {
+        await loadAppointments();
+      }
       
       // Отправляем событие для обновления таблицы записей в App.js
       window.dispatchEvent(new Event('appointmentCreated'));
@@ -1031,8 +1042,17 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       // Обновляем модалку для перерисовки слотов после обновления appointments
       // Используем setTimeout для гарантии, что React обновил состояние appointments
       setTimeout(() => {
-        setModalUpdateKey(prev => prev + 1);
-      }, 100);
+        if (showAllDoctorsMode && selectedSlot) {
+          // В режиме всех врачей перезагружаем данные еще раз для гарантии
+          loadAllDoctorsData().then(() => {
+            const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+            setSelectedSlot(updatedSlots);
+            setModalUpdateKey(prev => prev + 1);
+          });
+        } else {
+          setModalUpdateKey(prev => prev + 1);
+        }
+      }, 200);
       
       if (toast) toast.success('✅ Запись отменена');
     } catch (error) {
