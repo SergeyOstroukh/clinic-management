@@ -96,6 +96,9 @@ function App() {
   // Вид таблицы записей (table или byDoctor)
   const [appointmentsViewMode, setAppointmentsViewMode] = useState('table');
   
+  // Фильтр по статусам записей
+  const [hiddenStatuses, setHiddenStatuses] = useState([]);
+  
   // Редактирование
   const [editingService, setEditingService] = useState(null);
   const [editingMaterial, setEditingMaterial] = useState(null);
@@ -666,11 +669,13 @@ function App() {
       confirmButtonClass: 'btn-danger',
       onConfirm: async () => {
         try {
-          await axios.delete(`${API_URL}/services/${id}`);
+          const response = await axios.delete(`${API_URL}/services/${id}`);
           toast.success('✅ Услуга успешно удалена');
           loadData();
         } catch (error) {
-          toast.error('Ошибка удаления услуги');
+          const errorMessage = error.response?.data?.error || error.message || 'Неизвестная ошибка';
+          toast.error(`Ошибка удаления услуги: ${errorMessage}`);
+          console.error('Ошибка удаления услуги:', error);
         }
       }
     });
@@ -747,11 +752,13 @@ function App() {
       confirmButtonClass: 'btn-danger',
       onConfirm: async () => {
         try {
-          await axios.delete(`${API_URL}/materials/${id}`);
+          const response = await axios.delete(`${API_URL}/materials/${id}`);
           toast.success('✅ Материал успешно удален');
           loadData();
         } catch (error) {
-          toast.error('Ошибка удаления материала');
+          const errorMessage = error.response?.data?.error || error.message || 'Неизвестная ошибка';
+          toast.error(`Ошибка удаления материала: ${errorMessage}`);
+          console.error('Ошибка удаления материала:', error);
         }
       }
     });
@@ -808,9 +815,21 @@ function App() {
 
   // Рендер основной страницы
   const renderHome = () => {
-    const displayAppointments = currentUser.role === 'doctor'
+    let displayAppointments = currentUser.role === 'doctor'
       ? getDoctorAppointments()
       : getAppointmentsByDate();
+    
+    // Применяем фильтр по статусам
+    if (hiddenStatuses.length > 0) {
+      displayAppointments = displayAppointments.filter(apt => {
+        // Фильтр по статусам
+        if (hiddenStatuses.includes(apt.status)) {
+          return false;
+        }
+        
+        return true;
+      });
+    }
 
     return (
       <div>
@@ -851,6 +870,50 @@ function App() {
               )}
             </div>
           </div>
+          
+          {/* Фильтр по статусам */}
+          {currentUser.role !== 'doctor' && (
+            <div style={{ 
+              marginTop: '15px', 
+              padding: '12px', 
+              background: '#f5f5f5', 
+              borderRadius: '8px',
+              display: 'flex',
+              gap: '15px',
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}>
+              <span style={{ fontWeight: '600', color: '#333' }}>Скрыть:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={hiddenStatuses.includes('cancelled')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setHiddenStatuses([...hiddenStatuses, 'cancelled']);
+                    } else {
+                      setHiddenStatuses(hiddenStatuses.filter(s => s !== 'cancelled'));
+                    }
+                  }}
+                />
+                <span>Отмененные</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={hiddenStatuses.includes('completed')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setHiddenStatuses([...hiddenStatuses, 'completed']);
+                    } else {
+                      setHiddenStatuses(hiddenStatuses.filter(s => s !== 'completed'));
+                    }
+                  }}
+                />
+                <span>Завершенные</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Таблица записей */}
@@ -1640,84 +1703,6 @@ function App() {
                 </select>
               )}
 
-              <label>Услуги</label>
-              <div className="service-search-wrapper">
-                <input
-                  type="text"
-                  placeholder="Поиск услуги..."
-                  value={serviceSearchQuery}
-                  onChange={(e) => setServiceSearchQuery(e.target.value)}
-                  onFocus={() => setShowServiceDropdown(true)}
-                  className="service-search-input"
-                />
-                {showServiceDropdown && (
-                  <div className="service-dropdown">
-                    {getFilteredServices().length > 0 ? (
-                      getFilteredServices().map(service => {
-                        const isAdded = appointmentForm.services.find(s => s.service_id === service.id);
-                        return (
-                          <div
-                            key={service.id}
-                            className={`service-dropdown-item ${isAdded ? 'already-added' : ''}`}
-                            onClick={() => !isAdded && toggleServiceInAppointment(service.id)}
-                          >
-                            <span>{service.name}</span>
-                            {isAdded && <span className="added-mark">✓</span>}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="service-dropdown-empty">Услуги не найдены</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {appointmentForm.services.length > 0 && (
-                <div className="selected-services-table">
-                  <label>Выбранные услуги ({appointmentForm.services.length}):</label>
-                  <table className="services-simple-table">
-                    <thead>
-                      <tr>
-                        <th>Услуга</th>
-                        <th style={{ width: '80px' }}>Кол-во</th>
-                        <th style={{ width: '50px' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {appointmentForm.services.map(item => {
-                        const service = services.find(s => s.id === item.service_id);
-                        if (!service) return null;
-                        return (
-                          <tr key={item.service_id}>
-                            <td>{service.name}</td>
-                            <td>
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
-                                className="quantity-input-simple"
-                              />
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                className="remove-btn-simple"
-                                onClick={() => toggleServiceInAppointment(item.service_id)}
-                                title="Удалить"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
               <label>Заметки</label>
               <textarea
                 placeholder="Дополнительная информация"
@@ -1825,84 +1810,6 @@ function App() {
                   </option>
                 ))}
               </select>
-
-              <label>Услуги</label>
-              <div className="service-search-wrapper">
-                <input
-                  type="text"
-                  placeholder="Поиск услуги..."
-                  value={serviceSearchQuery}
-                  onChange={(e) => setServiceSearchQuery(e.target.value)}
-                  onFocus={() => setShowServiceDropdown(true)}
-                  className="service-search-input"
-                />
-                {showServiceDropdown && (
-                  <div className="service-dropdown">
-                    {getFilteredServices().length > 0 ? (
-                      getFilteredServices().map(service => {
-                        const isAdded = appointmentForm.services.find(s => s.service_id === service.id);
-                        return (
-                          <div
-                            key={service.id}
-                            className={`service-dropdown-item ${isAdded ? 'already-added' : ''}`}
-                            onClick={() => !isAdded && toggleServiceInAppointment(service.id)}
-                          >
-                            <span>{service.name}</span>
-                            {isAdded && <span className="added-mark">✓</span>}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="service-dropdown-empty">Услуги не найдены</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {appointmentForm.services.length > 0 && (
-                <div className="selected-services-table">
-                  <label>Выбранные услуги ({appointmentForm.services.length}):</label>
-                  <table className="services-simple-table">
-                    <thead>
-                      <tr>
-                        <th>Услуга</th>
-                        <th style={{ width: '80px' }}>Кол-во</th>
-                        <th style={{ width: '50px' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {appointmentForm.services.map(item => {
-                        const service = services.find(s => s.id === item.service_id);
-                        if (!service) return null;
-                        return (
-                          <tr key={item.service_id}>
-                            <td>{service.name}</td>
-                            <td>
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
-                                className="quantity-input-simple"
-                              />
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                className="remove-btn-simple"
-                                onClick={() => toggleServiceInAppointment(item.service_id)}
-                                title="Удалить"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
 
               <label>Заметки</label>
               <textarea

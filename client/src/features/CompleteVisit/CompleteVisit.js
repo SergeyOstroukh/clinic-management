@@ -406,6 +406,7 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                 {selectedServices.map(item => {
                   const service = services.find(s => s.id === item.service_id);
                   if (!service) return null;
+                  const itemTotal = (service.price || 0) * (item.quantity || 1);
                   return (
                     <div key={item.service_id} className="selected-item-simple">
                       <span className="item-name-simple">{service.name}</span>
@@ -413,10 +414,26 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                         <input
                           type="number"
                           min="1"
+                          step="1"
                           value={item.quantity}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => updateServiceQuantity(item.service_id, e.target.value)}
                           className="quantity-input-simple"
                         />
+                        <div style={{ 
+                          fontWeight: 'bold', 
+                          color: '#667eea',
+                          marginLeft: '10px',
+                          minWidth: '100px',
+                          textAlign: 'right'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', marginBottom: '2px' }}>
+                            Кол-во: {item.quantity || 1}
+                          </div>
+                          <div>
+                            Итого: {itemTotal.toFixed(2)} BYN
+                          </div>
+                        </div>
                         <button
                           type="button"
                           className="btn-remove-simple"
@@ -456,6 +473,7 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                 {selectedMaterials.map(item => {
                   const material = materials.find(m => m.id === item.material_id);
                   if (!material) return null;
+                  const itemTotal = (material.price || 0) * (item.quantity || 1);
                   return (
                     <div key={item.material_id} className="selected-item-simple">
                       <span className="item-name-simple">
@@ -465,12 +483,27 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                         <input
                           type="number"
                           min="0.1"
-                          step="0.1"
+                          step="1"
                           value={item.quantity}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => updateMaterialQuantity(item.material_id, e.target.value)}
                           className="quantity-input-simple"
                           disabled={isPaid}
                         />
+                        <div style={{ 
+                          fontWeight: 'bold', 
+                          color: '#667eea',
+                          marginLeft: '10px',
+                          minWidth: '100px',
+                          textAlign: 'right'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', marginBottom: '2px' }}>
+                            Кол-во: {item.quantity || 1}
+                          </div>
+                          <div>
+                            Итого: {itemTotal.toFixed(2)} BYN
+                          </div>
+                        </div>
                         <button
                           type="button"
                           className="btn-remove-simple"
@@ -489,6 +522,33 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
           </div>
         )}
       </div>
+
+      {/* Общая сумма */}
+      {((selectedServices.length > 0) || (selectedMaterials.length > 0)) && (
+        <div style={{
+          marginTop: '20px',
+          padding: '15px',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '10px',
+          color: 'white',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '1.1rem', marginBottom: '5px' }}>💰 Общая сумма:</div>
+          <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>
+            {(() => {
+              const servicesTotal = selectedServices.reduce((sum, item) => {
+                const service = services.find(s => s.id === item.service_id);
+                return sum + ((service?.price || 0) * (item.quantity || 1));
+              }, 0);
+              const materialsTotal = selectedMaterials.reduce((sum, item) => {
+                const material = materials.find(m => m.id === item.material_id);
+                return sum + ((material?.price || 0) * (item.quantity || 1));
+              }, 0);
+              return (servicesTotal + materialsTotal).toFixed(2);
+            })()} BYN
+          </div>
+        </div>
+      )}
 
       {/* Кнопки */}
       <div className="form-actions">

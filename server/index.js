@@ -39,13 +39,8 @@ function param(index) {
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
   
-  console.log('=== normalizeAppointmentDate ===');
-  console.log('Входная строка:', dateString);
-  console.log('Тип:', typeof dateString);
-  
   // Преобразуем в строку
   let normalized = String(dateString);
-  console.log('После String():', normalized);
   
   // Убираем 'T' и заменяем на пробел
   normalized = normalized.replace('T', ' ').trim();
@@ -61,18 +56,14 @@ function normalizeAppointmentDate(dateString) {
     normalized = normalized.substring(0, 19);
   }
   
-  console.log('После удаления timezone:', normalized);
-  
   // Убеждаемся, что есть секунды (если формат YYYY-MM-DD HH:MM)
   if (normalized.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)) {
     normalized = normalized + ':00';
-    console.log('Добавлены секунды:', normalized);
   }
   
   // Обрезаем до формата YYYY-MM-DD HH:MM:SS (ровно 19 символов)
   // ВАЖНО: НЕ обрезаем если строка уже правильной длины!
   if (normalized.length > 19) {
-    console.log('⚠️ Строка длиннее 19 символов, обрезаем:', normalized, '->', normalized.substring(0, 19));
     normalized = normalized.substring(0, 19);
   }
   
@@ -80,9 +71,6 @@ function normalizeAppointmentDate(dateString) {
   const timeMatch = normalized.match(/^\d{4}-\d{2}-\d{2} (\d{2}):(\d{2}):(\d{2})$/);
   if (!timeMatch) {
     console.error('⚠️ Предупреждение: неправильный формат даты после нормализации:', normalized, 'исходная:', dateString);
-  } else {
-    console.log('✅ Формат правильный:', normalized);
-    console.log('Время:', timeMatch[1] + ':' + timeMatch[2] + ':' + timeMatch[3]);
   }
   
   return normalized;
@@ -376,12 +364,69 @@ app.put('/api/services/:id', async (req, res) => {
 // Удалить услугу
 app.delete('/api/services/:id', async (req, res) => {
   try {
+    const serviceId = req.params.id;
+    
+    // Проверяем, используется ли услуга в записях
+    const appointmentsCount = await db.get(
+      usePostgres
+        ? 'SELECT COUNT(*) as count FROM appointment_services WHERE service_id = $1'
+        : 'SELECT COUNT(*) as count FROM appointment_services WHERE service_id = ?',
+      [serviceId]
+    );
+    
+    // Проверяем, используется ли услуга в составных услугах
+    const compositeCount = await db.get(
+      usePostgres
+        ? 'SELECT COUNT(*) as count FROM composite_service_services WHERE service_id = $1'
+        : 'SELECT COUNT(*) as count FROM composite_service_services WHERE service_id = ?',
+      [serviceId]
+    );
+    
+    // Преобразуем в числа (PostgreSQL может вернуть строку)
+    const appointmentsCountNum = parseInt(appointmentsCount?.count || 0, 10);
+    const compositeCountNum = parseInt(compositeCount?.count || 0, 10);
+    const totalUsage = appointmentsCountNum + compositeCountNum;
+    
+    if (totalUsage > 0) {
+      // Удаляем все связи перед удалением услуги
+      // Удаляем из записей
+      if (appointmentsCountNum > 0) {
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM appointment_services WHERE service_id = $1'
+            : 'DELETE FROM appointment_services WHERE service_id = ?',
+          [serviceId]
+        );
+      }
+      
+      // Удаляем из составных услуг
+      if (compositeCountNum > 0) {
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM composite_service_services WHERE service_id = $1'
+            : 'DELETE FROM composite_service_services WHERE service_id = ?',
+          [serviceId]
+        );
+      }
+    }
+    
+    // Теперь удаляем саму услугу
     const result = await db.run(
       usePostgres ? 'DELETE FROM services WHERE id = $1' : 'DELETE FROM services WHERE id = ?',
-      [req.params.id]
+      [serviceId]
     );
-    res.json({ message: 'Услуга удалена', changes: result.changes });
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Услуга не найдена' });
+    }
+    
+    res.json({ 
+      message: 'Услуга удалена', 
+      changes: result.changes,
+      removedLinks: totalUsage
+    });
   } catch (error) {
+    console.error('Ошибка удаления услуги:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -632,12 +677,88 @@ app.put('/api/materials/:id', async (req, res) => {
 // Удалить материал
 app.delete('/api/materials/:id', async (req, res) => {
   try {
+    const materialId = req.params.id;
+    
+    // Проверяем, используется ли материал в записях
+    const appointmentsCount = await db.get(
+      usePostgres
+        ? 'SELECT COUNT(*) as count FROM appointment_materials WHERE material_id = $1'
+        : 'SELECT COUNT(*) as count FROM appointment_materials WHERE material_id = ?',
+      [materialId]
+    );
+    
+    // Проверяем, используется ли материал в составных услугах
+    const compositeCount = await db.get(
+      usePostgres
+        ? 'SELECT COUNT(*) as count FROM composite_service_materials WHERE material_id = $1'
+        : 'SELECT COUNT(*) as count FROM composite_service_materials WHERE material_id = ?',
+      [materialId]
+    );
+    
+    // Проверяем, используется ли материал в транзакциях
+    const transactionsCount = await db.get(
+      usePostgres
+        ? 'SELECT COUNT(*) as count FROM material_transactions WHERE material_id = $1'
+        : 'SELECT COUNT(*) as count FROM material_transactions WHERE material_id = ?',
+      [materialId]
+    );
+    
+    // Преобразуем в числа (PostgreSQL может вернуть строку)
+    const appointmentsCountNum = parseInt(appointmentsCount?.count || 0, 10);
+    const compositeCountNum = parseInt(compositeCount?.count || 0, 10);
+    const transactionsCountNum = parseInt(transactionsCount?.count || 0, 10);
+    const totalUsage = appointmentsCountNum + compositeCountNum + transactionsCountNum;
+    
+    if (totalUsage > 0) {
+      // Удаляем все связи перед удалением материала
+      // Удаляем из записей
+      if (appointmentsCountNum > 0) {
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM appointment_materials WHERE material_id = $1'
+            : 'DELETE FROM appointment_materials WHERE material_id = ?',
+          [materialId]
+        );
+      }
+      
+      // Удаляем из составных услуг
+      if (compositeCountNum > 0) {
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM composite_service_materials WHERE material_id = $1'
+            : 'DELETE FROM composite_service_materials WHERE material_id = ?',
+          [materialId]
+        );
+      }
+      
+      // Удаляем транзакции материалов
+      if (transactionsCountNum > 0) {
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM material_transactions WHERE material_id = $1'
+            : 'DELETE FROM material_transactions WHERE material_id = ?',
+          [materialId]
+        );
+      }
+    }
+    
+    // Теперь удаляем сам материал
     const result = await db.run(
       usePostgres ? 'DELETE FROM materials WHERE id = $1' : 'DELETE FROM materials WHERE id = ?',
-      [req.params.id]
+      [materialId]
     );
-    res.json({ message: 'Материал удален', changes: result.changes });
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Материал не найден' });
+    }
+    
+    res.json({ 
+      message: 'Материал удален', 
+      changes: result.changes,
+      removedLinks: totalUsage
+    });
   } catch (error) {
+    console.error('Ошибка удаления материала:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1241,15 +1362,8 @@ app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes } = req.body;
   
   try {
-    console.log('Создание записи - полученные данные:', {
-      appointment_date,
-      type: typeof appointment_date
-    });
-    
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
-    
-    console.log('Создание записи - нормализованная дата:', dateToSave);
     
     // Проверяем, нет ли уже записи на это время для этого врача
     // ВАЖНО: используем точное сравнение строк, а не timestamp, чтобы не терять минуты
@@ -1272,12 +1386,6 @@ app.post('/api/appointments', async (req, res) => {
     // Создаем запись
     let appointmentId;
     
-    console.log('Сохранение в БД:', {
-      dateToSave,
-      length: dateToSave.length,
-      format: dateToSave.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) ? 'правильный' : 'неправильный'
-    });
-    
     if (usePostgres) {
       const result = await db.query(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, appointment_date',
@@ -1285,17 +1393,8 @@ app.post('/api/appointments', async (req, res) => {
       );
       appointmentId = result[0].id;
       
-      // Проверяем, что сохранилось
-      const savedDate = result[0].appointment_date;
-      console.log('=== СОХРАНЕНО В БД (PostgreSQL) ===');
-      console.log('ID:', appointmentId);
-      console.log('Сохраненная дата:', savedDate);
-      console.log('Тип:', typeof savedDate);
-      console.log('Длина:', String(savedDate).length);
-      console.log('Формат:', String(savedDate));
-      
       // ВАЖНО: Преобразуем в строку для возврата клиенту
-      let dateForResponse = String(savedDate);
+      let dateForResponse = String(result[0].appointment_date);
       if (dateForResponse instanceof Date || dateForResponse.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}/)) {
         // Если это объект Date или формат toString(), получаем из БД заново
         const dbCheck = await db.get(
@@ -1304,25 +1403,14 @@ app.post('/api/appointments', async (req, res) => {
         );
         if (dbCheck && dbCheck.appointment_date) {
           dateForResponse = String(dbCheck.appointment_date);
-          console.log('Получено из БД заново:', dateForResponse);
         }
       }
-      
-      console.log('Дата для ответа клиенту:', dateForResponse);
     } else {
       const result = await db.run(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES (?, ?, ?, ?, ?)',
         [client_id, dateToSave, doctor_id, notes, 'scheduled']
       );
       appointmentId = result.lastID;
-      
-      // Проверяем, что сохранилось
-      const saved = await db.get('SELECT appointment_date FROM appointments WHERE id = ?', [appointmentId]);
-      console.log('Сохранено в БД:', {
-        id: appointmentId,
-        savedDate: saved?.appointment_date,
-        type: typeof saved?.appointment_date
-      });
     }
     
     // Добавляем услуги
@@ -1347,9 +1435,6 @@ app.post('/api/appointments', async (req, res) => {
       );
       if (saved && saved.appointment_date) {
         finalAppointmentDate = String(saved.appointment_date);
-        console.log('=== ОТВЕТ КЛИЕНТУ ===');
-        console.log('Дата для ответа:', finalAppointmentDate);
-        console.log('Время:', finalAppointmentDate.split(' ')[1]);
       }
     }
     
@@ -1371,9 +1456,6 @@ app.put('/api/appointments/:id', async (req, res) => {
   const { appointment_date, doctor_id, services, notes } = req.body;
   
   try {
-    console.log('Обновление записи ID:', req.params.id);
-    console.log('Данные:', { appointment_date, doctor_id, services, notes });
-    
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
     

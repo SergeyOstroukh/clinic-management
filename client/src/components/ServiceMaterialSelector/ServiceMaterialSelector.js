@@ -245,6 +245,7 @@ const ServiceMaterialSelector = ({
                         const fullItem = items.find(i => i.id === itemId);
                         if (!fullItem) return null;
 
+                        const itemTotal = (fullItem.price || 0) * (item.quantity || 1);
                         return (
                           <div key={itemId} className="selected-panel-item">
                             <div className="selected-item-info">
@@ -262,8 +263,9 @@ const ServiceMaterialSelector = ({
                                 <input
                                   type="number"
                                   min={type === 'service' ? '1' : '0.1'}
-                                  step={type === 'service' ? '1' : '0.1'}
+                                  step="1"
                                   value={item.quantity}
+                                  onFocus={(e) => e.target.select()}
                                   onChange={(e) => {
                                     if (onUpdateQuantity) {
                                       onUpdateQuantity(itemId, e.target.value);
@@ -272,6 +274,18 @@ const ServiceMaterialSelector = ({
                                   className="selected-quantity-input"
                                 />
                               </label>
+                              <div className="selected-item-total" style={{ 
+                                fontWeight: 'bold', 
+                                color: '#667eea',
+                                marginTop: '5px'
+                              }}>
+                                <div style={{ fontSize: '0.85rem', marginBottom: '2px' }}>
+                                  Кол-во: {item.quantity || 1}
+                                </div>
+                                <div>
+                                  Итого: {itemTotal.toFixed(2)} BYN
+                                </div>
+                              </div>
                               {onRemoveItem && (
                                 <button
                                   type="button"
@@ -293,6 +307,31 @@ const ServiceMaterialSelector = ({
             </div>
 
             <div className="modal-footer">
+              {selectedItems.length > 0 && (
+                <div style={{
+                  marginBottom: '15px',
+                  padding: '12px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  borderRadius: '8px',
+                  color: 'white',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '0.9rem', marginBottom: '5px' }}>
+                    💰 Общая сумма {type === 'service' ? 'услуг' : 'материалов'}:
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                    {(() => {
+                      const total = selectedItems.reduce((sum, item) => {
+                        const itemId = type === 'service' ? item.service_id : item.material_id;
+                        const fullItem = items.find(i => i.id === itemId);
+                        if (!fullItem) return sum;
+                        return sum + ((fullItem.price || 0) * (item.quantity || 1));
+                      }, 0);
+                      return total.toFixed(2);
+                    })()} BYN
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 className="btn-close-footer"

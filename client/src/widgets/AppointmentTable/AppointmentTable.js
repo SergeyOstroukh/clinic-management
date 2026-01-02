@@ -96,7 +96,15 @@ const AppointmentTable = ({
                   <span>{getClientPhone(apt.client_id)}</span>
                 )}
               </td>
-              <td className="services-cell">{getServiceNames(apt.services)}</td>
+              <td className="services-cell">
+                {apt.notes ? (
+                  <span title={apt.notes} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {apt.notes}
+                  </span>
+                ) : (
+                  <span style={{ color: '#999', fontStyle: 'italic' }}>Нет примечаний</span>
+                )}
+              </td>
               {showDoctor && (
                 <td className="doctor-cell">{getDoctorName(apt)}</td>
               )}

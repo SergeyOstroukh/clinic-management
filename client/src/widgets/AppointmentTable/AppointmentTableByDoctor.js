@@ -125,8 +125,16 @@ const AppointmentTableByDoctor = ({
                 </div>
                 <div className="appointment-row2">
                   <span className="appointment-phone">{getClientPhone(apt.client_id)}</span>
-                  {apt.services && apt.services.length > 0 && (
-                    <span className="appointment-services"> • {getServiceNames(apt.services)}</span>
+                  {apt.notes && (
+                    <span className="appointment-notes" title={apt.notes} style={{ 
+                      marginLeft: '8px', 
+                      color: '#666',
+                      fontSize: '0.9em',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word'
+                    }}>
+                      • {apt.notes}
+                    </span>
                   )}
                 </div>
               </div>

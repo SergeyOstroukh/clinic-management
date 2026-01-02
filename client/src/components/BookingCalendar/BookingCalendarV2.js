@@ -568,32 +568,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const dayAppointments = appointments.filter(apt => {
       if (!apt.appointment_date || apt.status === 'cancelled') return false;
       
-      // Логируем формат для отладки
-      console.log('Проверка записи:', {
-        id: apt.id,
-        appointment_date: apt.appointment_date,
-        type: typeof apt.appointment_date,
-        raw: JSON.stringify(apt.appointment_date)
-      });
-      
       // Используем функцию normalizeDateString для единообразной нормализации
       const normalizedDate = normalizeDateString(apt.appointment_date);
-      
-      console.log('После нормализации:', {
-        normalized: normalizedDate,
-        dateStr: dateStr,
-        matches: normalizedDate.startsWith(dateStr)
-      });
       
       // Проверяем, начинается ли с нужной даты
       return normalizedDate.startsWith(dateStr);
     });
-
-    console.log('Записи на день:', dayAppointments.length, dayAppointments.map(apt => ({
-      id: apt.id,
-      date: apt.appointment_date,
-      parsed: parseTime(apt.appointment_date)
-    })));
 
     // Собираем все слоты
     const allSlots = [];
@@ -604,18 +584,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         
         const isBooked = dayAppointments.some(apt => {
           const aptTime = parseTime(apt.appointment_date);
-          const matches = aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-          
-          if (matches) {
-            console.log('СЛОТ ЗАНЯТ:', {
-              slotTime: time,
-              aptTime: `${aptTime.hours}:${aptTime.minutes}`,
-              appointment_date: apt.appointment_date,
-              normalized: normalizeDateString(apt.appointment_date)
-            });
-          }
-          
-          return matches;
+          return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
         });
 
         // Проверяем, является ли слот прошедшим
@@ -732,18 +701,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const hours = parseInt(timeParts[0], 10) || 0;
     const minutes = parseInt(timeParts[1], 10) || 0;
     
-    // ВАЖНО: Проверяем, что минуты не теряются
-    console.log('=== СОЗДАНИЕ ЗАПИСИ ===');
-    console.log('Выбранное время:', selectedTime);
-    console.log('Часы:', hours, 'Минуты:', minutes);
-    console.log('Дата:', selectedSlot.year, selectedSlot.month, selectedSlot.day);
-    
     const dateTime = formatDateTime(selectedSlot.year, selectedSlot.month, selectedSlot.day, hours, minutes);
-    
-    console.log('Сформированная дата для отправки:', dateTime);
-    console.log('Длина строки:', dateTime.length);
-    console.log('Формат правильный?', dateTime.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) ? 'ДА' : 'НЕТ');
-    console.log('Время в строке:', dateTime.split(' ')[1]);
     
     createAppointment(dateTime);
   };
@@ -807,7 +765,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const createAppointment = async (dateTime) => {
     // Защита от двойного вызова
     if (creating) {
-      console.log('Запись уже создается, пропускаем повторный вызов');
       return;
     }
     
@@ -864,7 +821,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setTimeout(() => {
           // Принудительно пересчитываем слоты с актуальными данными
           if (selectedSlot) {
-            console.log('Принудительное обновление слотов после создания записи');
             const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
             setSelectedSlot(updatedSlots);
           }
@@ -1353,27 +1309,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* Выбор услуг */}
-            <div style={{ marginBottom: '20px' }}>
-              <label>Услуги (можно указать позже)</label>
-              {services.slice(0, 5).map(s => (
-                <label key={s.id} style={{ display: 'block', marginBottom: '5px' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedServices.some(ss => ss.service_id === s.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedServices([...selectedServices, { service_id: s.id, quantity: 1 }]);
-                      } else {
-                        setSelectedServices(selectedServices.filter(ss => ss.service_id !== s.id));
-                      }
-                    }}
-                  />
-                  {' '}{s.name} ({s.price} ₽)
-                </label>
-              ))}
             </div>
 
             {/* Примечания */}
