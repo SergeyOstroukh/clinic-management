@@ -147,7 +147,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [showNearestSlots, setShowNearestSlots] = useState(false);
   const [showAllDoctorsMode, setShowAllDoctorsMode] = useState(false);
   const [allDoctorsSlots, setAllDoctorsSlots] = useState({}); // { '2026-01-15': [{ doctor, time, ... }] }
-  const [allDoctorsSchedules, setAllDoctorsSchedules] = useState({}); // { doctorId: { schedules, specificDates, appointments } }
 
   // Форма записи
   const [clientSearch, setClientSearch] = useState('');
@@ -504,7 +503,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         }
       }
 
-      setAllDoctorsSchedules(allSchedulesData);
       setAllDoctorsSlots(slotsByDate);
     } catch (error) {
       console.error('Ошибка загрузки данных всех врачей:', error);
@@ -1417,7 +1415,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                 setShowAllDoctorsMode(false);
                 setSelectedDoctor(null);
                 setAllDoctorsSlots({});
-                setAllDoctorsSchedules({});
               }}
               style={{
                 padding: '10px 20px',
