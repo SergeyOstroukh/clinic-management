@@ -138,7 +138,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [showModal, setShowModal] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [clients, setClients] = useState([]);
-  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [modalUpdateKey, setModalUpdateKey] = useState(0);
@@ -164,7 +163,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   useEffect(() => {
     loadDoctors();
     loadClients();
-    loadServices();
   }, []);
 
   // Загружаем ближайшие свободные слоты только если нужно показать
@@ -279,14 +277,6 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
   };
 
-  const loadServices = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/services`);
-      setServices(response.data);
-    } catch (error) {
-      console.error('Ошибка загрузки услуг:', error);
-    }
-  };
 
   // Загрузка ближайших свободных слотов для всех врачей
   const loadNearestSlots = async () => {

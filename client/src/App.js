@@ -669,7 +669,7 @@ function App() {
       confirmButtonClass: 'btn-danger',
       onConfirm: async () => {
         try {
-          const response = await axios.delete(`${API_URL}/services/${id}`);
+          await axios.delete(`${API_URL}/services/${id}`);
           toast.success('✅ Услуга успешно удалена');
           loadData();
         } catch (error) {
@@ -752,7 +752,7 @@ function App() {
       confirmButtonClass: 'btn-danger',
       onConfirm: async () => {
         try {
-          const response = await axios.delete(`${API_URL}/materials/${id}`);
+          await axios.delete(`${API_URL}/materials/${id}`);
           toast.success('✅ Материал успешно удален');
           loadData();
         } catch (error) {
@@ -775,38 +775,6 @@ function App() {
     });
   };
 
-  // Фильтр услуг для поиска
-  const getFilteredServices = () => {
-    if (!serviceSearchQuery) return services;
-    return services.filter(service =>
-      service.name.toLowerCase().includes(serviceSearchQuery.toLowerCase())
-    );
-  };
-
-  // Добавить/убрать услугу в форме записи
-  const toggleServiceInAppointment = (serviceId) => {
-    const existing = appointmentForm.services.find(s => s.service_id === serviceId);
-    if (existing) {
-      setAppointmentForm({
-        ...appointmentForm,
-        services: appointmentForm.services.filter(s => s.service_id !== serviceId)
-      });
-    } else {
-      setAppointmentForm({
-        ...appointmentForm,
-        services: [...appointmentForm.services, { service_id: serviceId, quantity: 1 }]
-      });
-    }
-  };
-
-  const updateServiceQuantity = (serviceId, quantity) => {
-    setAppointmentForm({
-      ...appointmentForm,
-      services: appointmentForm.services.map(s =>
-        s.service_id === serviceId ? { ...s, quantity: parseInt(quantity) || 1 } : s
-      )
-    });
-  };
 
   // Если не авторизован - показываем страницу входа
   if (!isAuthenticated) {
