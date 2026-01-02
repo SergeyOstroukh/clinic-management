@@ -1155,19 +1155,48 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         const doctorForAppointment = selectedSlotDoctor || selectedDoctor;
         
         // Создаем новую запись
-        await axios.post(`${API_URL}/appointments`, {
+        const newAppointment = await axios.post(`${API_URL}/appointments`, {
           client_id: selectedClient.id,
           doctor_id: doctorForAppointment.id,
           appointment_date: dateTime,
           services: selectedServices,
           notes: notes
         });
+        
+        // Немедленно помечаем слот как занятый в selectedSlot (для режима всех врачей)
+        if (showAllDoctorsMode && selectedSlot && selectedSlot.slots) {
+          const [hours, minutes] = selectedTime.split(':').map(Number);
+          const updatedSlots = selectedSlot.slots.map(slot => {
+            const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+            const slotDoctor = slot.doctor || selectedSlotDoctor;
+            
+            // Помечаем слот как занятый, если время и врач совпадают
+            if (slotHour === hours && slotMinute === minutes && 
+                slotDoctor && slotDoctor.id === doctorForAppointment.id) {
+              return {
+                ...slot,
+                isBooked: true,
+                appointment: newAppointment.data
+              };
+            }
+            return slot;
+          });
+          
+          // Обновляем selectedSlot немедленно
+          setSelectedSlot({
+            ...selectedSlot,
+            slots: updatedSlots
+          });
+          setModalUpdateKey(prev => prev + 1);
+        }
       }
 
       // Сначала загружаем обновленные записи
       let updatedSlotsData = null;
       if (showAllDoctorsMode) {
         // В режиме всех врачей перезагружаем данные всех врачей
+        // Небольшая задержка для гарантии, что API обновился
+        await new Promise(resolve => setTimeout(resolve, 100));
         updatedSlotsData = await loadAllDoctorsData();
       } else {
         await loadAppointments();
@@ -1244,7 +1273,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             
             // Немедленно обновляем слоты с актуальными данными
             const updatedSlots = generateSlotsWithData(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+            // Обновляем selectedSlot и принудительно обновляем модалку
             setSelectedSlot(updatedSlots);
+            // Обновляем modalUpdateKey для принудительной перерисовки модалки
             setModalUpdateKey(prev => prev + 1);
           } else {
             // Для обычного режима используем стандартную генерацию с задержкой
@@ -1761,13 +1792,21 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
       {/* Модалка выбора времени и создания записи */}
       {showModal && selectedSlot && (() => {
-        // Пересчитываем слоты с актуальными данными appointments и текущим временем
-        // Используем useMemo для пересчета при каждом рендере модального окна
-        const actualSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+        // Для режима всех врачей всегда используем слоты из selectedSlot (они обновляются напрямую)
+        // Для обычного режима пересчитываем слоты с актуальными данными из состояния
+        let actualSlots;
+        if (selectedSlot.allDoctorsMode) {
+          // Для режима всех врачей используем слоты напрямую из selectedSlot
+          // Они уже обновлены с актуальными данными после создания/отмены записи
+          actualSlots = selectedSlot;
+        } else {
+          // Для обычного режима пересчитываем слоты с актуальными данными
+          actualSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+        }
         
         return (
         <div 
-          key={`modal-${selectedSlot.year}-${selectedSlot.month}-${selectedSlot.day}-${modalUpdateKey}`}
+          key={`modal-${selectedSlot.year}-${selectedSlot.month}-${selectedSlot.day}-${modalUpdateKey}-${selectedSlot.slots?.length || 0}-${selectedSlot.slots?.filter(s => s.isBooked).length || 0}`}
           className="modal-overlay" 
           onClick={(e) => {
             if (e.target === e.currentTarget) {
