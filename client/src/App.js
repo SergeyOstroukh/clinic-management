@@ -72,8 +72,6 @@ function App() {
   // Поиск и выбор
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
-  const [serviceSearchQuery, setServiceSearchQuery] = useState('');
-  const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [servicesPageSearch, setServicesPageSearch] = useState('');
   const [clientsPageSearch, setClientsPageSearch] = useState('');
   const [materialsPageSearch, setMaterialsPageSearch] = useState('');
@@ -162,13 +160,10 @@ function App() {
       if (showClientDropdown && !event.target.closest('.client-search-wrapper')) {
         setShowClientDropdown(false);
       }
-      if (showServiceDropdown && !event.target.closest('.service-search-wrapper')) {
-        setShowServiceDropdown(false);
-      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showClientDropdown, showServiceDropdown]);
+  }, [showClientDropdown]);
 
   // Глобальная функция для открытия модалки записи из календаря
   useEffect(() => {
@@ -569,7 +564,6 @@ function App() {
       });
       setShowAppointmentModal(false);
       setClientSearchQuery('');
-      setServiceSearchQuery('');
       
       await loadData();
       
@@ -583,7 +577,6 @@ function App() {
       // Закрываем модалку даже при ошибке
       setShowAppointmentModal(false);
       setClientSearchQuery('');
-      setServiceSearchQuery('');
       
       // Отправляем событие для обновления календаря (чтобы обновились слоты)
       window.dispatchEvent(new Event('appointmentCreated'));
@@ -631,7 +624,6 @@ function App() {
       });
       setEditingAppointment(null);
       setClientSearchQuery('');
-      setServiceSearchQuery('');
       setShowEditAppointmentModal(false);
       loadData();
       toast.success('✅ Запись успешно обновлена');
@@ -1686,7 +1678,6 @@ function App() {
                   onClick={() => {
                     setShowAppointmentModal(false);
                     setClientSearchQuery('');
-                    setServiceSearchQuery('');
                     setAppointmentForm({
                       client_id: '',
                       appointment_date: new Date().toISOString().slice(0, 16),
@@ -1714,7 +1705,6 @@ function App() {
             setShowEditAppointmentModal(false);
             setEditingAppointment(null);
             setClientSearchQuery('');
-            setServiceSearchQuery('');
           }
         }}>
           <div className="modal">
@@ -1795,7 +1785,6 @@ function App() {
                     setShowEditAppointmentModal(false);
                     setEditingAppointment(null);
                     setClientSearchQuery('');
-                    setServiceSearchQuery('');
                     setAppointmentForm({
                       client_id: '',
                       appointment_date: new Date().toISOString().slice(0, 16),
