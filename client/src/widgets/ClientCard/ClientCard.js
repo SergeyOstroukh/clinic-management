@@ -37,6 +37,8 @@ const ClientCard = ({
   const [editingTreatmentPlan, setEditingTreatmentPlan] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [showServices, setShowServices] = useState(false);
+  const [showMaterials, setShowMaterials] = useState(false);
 
   const client = clients.find(c => c.id === clientId);
 
@@ -650,64 +652,98 @@ const ClientCard = ({
               {/* Услуги */}
               {todayVisit.services && todayVisit.services.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                  <h4>🛠️ Услуги:</h4>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayVisit.services.map((s, idx) => {
-                        const service = services.find(sv => sv.id === s.service_id);
-                        if (!service) return null;
-                        const itemTotal = service.price * s.quantity;
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '8px' }}>{service.name}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: '#f5f5f5',
+                      borderRadius: '8px',
+                      marginBottom: '10px'
+                    }}
+                    onClick={() => setShowServices(!showServices)}
+                  >
+                    <h4 style={{ margin: 0 }}>🛠️ Услуги ({todayVisit.services.length}):</h4>
+                    <span style={{ fontSize: '1.2em' }}>{showServices ? '▼' : '▶'}</span>
+                  </div>
+                  {showServices && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #ddd' }}>
+                          <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {todayVisit.services.map((s, idx) => {
+                          const service = services.find(sv => sv.id === s.service_id);
+                          if (!service) return null;
+                          const itemTotal = service.price * s.quantity;
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                              <td style={{ padding: '8px' }}>{service.name}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
               {/* Материалы */}
               {todayVisit.materials && todayVisit.materials.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                  <h4>🧪 Материалы:</h4>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayVisit.materials.map((m, idx) => {
-                        const material = materials.find(mat => mat.id === m.material_id);
-                        if (!material) return null;
-                        const itemTotal = material.price * m.quantity;
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '8px' }}>{material.name}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: '#f5f5f5',
+                      borderRadius: '8px',
+                      marginBottom: '10px'
+                    }}
+                    onClick={() => setShowMaterials(!showMaterials)}
+                  >
+                    <h4 style={{ margin: 0 }}>🧪 Материалы ({todayVisit.materials.length}):</h4>
+                    <span style={{ fontSize: '1.2em' }}>{showMaterials ? '▼' : '▶'}</span>
+                  </div>
+                  {showMaterials && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #ddd' }}>
+                          <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {todayVisit.materials.map((m, idx) => {
+                          const material = materials.find(mat => mat.id === m.material_id);
+                          if (!material) return null;
+                          const itemTotal = material.price * m.quantity;
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                              <td style={{ padding: '8px' }}>{material.name}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
@@ -766,64 +802,98 @@ const ClientCard = ({
               {/* Услуги */}
               {todayVisit.services && todayVisit.services.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                  <h4>🛠️ Услуги:</h4>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayVisit.services.map((s, idx) => {
-                        const service = services.find(sv => sv.id === s.service_id);
-                        if (!service) return null;
-                        const itemTotal = service.price * s.quantity;
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '8px' }}>{service.name}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: '#f5f5f5',
+                      borderRadius: '8px',
+                      marginBottom: '10px'
+                    }}
+                    onClick={() => setShowServices(!showServices)}
+                  >
+                    <h4 style={{ margin: 0 }}>🛠️ Услуги ({todayVisit.services.length}):</h4>
+                    <span style={{ fontSize: '1.2em' }}>{showServices ? '▼' : '▶'}</span>
+                  </div>
+                  {showServices && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #ddd' }}>
+                          <th style={{ textAlign: 'left', padding: '8px' }}>Услуга</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {todayVisit.services.map((s, idx) => {
+                          const service = services.find(sv => sv.id === s.service_id);
+                          if (!service) return null;
+                          const itemTotal = service.price * s.quantity;
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                              <td style={{ padding: '8px' }}>{service.name}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{s.quantity}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{service.price.toFixed(2)} BYN</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
               {/* Материалы */}
               {todayVisit.materials && todayVisit.materials.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                  <h4>🧪 Материалы:</h4>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
-                        <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayVisit.materials.map((m, idx) => {
-                        const material = materials.find(mat => mat.id === m.material_id);
-                        if (!material) return null;
-                        const itemTotal = material.price * m.quantity;
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '8px' }}>{material.name}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
-                            <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: '#f5f5f5',
+                      borderRadius: '8px',
+                      marginBottom: '10px'
+                    }}
+                    onClick={() => setShowMaterials(!showMaterials)}
+                  >
+                    <h4 style={{ margin: 0 }}>🧪 Материалы ({todayVisit.materials.length}):</h4>
+                    <span style={{ fontSize: '1.2em' }}>{showMaterials ? '▼' : '▶'}</span>
+                  </div>
+                  {showMaterials && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #ddd' }}>
+                          <th style={{ textAlign: 'left', padding: '8px' }}>Материал</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Кол-во</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Цена</th>
+                          <th style={{ textAlign: 'right', padding: '8px' }}>Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {todayVisit.materials.map((m, idx) => {
+                          const material = materials.find(mat => mat.id === m.material_id);
+                          if (!material) return null;
+                          const itemTotal = material.price * m.quantity;
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                              <td style={{ padding: '8px' }}>{material.name}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{m.quantity} {material.unit || 'шт'}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{material.price.toFixed(2)} BYN</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{itemTotal.toFixed(2)} BYN</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
