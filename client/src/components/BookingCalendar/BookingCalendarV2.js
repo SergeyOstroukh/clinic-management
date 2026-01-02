@@ -145,6 +145,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [nearestSlots, setNearestSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [showNearestSlots, setShowNearestSlots] = useState(false);
+  const [showAllDoctorsMode, setShowAllDoctorsMode] = useState(false);
+  const [allDoctorsSlots, setAllDoctorsSlots] = useState({}); // { '2026-01-15': [{ doctor, time, ... }] }
+  const [allDoctorsSchedules, setAllDoctorsSchedules] = useState({}); // { doctorId: { schedules, specificDates, appointments } }
 
   // Форма записи
   const [clientSearch, setClientSearch] = useState('');
@@ -152,6 +155,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [selectedServices, setSelectedServices] = useState([]);
   const [notes, setNotes] = useState('');
   const [selectedTime, setSelectedTime] = useState(null);
+  const [selectedSlotDoctor, setSelectedSlotDoctor] = useState(null); // Врач выбранного слота в режиме нескольких врачей
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
   const [newClientForm, setNewClientForm] = useState({
     lastName: '',
@@ -240,6 +244,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDoctor, currentYear, currentMonth]);
+
+  // Загрузка данных всех врачей для режима "Все записи"
+  useEffect(() => {
+    if (showAllDoctorsMode && doctors.length > 0) {
+      loadAllDoctorsData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAllDoctorsMode, currentYear, currentMonth, doctors]);
 
   // Обработчик события отмены/создания записи - обновляем календарь
   useEffect(() => {
@@ -400,6 +412,105 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
   };
 
+  // Загрузка данных всех врачей для режима "Все записи"
+  const loadAllDoctorsData = async () => {
+    try {
+      const allSchedulesData = {};
+      const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+      const slotsByDate = {};
+
+      // Загружаем данные для каждого врача
+      for (const doctor of doctors) {
+        try {
+          const [schedulesRes, datesRes, appointmentsRes] = await Promise.all([
+            axios.get(`${API_URL}/schedules?doctor_id=${doctor.id}`),
+            axios.get(`${API_URL}/specific-dates?doctor_id=${doctor.id}`),
+            axios.get(`${API_URL}/doctors/${doctor.id}/monthly-appointments?month=${currentMonth}&year=${currentYear}`)
+          ]);
+
+          allSchedulesData[doctor.id] = {
+            schedules: schedulesRes.data,
+            specificDates: datesRes.data,
+            appointments: appointmentsRes.data.filter(apt => apt.status !== 'cancelled')
+          };
+
+          // Генерируем слоты для каждого дня месяца
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = formatDate(currentYear, currentMonth, day);
+            const dayOfWeek = new Date(currentYear, currentMonth - 1, day).getDay();
+
+            // Получаем расписание на этот день
+            let daySchedule = [];
+            const specificDate = allSchedulesData[doctor.id].specificDates.find(
+              sd => sd.work_date === dateStr && sd.is_active
+            );
+            if (specificDate) {
+              daySchedule = [{ start_time: specificDate.start_time, end_time: specificDate.end_time }];
+            } else {
+              const daySchedules = allSchedulesData[doctor.id].schedules.filter(
+                s => s.day_of_week === dayOfWeek && s.is_active
+              );
+              daySchedule = daySchedules.map(s => ({ start_time: s.start_time, end_time: s.end_time }));
+            }
+
+            if (daySchedule.length === 0) continue;
+
+            // Генерируем слоты для этого дня
+            daySchedule.forEach(s => {
+              const times = generateTimeSlots(s.start_time, s.end_time);
+              times.forEach(time => {
+                const [slotHour, slotMinute] = time.split(':').map(Number);
+                const slotDateTime = new Date(currentYear, currentMonth - 1, day, slotHour, slotMinute, 0, 0);
+                const now = new Date();
+                now.setSeconds(0, 0);
+                const isPast = slotDateTime.getTime() < now.getTime();
+
+                // Проверяем, занят ли слот
+                const dayAppointments = allSchedulesData[doctor.id].appointments.filter(apt => {
+                  if (!apt.appointment_date || apt.status === 'cancelled') return false;
+                  const normalizedDate = normalizeDateString(apt.appointment_date);
+                  return normalizedDate.startsWith(dateStr);
+                });
+
+                const isBooked = dayAppointments.some(apt => {
+                  const aptTime = parseTime(apt.appointment_date);
+                  return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+                });
+
+                // Сохраняем все слоты (включая занятые), но только не прошедшие
+                if (!isPast) {
+                  if (!slotsByDate[dateStr]) {
+                    slotsByDate[dateStr] = [];
+                  }
+                  slotsByDate[dateStr].push({
+                    doctor,
+                    time,
+                    year: currentYear,
+                    month: currentMonth,
+                    day,
+                    dateStr,
+                    isBooked,
+                    appointment: isBooked ? dayAppointments.find(apt => {
+                      const aptTime = parseTime(apt.appointment_date);
+                      return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+                    }) : null
+                  });
+                }
+              });
+            });
+          }
+        } catch (error) {
+          console.error(`Ошибка загрузки данных для врача ${doctor.id}:`, error);
+        }
+      }
+
+      setAllDoctorsSchedules(allSchedulesData);
+      setAllDoctorsSlots(slotsByDate);
+    } catch (error) {
+      console.error('Ошибка загрузки данных всех врачей:', error);
+    }
+  };
+
   const loadSchedule = async () => {
     try {
       const [schedulesRes, datesRes] = await Promise.all([
@@ -465,7 +576,54 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     return slots;
   };
 
+  // Получение статуса дня для режима всех врачей
+  const getDayStatusAllDoctors = (year, month, day) => {
+    const dateStr = formatDate(year, month, day);
+    const slots = allDoctorsSlots[dateStr] || [];
+    if (slots.length === 0) return 'no-schedule';
+    
+    // Проверяем, является ли день сегодняшним
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(year, month - 1, day);
+    checkDate.setHours(0, 0, 0, 0);
+    const isToday = checkDate.getTime() === today.getTime();
+    
+    // Разделяем слоты на свободные и занятые
+    const freeSlots = slots.filter(slot => !slot.isBooked);
+    const bookedSlots = slots.filter(slot => slot.isBooked);
+    
+    if (isToday) {
+      const now = new Date();
+      now.setSeconds(0, 0);
+      const availableToday = freeSlots.filter(slot => {
+        const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+        const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+        return slotDateTime.getTime() >= now.getTime();
+      });
+      if (availableToday.length === 0) return 'past-today';
+    }
+    
+    // Если есть занятые слоты, показываем как частично занятый
+    if (bookedSlots.length > 0 && freeSlots.length > 0) {
+      return 'partially-booked';
+    }
+    
+    // Если все слоты заняты
+    if (bookedSlots.length > 0 && freeSlots.length === 0) {
+      return 'fully-booked';
+    }
+    
+    // Если есть только свободные слоты
+    return 'available';
+  };
+
   const getDayStatus = (year, month, day) => {
+    // Если режим всех врачей, используем другую функцию
+    if (showAllDoctorsMode) {
+      return getDayStatusAllDoctors(year, month, day);
+    }
+    
     const schedule = getDaySchedule(year, month, day);
     if (schedule.length === 0) return 'no-schedule';
 
@@ -550,7 +708,101 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     return 'partially-booked';
   };
 
+  // Генерация слотов для режима всех врачей
+  const generateDaySlotsAllDoctors = (year, month, day) => {
+    const dateStr = formatDate(year, month, day);
+    const slots = allDoctorsSlots[dateStr] || [];
+    
+    // Определяем количество уникальных врачей
+    const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
+    const doctorsCount = uniqueDoctors.size;
+    
+    // Преобразуем в формат, совместимый с generateDaySlots
+    // Сохраняем информацию о занятости слотов
+    const formattedSlots = slots.map(slot => {
+      const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+      const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+      const now = new Date();
+      now.setSeconds(0, 0);
+      const isPast = slotDateTime.getTime() < now.getTime();
+      
+      return {
+        time: slot.time,
+        isBooked: slot.isBooked || false,
+        isPast: isPast,
+        doctor: slot.doctor,
+        appointment: slot.appointment || null
+      };
+    });
+    
+    // Если один врач, получаем его данные
+    let singleDoctor = null;
+    if (doctorsCount === 1 && slots.length > 0) {
+      singleDoctor = slots[0].doctor;
+    }
+    
+    return { 
+      year, 
+      month, 
+      day, 
+      dateStr, 
+      slots: formattedSlots, 
+      allDoctorsMode: true,
+      doctorsCount,
+      singleDoctor
+    };
+  };
+
   const generateDaySlots = (year, month, day) => {
+    // Если режим всех врачей, используем другую функцию
+    // Но если уже выбран один врач (автоматически), используем обычный формат
+    if (showAllDoctorsMode && !selectedDoctor) {
+      return generateDaySlotsAllDoctors(year, month, day);
+    }
+    
+    // Если в режиме всех врачей, но врач уже выбран, используем обычный формат
+    if (showAllDoctorsMode && selectedDoctor) {
+      // Используем обычный формат, но сохраняем информацию о режиме
+      const schedule = getDaySchedule(year, month, day);
+      const dateStr = formatDate(year, month, day);
+      const dayAppointments = appointments.filter(apt => {
+        if (!apt.appointment_date || apt.status === 'cancelled') return false;
+        const normalizedDate = normalizeDateString(apt.appointment_date);
+        return normalizedDate.startsWith(dateStr);
+      });
+
+      const allSlots = [];
+      schedule.forEach(s => {
+        const times = generateTimeSlots(s.start_time, s.end_time);
+        times.forEach(time => {
+          const [slotHour, slotMinute] = time.split(':').map(Number);
+          
+          const isBooked = dayAppointments.some(apt => {
+            const aptTime = parseTime(apt.appointment_date);
+            return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+          });
+
+          const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+          const now = new Date();
+          now.setSeconds(0, 0);
+          const isPast = slotDateTime.getTime() < now.getTime();
+
+          allSlots.push({
+            time,
+            isBooked,
+            isPast,
+            appointment: isBooked ? dayAppointments.find(apt => {
+              const aptTime = parseTime(apt.appointment_date);
+              const slotTime = time.split(':');
+              return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
+            }) : null
+          });
+        });
+      });
+
+      return { year, month, day, dateStr, slots: allSlots, allDoctorsMode: true, singleDoctorMode: true };
+    }
+    
     const schedule = getDaySchedule(year, month, day);
     const dateStr = formatDate(year, month, day);
     // Фильтруем только активные записи (не отмененные)
@@ -600,11 +852,46 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     return { year, month, day, dateStr, slots: allSlots };
   };
 
-  const handleDayClick = (year, month, day, skipScheduleCheck = false) => {
-    const schedule = getDaySchedule(year, month, day);
-    if (!skipScheduleCheck && schedule.length === 0) {
-      if (toast) toast.warning('На этот день нет расписания');
-      return;
+  const handleDayClick = async (year, month, day, skipScheduleCheck = false) => {
+    // Для режима всех врачей проверяем наличие слотов
+    if (showAllDoctorsMode) {
+      const dateStr = formatDate(year, month, day);
+      const slots = allDoctorsSlots[dateStr] || [];
+      if (slots.length === 0) {
+        if (toast) toast.warning('На этот день нет свободных слотов');
+        return;
+      }
+      
+      // Если только один врач работает в этот день, автоматически выбираем его
+      const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
+      if (uniqueDoctors.size === 1 && slots.length > 0) {
+        const singleDoctor = slots[0].doctor;
+        setSelectedDoctor(singleDoctor);
+        
+        // Загружаем расписание выбранного врача
+        try {
+          const [schedulesRes, datesRes] = await Promise.all([
+            axios.get(`${API_URL}/schedules?doctor_id=${singleDoctor.id}`),
+            axios.get(`${API_URL}/specific-dates?doctor_id=${singleDoctor.id}`)
+          ]);
+          setSchedules(schedulesRes.data);
+          setSpecificDates(datesRes.data);
+          
+          // Загружаем записи
+          const appointmentsRes = await axios.get(
+            `${API_URL}/doctors/${singleDoctor.id}/monthly-appointments?month=${month}&year=${year}`
+          );
+          setAppointments(appointmentsRes.data.filter(apt => apt.status !== 'cancelled'));
+        } catch (error) {
+          console.error('Ошибка загрузки данных врача:', error);
+        }
+      }
+    } else {
+      const schedule = getDaySchedule(year, month, day);
+      if (!skipScheduleCheck && schedule.length === 0) {
+        if (toast) toast.warning('На этот день нет расписания');
+        return;
+      }
     }
 
     const daySlots = generateDaySlots(year, month, day);
@@ -672,6 +959,32 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return;
     }
     
+    // В режиме нескольких врачей просто сохраняем выбранный слот, не переключая режим
+    if (slot.doctor && selectedSlot?.allDoctorsMode && selectedSlot?.doctorsCount > 1) {
+      setSelectedSlotDoctor(slot.doctor);
+      setSelectedTime(time);
+      return;
+    }
+    
+    // В режиме всех врачей с одним врачом или обычном режиме сохраняем выбранного врача
+    if (slot.doctor && showAllDoctorsMode && selectedSlot?.doctorsCount === 1) {
+      setSelectedDoctor(slot.doctor);
+      // Загружаем расписание выбранного врача
+      const loadDoctorData = async () => {
+        try {
+          const [schedulesRes, datesRes] = await Promise.all([
+            axios.get(`${API_URL}/schedules?doctor_id=${slot.doctor.id}`),
+            axios.get(`${API_URL}/specific-dates?doctor_id=${slot.doctor.id}`)
+          ]);
+          setSchedules(schedulesRes.data);
+          setSpecificDates(datesRes.data);
+        } catch (error) {
+          console.error('Ошибка загрузки расписания:', error);
+        }
+      };
+      loadDoctorData();
+    }
+    
     // Выбираем время
     setSelectedTime(time);
   };
@@ -683,6 +996,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
     if (!selectedTime) {
       if (toast) toast.warning('Выберите время');
+      return;
+    }
+    
+    // В режиме нескольких врачей проверяем, что выбран врач
+    if (selectedSlot?.allDoctorsMode && selectedSlot?.doctorsCount > 1 && !selectedSlotDoctor) {
+      if (toast) toast.warning('Выберите время и врача');
       return;
     }
 
@@ -770,10 +1089,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           notes: notes
         });
       } else {
+        // Определяем врача для записи
+        const doctorForAppointment = selectedSlotDoctor || selectedDoctor;
+        
         // Создаем новую запись
         await axios.post(`${API_URL}/appointments`, {
           client_id: selectedClient.id,
-          doctor_id: selectedDoctor.id,
+          doctor_id: doctorForAppointment.id,
           appointment_date: dateTime,
           services: selectedServices,
           notes: notes
@@ -781,7 +1103,17 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       }
 
       // Сначала загружаем обновленные записи
-      await loadAppointments();
+      if (showAllDoctorsMode) {
+        // В режиме всех врачей перезагружаем данные всех врачей
+        await loadAllDoctorsData();
+        // Обновляем слоты в модалке
+        if (selectedSlot) {
+          const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+          setSelectedSlot(updatedSlots);
+        }
+      } else {
+        await loadAppointments();
+      }
       
       // Отправляем событие для обновления таблицы записей в App.js
       // (App.js сам вызовет loadData, поэтому не нужно дублировать)
@@ -800,6 +1132,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         // Сбрасываем только выбранное время и форму, но НЕ закрываем модалку
         // Это позволяет сразу записать еще одного клиента
         setSelectedTime(null);
+        setSelectedSlotDoctor(null);
         setSelectedClient(null);
         setClientSearch('');
         setSelectedServices([]);
@@ -811,10 +1144,19 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setTimeout(() => {
           // Принудительно пересчитываем слоты с актуальными данными
           if (selectedSlot) {
-            const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
-            setSelectedSlot(updatedSlots);
+            if (showAllDoctorsMode) {
+              // В режиме всех врачей перезагружаем данные
+              loadAllDoctorsData().then(() => {
+                const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+                setSelectedSlot(updatedSlots);
+                setModalUpdateKey(prev => prev + 1);
+              });
+            } else {
+              const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
+              setSelectedSlot(updatedSlots);
+              setModalUpdateKey(prev => prev + 1);
+            }
           }
-          setModalUpdateKey(prev => prev + 1);
         }, 200);
       }
     } catch (error) {
@@ -832,6 +1174,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     setNotes('');
     setSelectedTime(null);
     setSelectedSlot(null);
+    setSelectedSlotDoctor(null);
     setEditingAppointmentId(null);
   };
 
@@ -858,6 +1201,20 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       checkDate.setHours(0, 0, 0, 0);
       const isPast = checkDate < today;
       
+      // Получаем список врачей для этого дня (в режиме всех врачей)
+      let dayDoctors = [];
+      if (showAllDoctorsMode && status !== 'no-schedule' && status !== 'past-today') {
+        const dateStr = formatDate(currentYear, currentMonth, day);
+        const slots = allDoctorsSlots[dateStr] || [];
+        const uniqueDoctors = new Map();
+        slots.forEach(slot => {
+          if (!uniqueDoctors.has(slot.doctor.id)) {
+            uniqueDoctors.set(slot.doctor.id, slot.doctor);
+          }
+        });
+        dayDoctors = Array.from(uniqueDoctors.values());
+      }
+      
       days.push(
         <div
           key={day}
@@ -869,6 +1226,18 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           {status === 'available' && <div className="availability-badge">Свободно</div>}
           {status === 'partially-booked' && <div className="availability-badge partial">Есть места</div>}
           {status === 'fully-booked' && <div className="availability-badge full">Занято</div>}
+          {showAllDoctorsMode && dayDoctors.length > 0 && (
+            <div style={{ 
+              fontSize: '0.7rem', 
+              color: '#667eea', 
+              marginTop: '4px',
+              fontWeight: '600',
+              textAlign: 'center',
+              lineHeight: '1.2'
+            }}>
+              {dayDoctors.map(d => d.lastName).join(', ')}
+            </div>
+          )}
         </div>
       );
     }
@@ -916,16 +1285,51 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       </div>
 
       {/* Выбор врача карточками */}
+      {!showAllDoctorsMode && !selectedDoctor && (
       <div style={{ marginBottom: '30px' }}>
-        <label style={{ 
-          display: 'block', 
-          marginBottom: '15px', 
-          fontSize: '1.1rem', 
-          fontWeight: '600', 
-          color: '#333' 
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          marginBottom: '15px'
         }}>
-          Выберите врача:
-        </label>
+          <label style={{ 
+            fontSize: '1.1rem', 
+            fontWeight: '600', 
+            color: '#333',
+            margin: 0
+          }}>
+            Выберите врача:
+          </label>
+          <button
+            onClick={() => {
+              setShowAllDoctorsMode(true);
+              setSelectedDoctor(null);
+            }}
+            style={{
+              padding: '12px 24px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: '600',
+              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'none';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+            }}
+          >
+            📅 Все записи
+          </button>
+        </div>
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
@@ -994,8 +1398,50 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           ))}
         </div>
       </div>
+      )}
+
+      {/* Режим всех врачей - календарь */}
+      {showAllDoctorsMode && (
+        <div style={{ marginBottom: '30px' }}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '1.3rem', color: '#333' }}>
+              📅 Все доступные записи
+            </h3>
+            <button
+              onClick={() => {
+                setShowAllDoctorsMode(false);
+                setSelectedDoctor(null);
+                setAllDoctorsSlots({});
+                setAllDoctorsSchedules({});
+              }}
+              style={{
+                padding: '10px 20px',
+                background: '#f5f5f5',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '0.95rem',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.background = '#e8e8e8'}
+              onMouseLeave={(e) => e.target.style.background = '#f5f5f5'}
+            >
+              ← Выбрать врача
+            </button>
+          </div>
+          <p style={{ color: '#666', marginBottom: '20px' }}>
+            Выберите дату для просмотра всех доступных слотов записи от всех врачей
+          </p>
+        </div>
+      )}
 
       {/* Ближайшие свободные слоты */}
+      {!showAllDoctorsMode && (
       <div style={{ marginBottom: '30px' }}>
         <div style={{ 
           display: 'flex', 
@@ -1106,8 +1552,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           </>
         )}
       </div>
+      )}
 
-      {selectedDoctor && (
+      {(selectedDoctor || showAllDoctorsMode) && (
         <>
           {/* Навигация календаря */}
           <div style={{
@@ -1232,11 +1679,27 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               resetForm();
           }
         }}>
-          <div className="modal" style={{ maxWidth: '600px' }}>
+          <div className="modal" style={{ maxWidth: selectedSlot.allDoctorsMode && selectedSlot.doctorsCount > 1 ? '900px' : '600px' }}>
             <h2>📅 Запись на {selectedSlot.day} {MONTHS[selectedSlot.month - 1]}</h2>
-            <p style={{ color: '#667eea', marginBottom: '20px' }}>
-              👨‍⚕️ {selectedDoctor.lastName} {selectedDoctor.firstName}
-            </p>
+            {selectedSlot.allDoctorsMode ? (
+              (selectedSlot.singleDoctorMode && selectedDoctor) ? (
+                <p style={{ color: '#667eea', marginBottom: '20px' }}>
+                  👨‍⚕️ {selectedDoctor.lastName} {selectedDoctor.firstName}
+                </p>
+              ) : selectedSlot.doctorsCount === 1 && selectedSlot.singleDoctor ? (
+                <p style={{ color: '#667eea', marginBottom: '20px' }}>
+                  👨‍⚕️ {selectedSlot.singleDoctor.lastName} {selectedSlot.singleDoctor.firstName}
+                </p>
+              ) : (
+                <p style={{ color: '#666', marginBottom: '20px', fontSize: '0.9rem' }}>
+                  Выберите время и врача для записи
+                </p>
+              )
+            ) : (
+              <p style={{ color: '#667eea', marginBottom: '20px' }}>
+                👨‍⚕️ {selectedDoctor.lastName} {selectedDoctor.firstName}
+              </p>
+            )}
 
             {/* Поиск клиента */}
             <div style={{ marginBottom: '20px' }}>
@@ -1334,62 +1797,219 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   ⏳ Создание записи...
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '15px' }}>
-                {actualSlots.slots.map((slot, idx) => {
-                  // Перепроверяем, является ли слот прошедшим (для актуального времени)
-                  const [slotHour, slotMinute] = slot.time.split(':').map(Number);
-                  const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
-                  const now = new Date();
-                  now.setSeconds(0, 0);
-                  now.setMilliseconds(0);
-                  slotDateTime.setSeconds(0, 0);
-                  slotDateTime.setMilliseconds(0);
-                  const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+              {(() => {
+                // Если несколько врачей, группируем слоты по врачам
+                const isMultiDoctor = selectedSlot.allDoctorsMode && !selectedSlot.singleDoctorMode && selectedSlot.doctorsCount > 1;
+                
+                if (isMultiDoctor) {
+                  // Группируем слоты по врачам
+                  const slotsByDoctor = new Map();
+                  actualSlots.slots.forEach(slot => {
+                    const doctorId = slot.doctor?.id;
+                    if (doctorId) {
+                      if (!slotsByDoctor.has(doctorId)) {
+                        slotsByDoctor.set(doctorId, {
+                          doctor: slot.doctor,
+                          slots: []
+                        });
+                      }
+                      slotsByDoctor.get(doctorId).slots.push(slot);
+                    }
+                  });
+                  
+                  const doctorsList = Array.from(slotsByDoctor.values());
+                  
                   return (
-                    <button
-                      key={idx}
-                      onClick={() => !creating && !isPast && handleSlotClick(slot.time, slot)}
-                      disabled={creating || isPast}
-                      style={{
-                        padding: '15px',
-                        fontSize: '1rem',
-                        fontWeight: 'bold',
-                        background: isPast 
-                          ? '#f5f5f5' 
-                          : (slot.isBooked 
-                            ? '#ffebee' 
-                            : (selectedTime === slot.time 
-                              ? '#667eea' 
-                              : '#e8f5e9')),
-                        color: isPast 
-                          ? '#999' 
-                          : (slot.isBooked 
-                            ? '#d32f2f' 
-                            : (selectedTime === slot.time 
-                              ? 'white' 
-                              : '#388e3c')),
-                        border: `2px solid ${isPast 
-                          ? '#ccc' 
-                          : (slot.isBooked 
-                            ? '#f44336' 
-                            : (selectedTime === slot.time 
-                              ? '#667eea' 
-                              : '#4caf50'))}`,
-                        borderRadius: '8px',
-                        cursor: (creating || isPast) ? 'not-allowed' : 'pointer',
-                        opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
-                        transform: selectedTime === slot.time ? 'scale(1.05)' : 'none',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      {slot.time}
-                      <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
-                        {slot.isBooked ? 'Занято (отменить?)' : (selectedTime === slot.time ? 'Выбрано' : 'Свободно')}
-                      </div>
-                    </button>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: `repeat(${doctorsList.length}, 1fr)`,
+                      gap: '20px', 
+                      marginTop: '15px' 
+                    }}>
+                      {doctorsList.map((doctorGroup, doctorIdx) => (
+                        <div key={doctorGroup.doctor.id} style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          border: '2px solid #e0e0e0',
+                          borderRadius: '12px',
+                          padding: '15px',
+                          background: '#fafafa'
+                        }}>
+                          <div style={{
+                            textAlign: 'center',
+                            marginBottom: '15px',
+                            paddingBottom: '10px',
+                            borderBottom: '2px solid #667eea'
+                          }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' }}>
+                              👨‍⚕️ {doctorGroup.doctor.lastName}
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: '#666' }}>
+                              {doctorGroup.doctor.firstName}
+                            </div>
+                          </div>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, 1fr)',
+                            gap: '8px'
+                          }}>
+                            {doctorGroup.slots.map((slot, slotIdx) => {
+                              const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                              const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                              const now = new Date();
+                              now.setSeconds(0, 0);
+                              now.setMilliseconds(0);
+                              slotDateTime.setSeconds(0, 0);
+                              slotDateTime.setMilliseconds(0);
+                              const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                              
+                              // Проверяем, выбран ли этот слот (время и врач совпадают)
+                              const isSelected = selectedTime === slot.time && 
+                                                selectedSlotDoctor && 
+                                                selectedSlotDoctor.id === slot.doctor?.id;
+                              
+                              // Слот считается занятым, если он реально занят или выбран
+                              const isSlotBooked = slot.isBooked || isSelected;
+                              
+                              // Слот недоступен, если он занят (но не выбран), прошедший или идет создание
+                              const isDisabled = (slot.isBooked && !isSelected) || isPast || creating;
+                              
+                              return (
+                                <button
+                                  key={slotIdx}
+                                  onClick={() => {
+                                    if (!isDisabled) {
+                                      handleSlotClick(slot.time, slot);
+                                    } else if (slot.isBooked && slot.appointment) {
+                                      // Если слот занят, можно отменить запись
+                                      handleSlotClick(slot.time, slot);
+                                    }
+                                  }}
+                                  disabled={isDisabled && !slot.isBooked}
+                                  style={{
+                                    padding: '12px',
+                                    fontSize: '0.95rem',
+                                    fontWeight: 'bold',
+                                    background: isPast 
+                                      ? '#f5f5f5' 
+                                      : (isSlotBooked 
+                                        ? '#ffebee' 
+                                        : '#e8f5e9'),
+                                    color: isPast 
+                                      ? '#999' 
+                                      : (isSlotBooked 
+                                        ? '#d32f2f' 
+                                        : '#388e3c'),
+                                    border: `2px solid ${isPast 
+                                      ? '#ccc' 
+                                      : (isSlotBooked 
+                                        ? '#f44336' 
+                                        : '#4caf50')}`,
+                                    borderRadius: '8px',
+                                    cursor: (isDisabled && !slot.isBooked) ? 'not-allowed' : (slot.isBooked ? 'pointer' : 'pointer'),
+                                    opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
+                                    transform: isSelected ? 'scale(1.05)' : 'none',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                >
+                                  <div style={{ fontSize: '1rem' }}>
+                                    {slot.time}
+                                  </div>
+                                  <div style={{ fontSize: '0.65rem', marginTop: '3px' }}>
+                                    {isSlotBooked ? (isSelected ? 'Выбрано' : (slot.isBooked ? 'Занято' : 'Выбрано')) : 'Свободно'}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   );
-                })}
-              </div>
+                } else {
+                  // Обычное отображение для одного врача
+                  return (
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(4, 1fr)', 
+                      gap: '10px', 
+                      marginTop: '15px' 
+                    }}>
+                      {actualSlots.slots.map((slot, idx) => {
+                        const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                        const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                        const now = new Date();
+                        now.setSeconds(0, 0);
+                        now.setMilliseconds(0);
+                        slotDateTime.setSeconds(0, 0);
+                        slotDateTime.setMilliseconds(0);
+                        const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                        
+                        // Слот недоступен, если он занят (но можно отменить), прошедший или идет создание
+                        const isDisabled = (slot.isBooked && selectedTime !== slot.time) || isPast || creating;
+                        
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              if (!isDisabled || slot.isBooked) {
+                                handleSlotClick(slot.time, slot);
+                              }
+                            }}
+                            disabled={isDisabled && !slot.isBooked}
+                            style={{
+                              padding: '15px',
+                              fontSize: '1rem',
+                              fontWeight: 'bold',
+                              background: isPast 
+                                ? '#f5f5f5' 
+                                : (slot.isBooked 
+                                  ? '#ffebee' 
+                                  : (selectedTime === slot.time 
+                                    ? '#667eea' 
+                                    : '#e8f5e9')),
+                              color: isPast 
+                                ? '#999' 
+                                : (slot.isBooked 
+                                  ? '#d32f2f' 
+                                  : (selectedTime === slot.time 
+                                    ? 'white' 
+                                    : '#388e3c')),
+                              border: `2px solid ${isPast 
+                                ? '#ccc' 
+                                : (slot.isBooked 
+                                  ? '#f44336' 
+                                  : (selectedTime === slot.time 
+                                    ? '#667eea' 
+                                    : '#4caf50'))}`,
+                              borderRadius: '8px',
+                              cursor: (isDisabled && !slot.isBooked) ? 'not-allowed' : 'pointer',
+                              opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
+                              transform: selectedTime === slot.time ? 'scale(1.05)' : 'none',
+                              transition: 'all 0.2s',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                          >
+                            <div style={{ fontSize: '1rem' }}>
+                              {slot.time}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
+                              {slot.isBooked ? 'Занято (отменить?)' : (selectedTime === slot.time ? 'Выбрано' : 'Свободно')}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+              })()}
             </div>
 
             <div className="modal-actions" style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
