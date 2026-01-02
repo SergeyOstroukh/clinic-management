@@ -709,9 +709,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   };
 
   // Генерация слотов для режима всех врачей
-  const generateDaySlotsAllDoctors = (year, month, day) => {
+  const generateDaySlotsAllDoctors = (year, month, day, customSlotsData = null) => {
     const dateStr = formatDate(year, month, day);
-    const slots = allDoctorsSlots[dateStr] || [];
+    // Используем переданные данные или данные из состояния
+    const slotsData = customSlotsData || allDoctorsSlots;
+    const slots = slotsData[dateStr] || [];
     
     // Определяем количество уникальных врачей
     const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
@@ -1040,53 +1042,54 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       // Обновляем модалку для перерисовки слотов после обновления данных
       if (selectedSlot) {
         if (showAllDoctorsMode && updatedSlotsData) {
-          // Используем обновленные данные напрямую
-          const tempAllDoctorsSlots = updatedSlotsData;
-          const dateStr = formatDate(selectedSlot.year, selectedSlot.month, selectedSlot.day);
-          const slots = tempAllDoctorsSlots[dateStr] || [];
-          
-          // Определяем количество уникальных врачей
-          const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
-          const doctorsCount = uniqueDoctors.size;
-          
-          // Преобразуем в формат, совместимый с generateDaySlots
-          const formattedSlots = slots.map(slot => {
-            const [slotHour, slotMinute] = slot.time.split(':').map(Number);
-            const slotDateTime = new Date(selectedSlot.year, selectedSlot.month - 1, selectedSlot.day, slotHour, slotMinute, 0, 0);
-            const now = new Date();
-            now.setSeconds(0, 0);
-            const isPast = slotDateTime.getTime() < now.getTime();
+          // Для режима всех врачей используем обновленные данные напрямую
+          // Создаем временную функцию генерации слотов с переданными данными
+          const generateSlotsWithData = (year, month, day) => {
+            const dateStr = formatDate(year, month, day);
+            const slots = updatedSlotsData[dateStr] || [];
             
-            return {
-              time: slot.time,
-              isBooked: slot.isBooked || false,
-              isPast: isPast,
-              doctor: slot.doctor,
-              appointment: slot.appointment || null
+            const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
+            const doctorsCount = uniqueDoctors.size;
+            
+            const formattedSlots = slots.map(slot => {
+              const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+              const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+              const now = new Date();
+              now.setSeconds(0, 0);
+              const isPast = slotDateTime.getTime() < now.getTime();
+              
+              return {
+                time: slot.time,
+                isBooked: slot.isBooked || false,
+                isPast: isPast,
+                doctor: slot.doctor,
+                appointment: slot.appointment || null
+              };
+            });
+            
+            let singleDoctor = null;
+            if (doctorsCount === 1 && slots.length > 0) {
+              singleDoctor = slots[0].doctor;
+            }
+            
+            return { 
+              year, 
+              month, 
+              day, 
+              dateStr, 
+              slots: formattedSlots, 
+              allDoctorsMode: true,
+              doctorsCount,
+              singleDoctor
             };
-          });
-          
-          // Если один врач, получаем его данные
-          let singleDoctor = null;
-          if (doctorsCount === 1 && slots.length > 0) {
-            singleDoctor = slots[0].doctor;
-          }
-          
-          const updatedSlots = { 
-            year: selectedSlot.year, 
-            month: selectedSlot.month, 
-            day: selectedSlot.day, 
-            dateStr, 
-            slots: formattedSlots, 
-            allDoctorsMode: true,
-            doctorsCount,
-            singleDoctor
           };
           
+          // Немедленно обновляем слоты с актуальными данными
+          const updatedSlots = generateSlotsWithData(selectedSlot.year, selectedSlot.month, selectedSlot.day);
           setSelectedSlot(updatedSlots);
           setModalUpdateKey(prev => prev + 1);
         } else {
-          // Для обычного режима используем стандартную генерацию
+          // Для обычного режима используем стандартную генерацию с задержкой
           setTimeout(() => {
             const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
             setSelectedSlot(updatedSlots);
@@ -1197,54 +1200,54 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         // Обновляем модалку для перерисовки слотов после обновления данных
         if (selectedSlot) {
           if (showAllDoctorsMode && updatedSlotsData) {
-            // Временно сохраняем обновленные данные для генерации слотов
-            const tempAllDoctorsSlots = updatedSlotsData;
-            // Генерируем слоты с актуальными данными
-            const dateStr = formatDate(selectedSlot.year, selectedSlot.month, selectedSlot.day);
-            const slots = tempAllDoctorsSlots[dateStr] || [];
-            
-            // Определяем количество уникальных врачей
-            const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
-            const doctorsCount = uniqueDoctors.size;
-            
-            // Преобразуем в формат, совместимый с generateDaySlots
-            const formattedSlots = slots.map(slot => {
-              const [slotHour, slotMinute] = slot.time.split(':').map(Number);
-              const slotDateTime = new Date(selectedSlot.year, selectedSlot.month - 1, selectedSlot.day, slotHour, slotMinute, 0, 0);
-              const now = new Date();
-              now.setSeconds(0, 0);
-              const isPast = slotDateTime.getTime() < now.getTime();
+            // Для режима всех врачей используем обновленные данные напрямую
+            // Создаем временную функцию генерации слотов с переданными данными
+            const generateSlotsWithData = (year, month, day) => {
+              const dateStr = formatDate(year, month, day);
+              const slots = updatedSlotsData[dateStr] || [];
               
-              return {
-                time: slot.time,
-                isBooked: slot.isBooked || false,
-                isPast: isPast,
-                doctor: slot.doctor,
-                appointment: slot.appointment || null
+              const uniqueDoctors = new Set(slots.map(slot => slot.doctor.id));
+              const doctorsCount = uniqueDoctors.size;
+              
+              const formattedSlots = slots.map(slot => {
+                const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+                const now = new Date();
+                now.setSeconds(0, 0);
+                const isPast = slotDateTime.getTime() < now.getTime();
+                
+                return {
+                  time: slot.time,
+                  isBooked: slot.isBooked || false,
+                  isPast: isPast,
+                  doctor: slot.doctor,
+                  appointment: slot.appointment || null
+                };
+              });
+              
+              let singleDoctor = null;
+              if (doctorsCount === 1 && slots.length > 0) {
+                singleDoctor = slots[0].doctor;
+              }
+              
+              return { 
+                year, 
+                month, 
+                day, 
+                dateStr, 
+                slots: formattedSlots, 
+                allDoctorsMode: true,
+                doctorsCount,
+                singleDoctor
               };
-            });
-            
-            // Если один врач, получаем его данные
-            let singleDoctor = null;
-            if (doctorsCount === 1 && slots.length > 0) {
-              singleDoctor = slots[0].doctor;
-            }
-            
-            const updatedSlots = { 
-              year: selectedSlot.year, 
-              month: selectedSlot.month, 
-              day: selectedSlot.day, 
-              dateStr, 
-              slots: formattedSlots, 
-              allDoctorsMode: true,
-              doctorsCount,
-              singleDoctor
             };
             
+            // Немедленно обновляем слоты с актуальными данными
+            const updatedSlots = generateSlotsWithData(selectedSlot.year, selectedSlot.month, selectedSlot.day);
             setSelectedSlot(updatedSlots);
             setModalUpdateKey(prev => prev + 1);
           } else {
-            // Для обычного режима используем стандартную генерацию
+            // Для обычного режима используем стандартную генерацию с задержкой
             setTimeout(() => {
               const updatedSlots = generateDaySlots(selectedSlot.year, selectedSlot.month, selectedSlot.day);
               setSelectedSlot(updatedSlots);
