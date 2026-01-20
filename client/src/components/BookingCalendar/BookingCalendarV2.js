@@ -147,6 +147,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [showNearestSlots, setShowNearestSlots] = useState(false);
   const [showAllDoctorsMode, setShowAllDoctorsMode] = useState(false);
   const [allDoctorsSlots, setAllDoctorsSlots] = useState({}); // { '2026-01-15': [{ doctor, time, ... }] }
+  const [showDayAppointmentsTable, setShowDayAppointmentsTable] = useState(false);
 
   // Форма записи
   const [clientSearch, setClientSearch] = useState('');
@@ -912,6 +913,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     setSelectedSlot(daySlots);
     setSelectedTime(null); // Сбрасываем выбранное время при открытии
     setSelectedSlotDoctor(null); // Сбрасываем врача слота при открытии (режим нескольких врачей)
+    setShowDayAppointmentsTable(false);
     setShowModal(true);
   };
 
@@ -2158,6 +2160,65 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   );
                 }
               })()}
+              {selectedSlot.allDoctorsMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowDayAppointmentsTable(v => !v)}
+                    style={{
+                      marginTop: '12px',
+                      padding: '8px 16px',
+                      background: '#f0f4ff',
+                      border: '1px solid #667eea',
+                      borderRadius: '8px',
+                      color: '#667eea',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: '500'
+                    }}
+                  >
+                    {showDayAppointmentsTable ? 'Скрыть записи' : 'Показать записи'}
+                  </button>
+                  {showDayAppointmentsTable && (() => {
+                    const rows = actualSlots.slots
+                      .filter(s => s.isBooked && s.appointment)
+                      .sort((a, b) => a.time.localeCompare(b.time));
+                    return (
+                      <div style={{ marginTop: '10px', maxHeight: '220px', overflow: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fafafa' }}>
+                        {rows.length === 0 ? (
+                          <p style={{ padding: '16px', margin: 0, color: '#666', fontSize: '0.9rem' }}>На этот день нет записей</p>
+                        ) : (
+                          <table style={{ width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: '#f5f5f5' }}>
+                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Время</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Клиент</th>
+                                {actualSlots.doctorsCount > 1 && <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Врач</th>}
+                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Услуги, примечания</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((slot, i) => (
+                                <tr key={slot.appointment.id || i} style={{ borderBottom: '1px solid #eee' }}>
+                                  <td style={{ padding: '8px 10px' }}>{slot.time}</td>
+                                  <td style={{ padding: '8px 10px' }}>{[slot.appointment.client_last_name, slot.appointment.client_first_name].filter(Boolean).join(' ') || '-'}</td>
+                                  {actualSlots.doctorsCount > 1 && <td style={{ padding: '8px 10px' }}>{slot.doctor ? `${slot.doctor.lastName || ''} ${slot.doctor.firstName || ''}`.trim() || '-' : '-'}</td>}
+                                  <td style={{ padding: '8px 10px', fontSize: '0.85rem' }}>
+                                    {[
+                                      (slot.appointment.services || []).map(s => s.name).filter(Boolean).join(', '),
+                                      slot.appointment.notes ? `Заметки: ${slot.appointment.notes}` : ''
+                                    ].filter(Boolean).join(' | ') || '-'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </div>
 
             <div className="modal-actions" style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
