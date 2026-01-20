@@ -349,6 +349,8 @@ const ClientCard = ({
     const clientPhone = clientDataForPrint?.phone ? String(clientDataForPrint.phone).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     const clientAddress = clientDataForPrint?.address ? String(clientDataForPrint.address).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     const clientEmail = clientDataForPrint?.email ? String(clientDataForPrint.email).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const clientDateOfBirth = clientDataForPrint?.date_of_birth ? new Date(clientDataForPrint.date_of_birth).toLocaleDateString('ru-RU') : '';
+    const clientPassport = clientDataForPrint?.passport_number ? String(clientDataForPrint.passport_number).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
     const printWindow = window.open('', '_blank');
     const printContent = `
@@ -440,6 +442,8 @@ const ClientCard = ({
             ${clientPhone ? `<p><strong>Телефон:</strong> ${clientPhone}</p>` : ''}
             ${clientAddress ? `<p><strong>Адрес:</strong> ${clientAddress}</p>` : ''}
             ${clientEmail ? `<p><strong>Email:</strong> ${clientEmail}</p>` : ''}
+            ${clientDateOfBirth ? `<p><strong>Дата рождения:</strong> ${clientDateOfBirth}</p>` : ''}
+            ${clientPassport ? `<p><strong>Номер паспорта:</strong> ${clientPassport}</p>` : ''}
             <p><strong>Дата:</strong> ${formatDate(new Date(), 'dd.MM.yyyy')}</p>
           </div>
           
@@ -1122,6 +1126,18 @@ const ClientCard = ({
                       <div className="info-item">
                         <span className="info-label">Email:</span>
                         <span className="info-value">{client.email}</span>
+                      </div>
+                    )}
+                    {client.date_of_birth && (
+                      <div className="info-item">
+                        <span className="info-label">Дата рождения:</span>
+                        <span className="info-value">{new Date(client.date_of_birth).toLocaleDateString('ru-RU')}</span>
+                      </div>
+                    )}
+                    {client.passport_number && (
+                      <div className="info-item">
+                        <span className="info-label">Номер паспорта:</span>
+                        <span className="info-value">{client.passport_number}</span>
                       </div>
                     )}
                     {client.notes && (

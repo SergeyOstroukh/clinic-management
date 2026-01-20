@@ -104,7 +104,7 @@ function App() {
 
   // Формы
   const [clientForm, setClientForm] = useState({ 
-    lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' 
+    lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' 
   });
   const [appointmentForm, setAppointmentForm] = useState({
     client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
@@ -520,7 +520,7 @@ function App() {
       await loadData();
       
       // Очищаем форму и закрываем модалку
-      setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+      setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
       setEditingClient(null);
       setShowClientModal(false);
     } catch (error) {
@@ -978,7 +978,7 @@ function App() {
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
                 <button className="btn btn-primary" onClick={() => {
                   setEditingClient(null);
-                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
                   setShowClientModal(true);
                 }}>+ Добавить клиента</button>
               </div>
@@ -1031,12 +1031,14 @@ function App() {
                     <table className="wide-table">
                       <thead>
                         <tr>
-                          <th style={{ width: '5%' }}>#</th>
-                          <th style={{ width: '25%' }}>ФИО</th>
-                          <th style={{ width: '15%' }}>Телефон</th>
-                          <th style={{ width: '25%' }}>Адрес</th>
-                          <th style={{ width: '15%' }}>Email</th>
-                          <th style={{ width: '15%' }}>Действия</th>
+                          <th style={{ width: '4%' }}>#</th>
+                          <th style={{ width: '18%' }}>ФИО</th>
+                          <th style={{ width: '11%' }}>Телефон</th>
+                          <th style={{ width: '10%' }}>Дата рождения</th>
+                          <th style={{ width: '11%' }}>Номер паспорта</th>
+                          <th style={{ width: '18%' }}>Адрес</th>
+                          <th style={{ width: '12%' }}>Email</th>
+                          <th style={{ width: '16%' }}>Действия</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1055,6 +1057,8 @@ function App() {
                             </span>
                           </td>
                           <td>{client.phone || '-'}</td>
+                          <td>{client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString('ru-RU') : '-'}</td>
+                          <td>{client.passport_number || '-'}</td>
                           <td>{client.address || '-'}</td>
                           <td>{client.email || '-'}</td>
                           <td className="table-actions">
@@ -1588,12 +1592,12 @@ function App() {
                     </div>
                   )}
                 </div>
-                <button
+                    <button
                   type="button"
                   className="btn btn-small"
                   onClick={() => {
                     setEditingClient(null);
-                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '' });
+                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
                     setShowClientModal(true);
                   }}
                 >
@@ -2178,6 +2182,21 @@ function App() {
                     }
                   }
                 }}
+              />
+
+              <label>Дата рождения</label>
+              <input
+                type="date"
+                value={clientForm.date_of_birth}
+                onChange={(e) => setClientForm({ ...clientForm, date_of_birth: e.target.value })}
+              />
+
+              <label>Номер паспорта</label>
+              <input
+                type="text"
+                placeholder="Номер паспорта"
+                value={clientForm.passport_number}
+                onChange={(e) => setClientForm({ ...clientForm, passport_number: e.target.value })}
               />
 
               <label>Телефон *</label>

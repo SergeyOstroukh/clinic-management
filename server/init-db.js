@@ -29,6 +29,9 @@ async function initializeDatabase() {
     await migrateClientTreatmentPlan();
     console.log('✅ Миграция плана лечения проверена');
     
+    await migrateClientDateOfBirthPassport();
+    console.log('✅ Миграция даты рождения и паспорта проверена');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -797,6 +800,39 @@ async function migrateClientTreatmentPlan() {
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции treatment_plan:', error.message);
     // Не прерываем инициализацию, если миграция не удалась
+  }
+}
+
+// Миграция: добавление полей date_of_birth и passport_number в таблицу clients
+async function migrateClientDateOfBirthPassport() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция date_of_birth/passport_number доступна только для PostgreSQL');
+      return;
+    }
+
+    for (const { column, type, desc } of [
+      { column: 'date_of_birth', type: 'DATE', desc: 'даты рождения' },
+      { column: 'passport_number', type: 'TEXT', desc: 'номера паспорта' }
+    ]) {
+      const columnExists = await db.all(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'clients' AND column_name = $1
+      `, [column]);
+
+      if (columnExists.length === 0) {
+        console.log(`   🔄 Добавление поля ${column} в таблицу clients...`);
+        await db.run(`ALTER TABLE clients ADD COLUMN ${column} ${type}`);
+        console.log(`   ✅ Поле ${desc} добавлено`);
+      } else {
+        console.log(`   ✅ Поле ${desc} уже существует`);
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции date_of_birth/passport_number:', error.message);
   }
 }
 

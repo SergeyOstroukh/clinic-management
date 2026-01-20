@@ -116,14 +116,14 @@ app.get('/api/clients', async (req, res) => {
 
 // Создать клиента
 app.post('/api/clients', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes } = req.body;
+  const { lastName, firstName, middleName, phone, address, email, notes, date_of_birth, passport_number } = req.body;
   
   try {
     const result = await db.query(
-      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-      [lastName, firstName, middleName, phone, address, email, notes]
+      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes, date_of_birth, passport_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
+      [lastName, firstName, middleName, phone, address, email, notes, date_of_birth || null, passport_number || null]
     );
-    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes });
+    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes, date_of_birth: date_of_birth || null, passport_number: passport_number || null });
   } catch (error) {
     console.error('Ошибка создания клиента:', error);
     res.status(500).json({ error: error.message });
@@ -153,7 +153,7 @@ app.get('/api/clients/:id', async (req, res) => {
 
 // Обновить клиента (только для главного админа или для обновления treatment_plan врачом)
 app.put('/api/clients/:id', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser } = req.body;
+  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser, date_of_birth, passport_number } = req.body;
   
   try {
     if (!currentUser) {
@@ -3084,6 +3084,8 @@ app.get('/api/statistics/clients/export', async (req, res) => {
         address,
         email,
         notes,
+        date_of_birth,
+        passport_number,
         created_at
       FROM clients
       ORDER BY "lastName", "firstName", "middleName"
@@ -3099,6 +3101,8 @@ app.get('/api/statistics/clients/export', async (req, res) => {
       'Телефон': client.phone || '-',
       'Адрес': client.address || '-',
       'Email': client.email || '-',
+      'Дата рождения': client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString('ru-RU') : '-',
+      'Номер паспорта': client.passport_number || '-',
       'Примечания': client.notes || '-',
       'Дата регистрации': client.created_at ? new Date(client.created_at).toLocaleDateString('ru-RU') : '-'
     }));
@@ -3113,6 +3117,8 @@ app.get('/api/statistics/clients/export', async (req, res) => {
       'Телефон': '',
       'Адрес': '',
       'Email': '',
+      'Дата рождения': '',
+      'Номер паспорта': '',
       'Примечания': `Всего клиентов: ${clients.length}`,
       'Дата регистрации': ''
     };

@@ -160,7 +160,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     lastName: '',
     firstName: '',
     middleName: '',
-    phone: ''
+    phone: '',
+    date_of_birth: '',
+    passport_number: ''
   });
 
   useEffect(() => {
@@ -1135,7 +1137,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       
       // Закрываем модалку создания клиента
       setShowCreateClientModal(false);
-      setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '' });
+      setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '' });
       
       if (toast) toast.success('✅ Клиент успешно создан!');
     } catch (error) {
@@ -2265,6 +2267,27 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               />
             </div>
 
+            <div style={{ marginBottom: '15px' }}>
+              <label>Дата рождения</label>
+              <input
+                type="date"
+                value={newClientForm.date_of_birth}
+                onChange={(e) => setNewClientForm({ ...newClientForm, date_of_birth: e.target.value })}
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '15px' }}>
+              <label>Номер паспорта</label>
+              <input
+                type="text"
+                value={newClientForm.passport_number}
+                onChange={(e) => setNewClientForm({ ...newClientForm, passport_number: e.target.value })}
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}
+                placeholder="Номер паспорта (необязательно)"
+              />
+            </div>
+
             <div style={{ marginBottom: '20px' }}>
               <label>Телефон *</label>
               <input
@@ -2280,7 +2303,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               <button
                 onClick={() => {
                   setShowCreateClientModal(false);
-                  setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '' });
+                  setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '' });
                 }}
                 style={{
                   padding: '10px 20px',
