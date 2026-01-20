@@ -855,6 +855,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   };
 
   const handleDayClick = async (year, month, day, skipScheduleCheck = false) => {
+    let daySlots;
+
     // Для режима всех врачей проверяем наличие слотов
     if (showAllDoctorsMode) {
       const dateStr = formatDate(year, month, day);
@@ -887,6 +889,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         } catch (error) {
           console.error('Ошибка загрузки данных врача:', error);
         }
+      } else {
+        // Несколько врачей: сбрасываем selectedDoctor и берём слоты из allDoctorsSlots.
+        // setSelectedDoctor(null) не успеет примениться до generateDaySlots, поэтому
+        // вызываем generateDaySlotsAllDoctors напрямую.
+        setSelectedDoctor(null);
+        daySlots = generateDaySlotsAllDoctors(year, month, day);
       }
     } else {
       const schedule = getDaySchedule(year, month, day);
@@ -896,9 +904,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       }
     }
 
-    const daySlots = generateDaySlots(year, month, day);
+    if (daySlots === undefined) {
+      daySlots = generateDaySlots(year, month, day);
+    }
     setSelectedSlot(daySlots);
     setSelectedTime(null); // Сбрасываем выбранное время при открытии
+    setSelectedSlotDoctor(null); // Сбрасываем врача слота при открытии (режим нескольких врачей)
     setShowModal(true);
   };
 
