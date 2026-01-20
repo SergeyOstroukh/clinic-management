@@ -2206,7 +2206,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                   <td style={{ padding: '8px 10px', fontSize: '0.85rem' }}>
                                     {[
                                       (slot.appointment.services || []).map(s => s.name).filter(Boolean).join(', '),
-                                      slot.appointment.notes ? `Заметки: ${slot.appointment.notes}` : ''
+                                      slot.appointment.notes || ''
                                     ].filter(Boolean).join(' | ') || '-'}
                                   </td>
                                 </tr>
