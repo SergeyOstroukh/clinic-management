@@ -32,6 +32,9 @@ async function initializeDatabase() {
     await migrateClientDateOfBirthPassport();
     console.log('✅ Миграция даты рождения и паспорта проверена');
     
+    await migrateAppliedComposites();
+    console.log('✅ Миграция applied_composites проверена');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -833,6 +836,43 @@ async function migrateClientDateOfBirthPassport() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции date_of_birth/passport_number:', error.message);
+  }
+}
+
+// Миграция: добавление applied_composites (JSONB) в appointments для хранения составных услуг
+async function migrateAppliedComposites() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (usePostgres) {
+      const columnExists = await db.all(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'appointments' AND column_name = $1
+      `, ['applied_composites']);
+
+      if (columnExists.length === 0) {
+        console.log('   🔄 Добавление поля applied_composites в appointments...');
+        await db.run(`ALTER TABLE appointments ADD COLUMN applied_composites JSONB DEFAULT '[]'::jsonb`);
+        console.log('   ✅ Поле applied_composites добавлено в appointments');
+      } else {
+        console.log('   ✅ Поле applied_composites уже существует');
+      }
+    } else {
+      // SQLite
+      const tableInfo = await db.all(`PRAGMA table_info(appointments)`);
+      const hasColumn = tableInfo.some(col => col.name === 'applied_composites');
+      
+      if (!hasColumn) {
+        console.log('   🔄 Добавление поля applied_composites в appointments...');
+        await db.run(`ALTER TABLE appointments ADD COLUMN applied_composites TEXT DEFAULT '[]'`);
+        console.log('   ✅ Поле applied_composites добавлено в appointments');
+      } else {
+        console.log('   ✅ Поле applied_composites уже существует');
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции applied_composites:', error.message);
   }
 }
 

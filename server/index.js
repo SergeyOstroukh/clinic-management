@@ -1289,8 +1289,15 @@ app.get('/api/appointments/:id', async (req, res) => {
       return res.status(404).json({ error: 'Запись не найдена' });
     }
 
-    // Получаем услуги
-    const services = await db.all(
+    // applied_composites: для восстановления составных в CompleteVisit
+    let applied = appointment.applied_composites;
+    if (typeof applied === 'string') {
+      try { applied = JSON.parse(applied); } catch (e) { applied = []; }
+    }
+    if (!Array.isArray(applied)) applied = [];
+
+    // Получаем все услуги
+    const servicesFlat = await db.all(
       usePostgres
         ? `SELECT aps.service_id, aps.quantity, s.name, s.price
            FROM appointment_services aps
@@ -1302,6 +1309,30 @@ app.get('/api/appointments/:id', async (req, res) => {
            WHERE aps.appointment_id = ?`,
       [appointment.id]
     );
+
+    // Вычитаем вклад составных, остаток — индивидуальные услуги
+    const bySid = {};
+    for (const s of servicesFlat) {
+      bySid[s.service_id] = (bySid[s.service_id] || 0) + (s.quantity || 1);
+    }
+    for (const ac of applied) {
+      if (!ac || typeof ac !== 'object' || !ac.composite_service_id) continue;
+      const cid = ac.composite_service_id;
+      const qty = ac.quantity || 1;
+      const css = await db.all(usePostgres ? 'SELECT service_id, quantity FROM composite_service_services WHERE composite_service_id = $1' : 'SELECT service_id, quantity FROM composite_service_services WHERE composite_service_id = ?', [cid]);
+      for (const row of css) {
+        const k = row.service_id;
+        const sub = (row.quantity || 1) * qty;
+        bySid[k] = (bySid[k] || 0) - sub;
+        if (bySid[k] <= 0) delete bySid[k];
+      }
+    }
+    const individualServices = [];
+    for (const [sid, q] of Object.entries(bySid)) {
+      if (q <= 0) continue;
+      const s = servicesFlat.find(x => String(x.service_id) === String(sid));
+      individualServices.push({ service_id: parseInt(sid, 10), name: s?.name || '-', price: s?.price || 0, quantity: q });
+    }
 
     // Получаем материалы
     const materials = await db.all(
@@ -1334,9 +1365,9 @@ app.get('/api/appointments/:id', async (req, res) => {
     const appointmentWithData = {
       ...appointment,
       appointment_date: normalizedAppointmentDate,
-      // Нормализуем called_today: boolean -> 1/0 для совместимости с клиентом                                             
-      called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,                                                               
-      services: services.map(s => ({
+      called_today: appointment.called_today === true || appointment.called_today === 1 ? 1 : 0,
+      applied_composites: applied,
+      services: individualServices.map(s => ({
         service_id: s.service_id,
         name: s.name,
         price: s.price,
@@ -1587,7 +1618,7 @@ app.patch('/api/appointments/:id/complete-payment', async (req, res) => {
 
 // Завершить прием (врач)
 app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
-  const { diagnosis, services, materials, treatment_plan } = req.body;
+  const { diagnosis, services, materials, treatment_plan, applied_composites } = req.body;
   
   try {
     // Получаем старые материалы для восстановления остатков
@@ -1743,12 +1774,15 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       }
     }
     
-    // Обновляем запись
+    // Обновляем запись (applied_composites — составные услуги для отображения в карточке)
+    const appliedCompositesJson = Array.isArray(applied_composites) && applied_composites.length > 0
+      ? JSON.stringify(applied_composites.map(c => ({ composite_service_id: c.composite_service_id, quantity: c.quantity || 1 })))
+      : '[]';
     await db.run(
       usePostgres
-        ? 'UPDATE appointments SET diagnosis = $1, status = $2, total_price = $3 WHERE id = $4'
-        : 'UPDATE appointments SET diagnosis = ?, status = ?, total_price = ? WHERE id = ?',
-      [diagnosis, 'ready_for_payment', totalPrice, req.params.id]
+        ? 'UPDATE appointments SET diagnosis = $1, status = $2, total_price = $3, applied_composites = $4::jsonb WHERE id = $5'
+        : 'UPDATE appointments SET diagnosis = ?, status = ?, total_price = ?, applied_composites = ? WHERE id = ?',
+      [diagnosis, 'ready_for_payment', totalPrice, appliedCompositesJson, req.params.id]
     );
 
     // Сохраняем план лечения, если он был передан и найден клиент

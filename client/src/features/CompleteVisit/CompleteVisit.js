@@ -61,14 +61,19 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     loadTreatmentPlan();
   }, [visit.client_id, visit.client?.id, visit.id]); // Перезагружаем при изменении записи
 
-  // Обновляем данные при изменении visit (для редактирования)
+  // Обновляем данные при изменении visit (восстанавливаем составные услуги как до завершения)
   useEffect(() => {
     setDiagnosis(visit.diagnosis || '');
+    const rawComposites = visit.applied_composites;
+    const composites = Array.isArray(rawComposites)
+      ? rawComposites
+          .filter(c => c && typeof c === 'object' && c.composite_service_id != null)
+          .map(c => ({ composite_service_id: c.composite_service_id, quantity: c.quantity || 1 }))
+      : [];
+    setSelectedComposites(composites);
     setSelectedServices(visit.services || []);
     setSelectedMaterials(visit.materials || []);
-    setSelectedComposites([]); // из визита не восстанавливаем — на бэке только плоский список
     setExpandedCompositeIds([]);
-    // План лечения не обновляем здесь, он загружается отдельно из базы данных
   }, [visit]);
 
   const toggleService = (serviceId) => {
@@ -237,7 +242,8 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
         diagnosis,
         services: normalizedServices,
         materials: normalizedMaterials,
-        treatment_plan: treatmentPlan
+        treatment_plan: treatmentPlan,
+        applied_composites: selectedComposites
       });
       
       // Отправляем событие для обновления списка записей
