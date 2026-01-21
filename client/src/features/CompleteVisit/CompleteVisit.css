@@ -162,6 +162,86 @@
   background: #e63946;
 }
 
+.btn-remove-simple:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Составная услуга в списке: одна строка, по клику — аккордеон с подуслугами */
+.selected-item-composite {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.composite-row-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.composite-row-main:hover {
+  background: #f0f0f0;
+}
+
+.composite-chevron {
+  font-size: 0.85em;
+  color: #4ecdc4;
+  margin-left: 4px;
+}
+
+.composite-row-main .item-controls-simple {
+  cursor: default;
+}
+
+.quantity-label-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #666;
+}
+
+.item-total-simple {
+  font-weight: bold;
+  color: #667eea;
+  min-width: 100px;
+  text-align: right;
+}
+
+.composite-accordion-body {
+  padding: 10px 12px 12px 20px;
+  background: #fafafa;
+  border-top: 1px solid #e8e8e8;
+  font-size: 13px;
+}
+
+.composite-sub-title {
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 6px;
+  margin-top: 8px;
+}
+
+.composite-sub-title:first-child {
+  margin-top: 0;
+}
+
+.composite-sub-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.composite-sub-list li {
+  margin-bottom: 2px;
+}
+
 .form-actions {
   display: flex;
   gap: 15px;
