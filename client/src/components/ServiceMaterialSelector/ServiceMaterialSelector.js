@@ -12,7 +12,8 @@ const ServiceMaterialSelector = ({
   onSearchChange = () => {}
 }) => {
   const [showList, setShowList] = useState(false);
-  const [activeCategory, setActiveCategory] = useState(null);
+  // Какие категории развёрнуты (аккордеон). Set для быстрого toggle.
+  const [expandedCategories, setExpandedCategories] = useState(() => new Set());
 
   // Группировка по категориям
   const groupedItems = useMemo(() => {
@@ -47,8 +48,6 @@ const ServiceMaterialSelector = ({
     return grouped;
   }, [items, type]);
 
-  const categories = Object.keys(groupedItems).sort();
-
   // Фильтрация по поиску
   const filteredGroupedItems = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -70,25 +69,22 @@ const ServiceMaterialSelector = ({
     return filtered;
   }, [groupedItems, searchQuery]);
 
-  // При открытии модального окна выбираем первую категорию
-  useEffect(() => {
-    if (showList && categories.length > 0) {
-      // Если активной категории нет или она не в отфильтрованном списке, выбираем первую
-      const filteredCategories = Object.keys(filteredGroupedItems).sort();
-      if (!activeCategory || !filteredCategories.includes(activeCategory)) {
-        if (filteredCategories.length > 0) {
-          setActiveCategory(filteredCategories[0]);
-        }
-      }
-    }
-  }, [showList, categories, activeCategory, filteredGroupedItems]);
-
-  // При закрытии модального окна сбрасываем активную категорию
+  // При открытии модального окна — все категории свёрнуты
+  // При закрытии — сбрасываем развёрнутые
   useEffect(() => {
     if (!showList) {
-      setActiveCategory(null);
+      setExpandedCategories(new Set());
     }
   }, [showList]);
+
+  const toggleCategory = (category) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
 
   const isItemSelected = (itemId) => {
@@ -158,73 +154,78 @@ const ServiceMaterialSelector = ({
               />
             </div>
 
-            {/* Горизонтальный список категорий */}
-            <div className="modal-categories-tabs">
-              {Object.keys(filteredGroupedItems)
-                .sort()
-                .map(category => {
-                  const itemsInCategory = filteredGroupedItems[category];
-                  const selectedCount = itemsInCategory.filter(item =>
-                    isItemSelected(item.id)
-                  ).length;
-                  const isActive = activeCategory === category;
-
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      className={`category-tab ${isActive ? 'active' : ''}`}
-                      onClick={() => setActiveCategory(category)}
-                    >
-                      <span className="tab-name">{category}</span>
-                      <span className="tab-count">({selectedCount}/{itemsInCategory.length})</span>
-                    </button>
-                  );
-                })}
-            </div>
-
             <div className="modal-controls">
               <div className="selected-count">
                 Выбрано: {selectedItems.length}
               </div>
             </div>
 
-            {/* Основной контент с двумя колонками */}
+            {/* Основной контент: слева — аккордеон категорий, справа — выбранные */}
             <div className="modal-body">
-              {/* Контент выбранной категории */}
               <div className="modal-content">
-              {activeCategory && filteredGroupedItems[activeCategory] ? (
-                <div className="category-items-list">
-                  {filteredGroupedItems[activeCategory].map(item => {
-                    const isSelected = isItemSelected(item.id);
-                    return (
-                      <label
-                        key={item.id}
-                        className={`item-checkbox ${isSelected ? 'selected' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleItemToggle(item.id)}
-                        />
-                        <div className="item-info">
-                          <span className="item-name">{item.name}</span>
-                          {type === 'material' && item.unit && (
-                            <span className="item-unit">({item.unit})</span>
-                          )}
-                          {item.price && (
-                            <span className="item-price">{item.price} BYN</span>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="no-results">
-                  {searchQuery ? 'Ничего не найдено' : 'Выберите категорию'}
-                </div>
-              )}
+                {Object.keys(filteredGroupedItems).length === 0 ? (
+                  <div className="no-results">
+                    {searchQuery ? 'Ничего не найдено' : 'Нет категорий'}
+                  </div>
+                ) : (
+                  <div className="categories-accordion">
+                    {Object.keys(filteredGroupedItems)
+                      .sort()
+                      .map(category => {
+                        const itemsInCategory = filteredGroupedItems[category];
+                        const selectedCount = itemsInCategory.filter(item =>
+                          isItemSelected(item.id)
+                        ).length;
+                        const isExpanded = expandedCategories.has(category);
+
+                        return (
+                          <div key={category} className="accordion-section">
+                            <button
+                              type="button"
+                              className={`accordion-header ${isExpanded ? 'expanded' : ''}`}
+                              onClick={() => toggleCategory(category)}
+                            >
+                              <span className="accordion-title">{category}</span>
+                              <span className="accordion-meta">
+                                ({selectedCount}/{itemsInCategory.length})
+                              </span>
+                              <span className="accordion-chevron">{isExpanded ? '▼' : '▶'}</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="accordion-body">
+                                <div className="category-items-list">
+                                  {itemsInCategory.map(item => {
+                                    const isSelected = isItemSelected(item.id);
+                                    return (
+                                      <label
+                                        key={item.id}
+                                        className={`item-checkbox ${isSelected ? 'selected' : ''}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => handleItemToggle(item.id)}
+                                        />
+                                        <div className="item-info">
+                                          <span className="item-name">{item.name}</span>
+                                          {type === 'material' && item.unit && (
+                                            <span className="item-unit">({item.unit})</span>
+                                          )}
+                                          {item.price && (
+                                            <span className="item-price">{item.price} BYN</span>
+                                          )}
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
 
               {/* Панель выбранных позиций справа */}

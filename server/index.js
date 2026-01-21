@@ -1,4 +1,6 @@
-require('dotenv').config();
+// .env в корне проекта (при запуске из server/ dotenv по умолчанию его не находит)
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config(); // fallback: server/.env
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -182,12 +184,12 @@ app.put('/api/clients/:id', async (req, res) => {
       
       res.json({ message: 'План лечения обновлен', changes: result.changes });
     } else {
-      // Полное обновление (только для superadmin)
+      // Полное обновление (только для superadmin), включая date_of_birth и passport_number
       const result = await db.run(
         usePostgres
-          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8 WHERE id = $9'
-          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ? WHERE id = ?',
-        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, req.params.id]
+          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8, date_of_birth = $9, passport_number = $10 WHERE id = $11'
+          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ?, date_of_birth = ?, passport_number = ? WHERE id = ?',
+        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, date_of_birth || null, passport_number || null, req.params.id]
       );
       
       if (result.changes === 0) {

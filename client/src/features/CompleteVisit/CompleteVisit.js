@@ -18,6 +18,10 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
   const [diagnosis, setDiagnosis] = useState(visit.diagnosis || '');
   const [selectedServices, setSelectedServices] = useState(visit.services || []);
   const [selectedMaterials, setSelectedMaterials] = useState(visit.materials || []);
+  /** Составные услуги: при применении добавляются сюда, а не разворачиваются в services/materials */
+  const [selectedComposites, setSelectedComposites] = useState([]);
+  /** Какие составные услуги развёрнуты (аккордеон подуслуг) */
+  const [expandedCompositeIds, setExpandedCompositeIds] = useState([]);
   const [treatmentPlan, setTreatmentPlan] = useState('');
   const [serviceSearch, setServiceSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
@@ -62,6 +66,8 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     setDiagnosis(visit.diagnosis || '');
     setSelectedServices(visit.services || []);
     setSelectedMaterials(visit.materials || []);
+    setSelectedComposites([]); // из визита не восстанавливаем — на бэке только плоский список
+    setExpandedCompositeIds([]);
     // План лечения не обновляем здесь, он загружается отдельно из базы данных
   }, [visit]);
 
@@ -105,76 +111,58 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     ));
   };
 
-  // Применить составную услугу
+  // Применить составную услугу — добавляем в selectedComposites, не разворачиваем в services/materials
   const handleApplyCompositeService = (compositeService) => {
-    // Добавляем все подуслуги
-    const newServices = [...selectedServices];
-    compositeService.services.forEach(csService => {
-      // API может возвращать данные с полем id вместо service_id
-      const serviceId = csService.service_id || csService.id;
-      if (!serviceId) {
-        console.warn('Пропущена услуга без ID:', csService);
-        return;
-      }
-      
-      const existing = newServices.find(s => s.service_id === serviceId);
+    setSelectedComposites(prev => {
+      const existing = prev.find(c => c.composite_service_id === compositeService.id);
       if (existing) {
-        // Если услуга уже есть, увеличиваем количество
-        existing.quantity = (existing.quantity || 1) + (csService.quantity || 1);
-      } else {
-        // Добавляем новую услугу
-        newServices.push({
-          service_id: parseInt(serviceId),
-          quantity: parseInt(csService.quantity) || 1
-        });
+        return prev.map(c =>
+          c.composite_service_id === compositeService.id
+            ? { ...c, quantity: (c.quantity || 1) + 1 }
+            : c
+        );
       }
+      return [...prev, { composite_service_id: compositeService.id, quantity: 1 }];
     });
-    setSelectedServices(newServices);
-
-    // Добавляем все материалы
-    if (compositeService.materials && compositeService.materials.length > 0) {
-      const newMaterials = [...selectedMaterials];
-      compositeService.materials.forEach(csMaterial => {
-        // API может возвращать данные с полем id вместо material_id
-        const materialId = csMaterial.material_id || csMaterial.id;
-        if (!materialId) {
-          console.warn('Пропущен материал без ID:', csMaterial);
-          return;
-        }
-        
-        const existing = newMaterials.find(m => m.material_id === materialId);
-        if (existing) {
-          // Если материал уже есть, увеличиваем количество
-          existing.quantity = (existing.quantity || 1) + (csMaterial.quantity || 1);
-        } else {
-          // Добавляем новый материал
-          newMaterials.push({
-            material_id: parseInt(materialId),
-            quantity: parseFloat(csMaterial.quantity) || 1
-          });
-        }
-      });
-      setSelectedMaterials(newMaterials);
-    }
-
-    // Переключаемся на вкладку услуг, чтобы показать добавленные
     setActiveSection('services');
     setCompositeServiceSearch('');
-    
-    // Показываем информацию о добавленных элементах
-    const addedServicesCount = compositeService.services?.length || 0;
-    const addedMaterialsCount = compositeService.materials?.length || 0;
-    let message = `✅ Составная услуга "${compositeService.name}" применена!\n\n`;
-    message += `Добавлено:\n`;
-    message += `- Подуслуг: ${addedServicesCount}\n`;
-    if (addedMaterialsCount > 0) {
-      message += `- Материалов: ${addedMaterialsCount}`;
-    }
-    if (toast) {
-      toast.info(message);
-    } else {
-      alert(message);
-    }
+    if (toast) toast.info(`✅ Составная услуга «${compositeService.name}» добавлена`);
+    else alert(`✅ Составная услуга «${compositeService.name}» добавлена`);
+  };
+
+  const removeComposite = (compositeServiceId) => {
+    setSelectedComposites(prev => prev.filter(c => c.composite_service_id !== compositeServiceId));
+    setExpandedCompositeIds(prev => prev.filter(id => id !== compositeServiceId));
+  };
+
+  const updateCompositeQuantity = (compositeServiceId, qty) => {
+    const v = parseInt(qty, 10);
+    if (isNaN(v) || v < 1) return;
+    setSelectedComposites(prev =>
+      prev.map(c =>
+        c.composite_service_id === compositeServiceId ? { ...c, quantity: v } : c
+      )
+    );
+  };
+
+  const toggleCompositeExpanded = (id) => {
+    setExpandedCompositeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Стоимость составной услуги (подуслуги + материалы) с учётом quantity
+  const getCompositeTotal = (composite, qty = 1) => {
+    let total = 0;
+    (composite.services || []).forEach(cs => {
+      const s = services.find(x => x.id === (cs.service_id || cs.id));
+      total += (s?.price || cs.price || 0) * (cs.quantity || 1) * qty;
+    });
+    (composite.materials || []).forEach(cm => {
+      const m = materials.find(x => x.id === (cm.material_id || cm.id));
+      total += (m?.price || cm.price || 0) * (cm.quantity || 1) * qty;
+    });
+    return total.toFixed(2);
   };
 
   const handleSubmit = async () => {
@@ -183,28 +171,58 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
       else alert('Пожалуйста, введите диагноз');
       return;
     }
-    if (selectedServices.length === 0) {
+    const hasServices = selectedServices.length > 0 || selectedComposites.length > 0;
+    if (!hasServices) {
       if (toast) toast.warning('Пожалуйста, выберите хотя бы одну услугу');
       else alert('Пожалуйста, выберите хотя бы одну услугу');
       return;
     }
 
-    // Валидация и нормализация данных перед отправкой
-    const normalizedServices = selectedServices
-      .filter(s => s.service_id != null) // Убираем записи без service_id
-      .map(s => ({
-        service_id: parseInt(s.service_id),
-        quantity: parseInt(s.quantity) || 1
-      }))
-      .filter(s => !isNaN(s.service_id)); // Убираем записи с невалидным ID
-    
-    const normalizedMaterials = (selectedMaterials || [])
-      .filter(m => m.material_id != null) // Убираем записи без material_id
-      .map(m => ({
-        material_id: parseInt(m.material_id),
-        quantity: parseFloat(m.quantity) || 1
-      }))
-      .filter(m => !isNaN(m.material_id)); // Убираем записи с невалидным ID
+    // Разворачиваем составные в услуги и материалы, объединяем с выбранными вручную
+    const servicesByKey = {}; // { service_id: quantity }
+    selectedServices.forEach(s => {
+      const id = parseInt(s.service_id, 10);
+      if (isNaN(id)) return;
+      servicesByKey[id] = (servicesByKey[id] || 0) + (parseInt(s.quantity, 10) || 1);
+    });
+    selectedComposites.forEach(item => {
+      const cs = compositeServices.find(c => c.id === item.composite_service_id);
+      if (!cs) return;
+      const qty = parseInt(item.quantity, 10) || 1;
+      (cs.services || []).forEach(s => {
+        const id = parseInt(s.service_id || s.id, 10);
+        if (isNaN(id)) return;
+        const add = (parseInt(s.quantity, 10) || 1) * qty;
+        servicesByKey[id] = (servicesByKey[id] || 0) + add;
+      });
+    });
+
+    const materialsByKey = {}; // { material_id: quantity }
+    (selectedMaterials || []).forEach(m => {
+      const id = parseInt(m.material_id, 10);
+      if (isNaN(id)) return;
+      materialsByKey[id] = (materialsByKey[id] || 0) + (parseFloat(m.quantity) || 1);
+    });
+    selectedComposites.forEach(item => {
+      const cs = compositeServices.find(c => c.id === item.composite_service_id);
+      if (!cs) return;
+      const qty = parseInt(item.quantity, 10) || 1;
+      (cs.materials || []).forEach(m => {
+        const id = parseInt(m.material_id || m.id, 10);
+        if (isNaN(id)) return;
+        const add = (parseFloat(m.quantity) || 1) * qty;
+        materialsByKey[id] = (materialsByKey[id] || 0) + add;
+      });
+    });
+
+    const normalizedServices = Object.entries(servicesByKey).map(([id, q]) => ({
+      service_id: parseInt(id, 10),
+      quantity: q
+    }));
+    const normalizedMaterials = Object.entries(materialsByKey).map(([id, q]) => ({
+      material_id: parseInt(id, 10),
+      quantity: parseFloat(q)
+    }));
 
     if (normalizedServices.length === 0) {
       if (toast) toast.error('Ошибка: нет валидных услуг для сохранения. Пожалуйста, выберите услуги заново.');
@@ -309,8 +327,8 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
             onClick={() => setActiveSection('services')}
           >
             📋 Услуги
-            {selectedServices.length > 0 && (
-              <span className="tab-badge">{selectedServices.length}</span>
+            {(selectedServices.length + selectedComposites.length) > 0 && (
+              <span className="tab-badge">{selectedServices.length + selectedComposites.length}</span>
             )}
           </button>
           <button
@@ -400,9 +418,102 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
               onSearchChange={setServiceSearch}
             />
             
-            {/* Простой список выбранных услуг */}
-            {selectedServices.length > 0 && (
+            {/* Список выбранных: составные (название + стоимость, по клику — аккордеон), потом точечные */}
+            {(selectedComposites.length > 0 || selectedServices.length > 0) && (
               <div className="selected-items-simple">
+                {/* Составные услуги: одна строка — название и сумма, по клику раскрываются подуслуги */}
+                {selectedComposites.map(item => {
+                  const cs = compositeServices.find(c => c.id === item.composite_service_id);
+                  if (!cs) return null;
+                  const total = getCompositeTotal(cs, item.quantity || 1);
+                  const isExpanded = expandedCompositeIds.includes(cs.id);
+                  const qty = item.quantity || 1;
+                  return (
+                    <div key={'composite-' + cs.id} className="selected-item-simple selected-item-composite">
+                      <div
+                        className="composite-row-main"
+                        onClick={() => toggleCompositeExpanded(cs.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleCompositeExpanded(cs.id)}
+                      >
+                        <span className="item-name-simple">
+                          🔧 {cs.name}
+                          <span className="composite-chevron">{isExpanded ? ' ▼' : ' ▶'}</span>
+                        </span>
+                        <div className="item-controls-simple" onClick={e => e.stopPropagation()}>
+                          <label className="quantity-label-inline">
+                            Кол-во:
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={item.quantity || 1}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => updateCompositeQuantity(cs.id, e.target.value)}
+                              className="quantity-input-simple"
+                              disabled={isPaid}
+                            />
+                          </label>
+                          <div className="item-total-simple">Итого: {total} BYN</div>
+                          <button
+                            type="button"
+                            className="btn-remove-simple"
+                            onClick={() => removeComposite(cs.id)}
+                            title="Удалить"
+                            disabled={isPaid}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="composite-accordion-body">
+                          {(cs.services || []).length > 0 && (
+                            <>
+                              <div className="composite-sub-title">Подуслуги</div>
+                              <ul className="composite-sub-list">
+                                {(cs.services || []).map(s => {
+                                  const svc = services.find(x => x.id === (s.service_id || s.id));
+                                  const name = svc?.name || s.name || '—';
+                                  const price = svc?.price ?? s.price ?? 0;
+                                  const subQty = (s.quantity || 1) * qty;
+                                  const subTotal = (price * subQty).toFixed(2);
+                                  return (
+                                    <li key={s.service_id || s.id}>
+                                      {name} × {subQty} — {subTotal} BYN
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </>
+                          )}
+                          {(cs.materials || []).length > 0 && (
+                            <>
+                              <div className="composite-sub-title">Материалы</div>
+                              <ul className="composite-sub-list">
+                                {(cs.materials || []).map(m => {
+                                  const mat = materials.find(x => x.id === (m.material_id || m.id));
+                                  const name = mat?.name || m.name || '—';
+                                  const unit = mat?.unit || m.unit || 'шт';
+                                  const price = mat?.price ?? m.price ?? 0;
+                                  const subQty = (m.quantity || 1) * qty;
+                                  const subTotal = (price * subQty).toFixed(2);
+                                  return (
+                                    <li key={m.material_id || m.id}>
+                                      {name} × {subQty} {unit} — {subTotal} BYN
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {/* Точечные услуги — как раньше */}
                 {selectedServices.map(item => {
                   const service = services.find(s => s.id === item.service_id);
                   if (!service) return null;
@@ -524,7 +635,7 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
       </div>
 
       {/* Общая сумма */}
-      {((selectedServices.length > 0) || (selectedMaterials.length > 0)) && (
+      {((selectedServices.length > 0) || (selectedMaterials.length > 0) || (selectedComposites.length > 0)) && (
         <div style={{
           marginTop: '20px',
           padding: '15px',
@@ -544,7 +655,11 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
                 const material = materials.find(m => m.id === item.material_id);
                 return sum + ((material?.price || 0) * (item.quantity || 1));
               }, 0);
-              return (servicesTotal + materialsTotal).toFixed(2);
+              const compositesTotal = selectedComposites.reduce((sum, item) => {
+                const cs = compositeServices.find(c => c.id === item.composite_service_id);
+                return sum + (cs ? parseFloat(getCompositeTotal(cs, item.quantity || 1)) : 0);
+              }, 0);
+              return (servicesTotal + materialsTotal + compositesTotal).toFixed(2);
             })()} BYN
           </div>
         </div>

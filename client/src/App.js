@@ -1084,7 +1084,15 @@ function App() {
                                       phone: client.phone || '',
                                       address: client.address || '',
                                       email: client.email || '',
-                                      notes: client.notes || ''
+                                      notes: client.notes || '',
+                                      date_of_birth: (() => {
+                                        const v = client.date_of_birth;
+                                        if (!v) return '';
+                                        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+                                        if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+                                        return String(v).slice(0, 10);
+                                      })(),
+                                      passport_number: client.passport_number || ''
                                     });
                                     setShowClientModal(true);
                                   }}
