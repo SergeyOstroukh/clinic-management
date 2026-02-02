@@ -48,7 +48,6 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
     work_date: ''
   });
   const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedDateSchedule, setSelectedDateSchedule] = useState(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedMultipleDates, setSelectedMultipleDates] = useState([]);
 
@@ -559,9 +558,8 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
           schedules={regularSlots}
           specificDates={doctorSpecificDates}
           doctorId={selectedDoctor.id}
-          onDateClick={(date, schedule) => {
+          onDateClick={(date) => {
             setSelectedDate(date);
-            setSelectedDateSchedule(schedule);
             const dateStr = formatDateLocal(date);
             setFormData({
               day_of_week: date.getDay(),
@@ -653,7 +651,6 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
             if (e.target === e.currentTarget) {
               setShowAddModal(false);
               setSelectedDate(null);
-              setSelectedDateSchedule(null);
               setFormData({ day_of_week: '', start_time: '', end_time: '', work_date: '' });
             }
           }}>
@@ -725,7 +722,6 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
                     onClick={() => {
                       setShowAddModal(false);
                       setSelectedDate(null);
-                      setSelectedDateSchedule(null);
                       setFormData({ day_of_week: '', start_time: '', end_time: '', work_date: '' });
                     }}
                   >
