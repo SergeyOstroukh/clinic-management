@@ -109,7 +109,16 @@ const AppointmentTable = ({
                 <td className="doctor-cell">{getDoctorName(apt)}</td>
               )}
               {showPrice && (
-                <td className="price-cell">{calculateTotal(apt.services, apt.materials).toFixed(2)} BYN</td>
+                <td className="price-cell">
+                  {(() => {
+                    const baseTotal = (apt.total_price != null && apt.total_price !== '')
+                      ? parseFloat(apt.total_price)
+                      : calculateTotal(apt.services, apt.materials);
+                    const discount = parseFloat(apt.discount_amount) || 0;
+                    const displayTotal = Math.max(0, baseTotal - discount);
+                    return `${displayTotal.toFixed(2)} BYN`;
+                  })()}
+                </td>
               )}
               <td className="status-cell">
                 {currentUser && currentUser.role === 'doctor' ? (

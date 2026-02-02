@@ -807,12 +807,36 @@ function App() {
           <div className="appointments-header-left">
             <h2>📅 Записи на дату</h2>
             <div className="date-filter">
+              <button
+                type="button"
+                className="btn btn-small btn-date-nav"
+                onClick={() => {
+                  const d = new Date(selectedDate + 'T12:00:00');
+                  d.setDate(d.getDate() - 1);
+                  setSelectedDate(d.toISOString().slice(0, 10));
+                }}
+                title="Предыдущий день"
+              >
+                &#11013;
+              </button>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="date-input"
               />
+              <button
+                type="button"
+                className="btn btn-small btn-date-nav"
+                onClick={() => {
+                  const d = new Date(selectedDate + 'T12:00:00');
+                  d.setDate(d.getDate() + 1);
+                  setSelectedDate(d.toISOString().slice(0, 10));
+                }}
+                title="Следующий день"
+              >
+                &#10145;
+              </button>
               <button
                 className="btn btn-small"
                 onClick={() => setSelectedDate(getTodayDateString())}

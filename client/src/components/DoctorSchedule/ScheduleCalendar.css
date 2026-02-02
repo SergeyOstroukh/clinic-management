@@ -285,6 +285,28 @@
   margin-top: 15px;
 }
 
+.time-slots-ranges {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.time-slots-range-block {
+  padding: 15px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.time-slots-range-block:last-child {
+  border-bottom: none;
+}
+
+.time-slots-range-label {
+  font-weight: 600;
+  color: #667eea;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+}
+
 @media (max-width: 768px) {
   .schedule-calendar {
     padding: 15px;

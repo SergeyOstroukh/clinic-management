@@ -332,19 +332,16 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             const dateStr = formatDate(year, month, day);
             const dayOfWeek = checkDate.getDay();
             
-            // Получаем расписание на этот день
+            // Получаем расписание на этот день (несколько слотов в день поддерживаются)
             let daySchedule = [];
-            
-            // Проверяем точечные даты
-            const specificDate = doctorSpecificDates.find(sd => sd.work_date === dateStr && sd.is_active);
-            if (specificDate) {
-              daySchedule = [{ start_time: specificDate.start_time, end_time: specificDate.end_time }];
+            const specificForDay = doctorSpecificDates.filter(sd => sd.work_date === dateStr && sd.is_active);
+            if (specificForDay.length > 0) {
+              daySchedule = specificForDay.map(sd => ({ start_time: sd.start_time, end_time: sd.end_time }));
             } else {
-              // Проверяем регулярное расписание
               const daySchedules = doctorSchedules.filter(s => s.day_of_week === dayOfWeek && s.is_active);
               daySchedule = daySchedules.map(s => ({ start_time: s.start_time, end_time: s.end_time }));
             }
-            
+
             if (daySchedule.length === 0) continue;
             
             // Генерируем слоты для этого дня
@@ -441,13 +438,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             const dateStr = formatDate(currentYear, currentMonth, day);
             const dayOfWeek = new Date(currentYear, currentMonth - 1, day).getDay();
 
-            // Получаем расписание на этот день
+            // Получаем расписание на этот день (несколько слотов в день поддерживаются)
             let daySchedule = [];
-            const specificDate = allSchedulesData[doctor.id].specificDates.find(
+            const specificForDay = allSchedulesData[doctor.id].specificDates.filter(
               sd => sd.work_date === dateStr && sd.is_active
             );
-            if (specificDate) {
-              daySchedule = [{ start_time: specificDate.start_time, end_time: specificDate.end_time }];
+            if (specificForDay.length > 0) {
+              daySchedule = specificForDay.map(sd => ({ start_time: sd.start_time, end_time: sd.end_time }));
             } else {
               const daySchedules = allSchedulesData[doctor.id].schedules.filter(
                 s => s.day_of_week === dayOfWeek && s.is_active
@@ -544,13 +541,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     const dateStr = formatDate(year, month, day);
     const dayOfWeek = new Date(year, month - 1, day).getDay();
 
-    // Проверяем точечные даты
-    const specificDate = specificDates.find(sd => sd.work_date === dateStr && sd.is_active);
-    if (specificDate) {
-      return [{ start_time: specificDate.start_time, end_time: specificDate.end_time }];
+    // Точечные даты — может быть несколько слотов в один день
+    const specificForDay = specificDates.filter(sd => sd.work_date === dateStr && sd.is_active);
+    if (specificForDay.length > 0) {
+      return specificForDay.map(sd => ({ start_time: sd.start_time, end_time: sd.end_time }));
     }
 
-    // Проверяем регулярное расписание
+    // Регулярное расписание
     const daySchedules = schedules.filter(s => s.day_of_week === dayOfWeek && s.is_active);
     if (daySchedules.length > 0) {
       return daySchedules.map(s => ({ start_time: s.start_time, end_time: s.end_time }));

@@ -433,12 +433,18 @@
   outline: none;
 }
 
+.date-filter .btn-date-nav {
+  min-width: 40px;
+  padding: 10px 12px;
+  font-weight: 800;
+  font-size: 1.25rem;
+}
+
 .date-input {
   padding: 10px 15px;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
   font-size: 1rem;
-  margin-left: 10px;
   transition: border-color 0.3s;
   outline: none;
 }

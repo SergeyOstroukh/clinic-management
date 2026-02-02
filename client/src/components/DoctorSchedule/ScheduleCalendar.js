@@ -49,27 +49,26 @@ const ScheduleCalendar = ({
     setCurrentDate(new Date());
   };
 
-  // Проверяем, есть ли расписание на конкретную дату
+  // Проверяем, есть ли расписание на конкретную дату (несколько слотов в день поддерживаются)
   const getScheduleForDate = (date) => {
     const dayOfWeek = date.getDay();
     const dateStr = formatDateLocal(date);
 
-    // Проверяем точечные даты (приоритет)
-    const specificDate = specificDates.find(d => 
-      d.work_date === dateStr
-    );
+    // Точечные даты (приоритет) — может быть несколько слотов в один день
+    const specificForDay = specificDates.filter(d => d.work_date === dateStr);
 
-    if (specificDate) {
+    if (specificForDay.length > 0) {
       return {
         type: 'specific',
-        times: [`${specificDate.start_time} - ${specificDate.end_time}`],
-        id: specificDate.id
+        times: specificForDay.map(d => `${d.start_time} - ${d.end_time}`),
+        ids: specificForDay.map(d => d.id),
+        items: specificForDay
       };
     }
 
-    // Проверяем регулярное расписание
+    // Регулярное расписание
     const regularSlots = schedules.filter(s => s.day_of_week === dayOfWeek);
-    
+
     if (regularSlots.length > 0) {
       return {
         type: 'regular',
@@ -181,11 +180,11 @@ const ScheduleCalendar = ({
               <div className="day-number">{date.getDate()}</div>
               {hasSchedule && (
                 <div className="day-schedule">
-                  {schedule.type === 'specific' && (
-                    <div className="schedule-badge specific">
-                      📍 {schedule.times[0]}
+                  {schedule.type === 'specific' && schedule.times.map((time, idx) => (
+                    <div key={schedule.ids ? schedule.ids[idx] : idx} className="schedule-badge specific">
+                      📍 {time}
                     </div>
-                  )}
+                  ))}
                   {schedule.type === 'regular' && (
                     <div className="schedule-badge regular">
                       🔄 {schedule.times.join(', ')}
@@ -254,32 +253,49 @@ const ScheduleCalendar = ({
             if (!schedule) {
               return <div className="no-schedule-message">Нет расписания на этот день</div>;
             }
-            
-            // Извлекаем start_time и end_time из расписания
-            let startTime, endTime;
-            if (schedule.type === 'specific') {
-              const dateObj = specificDates.find(d => d.id === schedule.id);
-              startTime = dateObj?.start_time;
-              endTime = dateObj?.end_time;
-            } else if (schedule.type === 'regular') {
-              // Для регулярного расписания берем первый слот
-              const regularSlot = schedules.find(s => schedule.ids.includes(s.id));
-              startTime = regularSlot?.start_time;
-              endTime = regularSlot?.end_time;
+
+            const dateStr = formatDateLocal(selectedDayForSlots);
+            const ranges = [];
+
+            if (schedule.type === 'specific' && schedule.items) {
+              schedule.items.forEach(item => {
+                ranges.push({ startTime: item.start_time, endTime: item.end_time });
+              });
+            } else if (schedule.type === 'specific' && schedule.ids) {
+              schedule.ids.forEach(id => {
+                const dateObj = specificDates.find(d => d.id === id);
+                if (dateObj) ranges.push({ startTime: dateObj.start_time, endTime: dateObj.end_time });
+              });
+            } else if (schedule.type === 'regular' && schedule.ids) {
+              schedule.ids.forEach(id => {
+                const s = schedules.find(r => r.id === id);
+                if (s) ranges.push({ startTime: s.start_time, endTime: s.end_time });
+              });
             }
-            
-            if (!startTime || !endTime) {
+
+            if (ranges.length === 0) {
               return <div className="no-schedule-message">Не удалось определить время работы</div>;
             }
-            
+
             return (
-              <TimeSlots
-                doctorId={doctorId}
-                date={formatDateLocal(selectedDayForSlots)}
-                startTime={startTime}
-                endTime={endTime}
-                intervalMinutes={30}
-              />
+              <div className="time-slots-ranges">
+                {ranges.map((range, idx) => (
+                  <div key={idx} className="time-slots-range-block">
+                    {ranges.length > 1 && (
+                      <div className="time-slots-range-label">
+                        {range.startTime} – {range.endTime}
+                      </div>
+                    )}
+                    <TimeSlots
+                      doctorId={doctorId}
+                      date={dateStr}
+                      startTime={range.startTime}
+                      endTime={range.endTime}
+                      intervalMinutes={30}
+                    />
+                  </div>
+                ))}
+              </div>
             );
           })()}
         </div>
