@@ -139,13 +139,10 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
         start_time: formData.start_time,
         end_time: formData.end_time
       });
-      
-      setShowAddModal(false);
-      setSelectedDate(null);
-      setSelectedDateSchedule(null);
-      setFormData({ day_of_week: '', start_time: '', end_time: '', work_date: '' });
-      loadSchedules();
-      alert('✓ Время добавлено!');
+
+      await loadSchedules();
+      setFormData(prev => ({ ...prev, start_time: '', end_time: '' }));
+      alert('✓ Время добавлено! Можно добавить ещё один интервал или закрыть.');
     } catch (error) {
       console.error('Ошибка добавления расписания:', error);
       alert('Ошибка: ' + (error.response?.data?.error || error.message));
@@ -288,30 +285,30 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
     return hasRegularSchedule || hasSpecificDate;
   };
 
-  // Получить время работы врача сегодня
+  // Получить время работы врача сегодня (несколько слотов в день поддерживаются)
   const getDoctorTodaySchedule = (doctorId) => {
     const today = new Date();
     const todayDayOfWeek = today.getDay();
     const todayStr = formatDateLocal(today);
-    
-    // Сначала проверяем точечные даты (приоритет)
-    const specificDate = specificDates.find(d => 
+
+    // Точечные даты (приоритет) — может быть несколько слотов в один день
+    const specificForDay = specificDates.filter(d =>
       d.doctor_id === doctorId && d.work_date === todayStr
     );
-    
-    if (specificDate) {
-      return `${specificDate.start_time} - ${specificDate.end_time}`;
+
+    if (specificForDay.length > 0) {
+      return specificForDay.map(d => `${d.start_time} - ${d.end_time}`).join(', ');
     }
-    
-    // Затем регулярное расписание
-    const regularSlots = schedules.filter(s => 
+
+    // Регулярное расписание
+    const regularSlots = schedules.filter(s =>
       s.doctor_id === doctorId && s.day_of_week === todayDayOfWeek
     );
-    
+
     if (regularSlots.length > 0) {
       return regularSlots.map(s => `${s.start_time} - ${s.end_time}`).join(', ');
     }
-    
+
     return '-';
   };
 
@@ -466,9 +463,28 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
     );
   }
 
+  // Текущие слоты на выбранный день (для модалки) — считаем из актуальных specificDates
+  const getScheduleForSelectedDate = () => {
+    if (!selectedDate || !selectedDoctor) return null;
+    const dateStr = formatDateLocal(selectedDate);
+    const specificForDay = specificDates.filter(
+      d => d.doctor_id === selectedDoctor.id && d.work_date === dateStr
+    );
+    if (specificForDay.length > 0) {
+      return {
+        type: 'specific',
+        times: specificForDay.map(d => `${d.start_time} - ${d.end_time}`),
+        ids: specificForDay.map(d => d.id),
+        items: specificForDay
+      };
+    }
+    return null;
+  };
+
   // Показываем управление расписанием выбранного врача
   if (selectedDoctor && showScheduleModal) {
     const { regularSlots, specificDates: doctorSpecificDates } = getDoctorSchedules(selectedDoctor.id);
+    const currentDaySchedule = getScheduleForSelectedDate();
 
     return (
       <div className="doctor-schedule-container">
@@ -650,47 +666,29 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
                 📅 {selectedDate.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
 
-              {selectedDateSchedule && (
+              {currentDaySchedule && currentDaySchedule.times && currentDaySchedule.times.length > 0 && (
                 <div className="existing-schedule-info">
-                  <h4>Текущее расписание:</h4>
+                  <h4>Текущее расписание на день:</h4>
                   <div className="existing-times">
-                    {selectedDateSchedule.times.map((time, idx) => (
-                      <div key={idx} className="existing-time-badge">
-                        {time}
-                        {selectedDateSchedule.type === 'specific' ? ' 📍' : ' 🔄'}
+                    {currentDaySchedule.times.map((time, idx) => (
+                      <div key={currentDaySchedule.ids[idx]} className="existing-time-badge">
+                        📍 {time}
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-small"
+                            style={{ marginLeft: '8px' }}
+                            onClick={() => {
+                              handleDeleteSchedule(currentDaySchedule.ids[idx], 'specific');
+                              loadSchedules();
+                            }}
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
-                  {isSuperAdmin && selectedDateSchedule.type === 'specific' && (
-                    <button 
-                      className="btn btn-danger btn-small"
-                      style={{ marginTop: '10px' }}
-                      onClick={() => {
-                        handleDeleteSchedule(selectedDateSchedule.id, 'specific');
-                        setShowAddModal(false);
-                        setSelectedDate(null);
-                      }}
-                    >
-                      🗑️ Удалить это расписание
-                    </button>
-                  )}
-                  {isSuperAdmin && selectedDateSchedule.type === 'regular' && selectedDateSchedule.ids && (
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      {selectedDateSchedule.ids.map((id, idx) => (
-                        <button 
-                          key={id}
-                          className="btn btn-danger btn-small"
-                          onClick={() => {
-                            handleDeleteSchedule(id, 'regular');
-                            setShowAddModal(false);
-                            setSelectedDate(null);
-                          }}
-                        >
-                          🗑️ Удалить {selectedDateSchedule.times[idx]}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
 
