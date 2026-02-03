@@ -136,15 +136,6 @@ const minutesToTime = (totalMinutes) => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
-// Проверка пересечения двух временных интервалов
-// Интервал 1: [start1, start1 + duration1)
-// Интервал 2: [start2, start2 + duration2)
-const intervalsOverlap = (start1Minutes, duration1, start2Minutes, duration2) => {
-  const end1 = start1Minutes + duration1;
-  const end2 = start2Minutes + duration2;
-  return start1Minutes < end2 && end1 > start2Minutes;
-};
-
 // Проверка, занят ли слот с учетом duration записей
 const isSlotBlockedByAppointment = (slotTimeStr, appointments) => {
   const slotMinutes = timeToMinutes(slotTimeStr);
