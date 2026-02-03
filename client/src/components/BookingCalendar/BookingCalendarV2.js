@@ -123,6 +123,57 @@ const parseTime = (dateTimeStr) => {
   };
 };
 
+// Преобразование времени HH:MM в минуты от начала дня
+const timeToMinutes = (timeStr) => {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+// Преобразование минут от начала дня в HH:MM
+const minutesToTime = (totalMinutes) => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+// Проверка пересечения двух временных интервалов
+// Интервал 1: [start1, start1 + duration1)
+// Интервал 2: [start2, start2 + duration2)
+const intervalsOverlap = (start1Minutes, duration1, start2Minutes, duration2) => {
+  const end1 = start1Minutes + duration1;
+  const end2 = start2Minutes + duration2;
+  return start1Minutes < end2 && end1 > start2Minutes;
+};
+
+// Проверка, занят ли слот с учетом duration записей
+const isSlotBlockedByAppointment = (slotTimeStr, appointments) => {
+  const slotMinutes = timeToMinutes(slotTimeStr);
+  
+  for (const apt of appointments) {
+    if (apt.status === 'cancelled') continue;
+    
+    const aptTime = parseTime(apt.appointment_date);
+    const aptMinutes = aptTime.hours * 60 + aptTime.minutes;
+    const aptDuration = apt.duration || 30;
+    
+    // Слот заблокирован, если он попадает в интервал записи
+    if (slotMinutes >= aptMinutes && slotMinutes < aptMinutes + aptDuration) {
+      // Проверяем, является ли этот слот началом записи
+      const isAppointmentStart = slotMinutes === aptMinutes;
+      return { blocked: true, appointment: apt, isAppointmentStart };
+    }
+  }
+  
+  return { blocked: false, appointment: null, isAppointmentStart: false };
+};
+
+// Расчет длительности между двумя временами
+const calculateDuration = (startTime, endTime) => {
+  const startMinutes = timeToMinutes(startTime);
+  const endMinutes = timeToMinutes(endTime);
+  return endMinutes - startMinutes;
+};
+
 const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete, toast, showConfirm: externalShowConfirm }) => {
   // Используем внешний showConfirm или создаем свой
   const { confirmModal, showConfirm: internalShowConfirm } = useConfirmModal();
@@ -155,6 +206,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [selectedServices, setSelectedServices] = useState([]);
   const [notes, setNotes] = useState('');
   const [selectedTime, setSelectedTime] = useState(null);
+  const [selectedEndTime, setSelectedEndTime] = useState(null); // Время окончания для выбора диапазона
+  const [duration, setDuration] = useState(30); // Длительность в минутах (по умолчанию 30)
+  const [manualTimeMode, setManualTimeMode] = useState(false); // Режим ручного ввода времени
+  const [manualStartTime, setManualStartTime] = useState('');
+  const [manualEndTime, setManualEndTime] = useState('');
   const [selectedSlotDoctor, setSelectedSlotDoctor] = useState(null); // Врач выбранного слота в режиме нескольких врачей
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
   const [newClientForm, setNewClientForm] = useState({
@@ -454,27 +510,50 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
             if (daySchedule.length === 0) continue;
 
-            // Генерируем слоты для этого дня
-            daySchedule.forEach(s => {
+            // Сортируем расписания по времени начала
+            const sortedSchedule = [...daySchedule].sort((a, b) => {
+              const aMinutes = parseInt(a.start_time.split(':')[0]) * 60 + parseInt(a.start_time.split(':')[1]);
+              const bMinutes = parseInt(b.start_time.split(':')[0]) * 60 + parseInt(b.start_time.split(':')[1]);
+              return aMinutes - bMinutes;
+            });
+
+            // Генерируем слоты для этого дня с информацией о блоке расписания
+            sortedSchedule.forEach((s, scheduleIndex) => {
               const times = generateTimeSlots(s.start_time, s.end_time);
-              times.forEach(time => {
+              times.forEach((time, timeIndex) => {
                 const [slotHour, slotMinute] = time.split(':').map(Number);
                 const slotDateTime = new Date(currentYear, currentMonth - 1, day, slotHour, slotMinute, 0, 0);
                 const now = new Date();
                 now.setSeconds(0, 0);
                 const isPast = slotDateTime.getTime() < now.getTime();
 
-                // Проверяем, занят ли слот
+                // Проверяем, занят ли слот (с учетом duration записей)
                 const dayAppointments = allSchedulesData[doctor.id].appointments.filter(apt => {
                   if (!apt.appointment_date || apt.status === 'cancelled') return false;
                   const normalizedDate = normalizeDateString(apt.appointment_date);
                   return normalizedDate.startsWith(dateStr);
                 });
 
-                const isBooked = dayAppointments.some(apt => {
+                const slotMinutes = slotHour * 60 + slotMinute;
+                
+                // Ищем запись, которая перекрывает этот слот (с учетом duration)
+                const bookingAppointment = dayAppointments.find(apt => {
                   const aptTime = parseTime(apt.appointment_date);
-                  return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+                  const aptStartMinutes = aptTime.hours * 60 + aptTime.minutes;
+                  const aptDuration = apt.duration || 30;
+                  const aptEndMinutes = aptStartMinutes + aptDuration;
+                  
+                  // Слот занят, если его время попадает в диапазон записи [start, end)
+                  return slotMinutes >= aptStartMinutes && slotMinutes < aptEndMinutes;
                 });
+                
+                const isBooked = !!bookingAppointment;
+                
+                // Определяем, является ли этот слот началом записи (для отображения duration)
+                const isAppointmentStart = bookingAppointment ? (() => {
+                  const aptTime = parseTime(bookingAppointment.appointment_date);
+                  return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+                })() : false;
 
                 // Сохраняем все слоты (включая занятые), но только не прошедшие
                 if (!isPast) {
@@ -489,10 +568,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                     day,
                     dateStr,
                     isBooked,
-                    appointment: isBooked ? dayAppointments.find(apt => {
-                      const aptTime = parseTime(apt.appointment_date);
-                      return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-                    }) : null
+                    isAppointmentStart,
+                    appointment: bookingAppointment || null,
+                    scheduleBlock: scheduleIndex, // Индекс блока расписания
+                    isFirstInBlock: timeIndex === 0, // Первый слот в блоке
+                    scheduleStart: s.start_time,
+                    scheduleEnd: s.end_time
                   });
                 }
               });
@@ -733,7 +814,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         isBooked: slot.isBooked || false,
         isPast: isPast,
         doctor: slot.doctor,
-        appointment: slot.appointment || null
+        appointment: slot.appointment || null,
+        isAppointmentStart: slot.isAppointmentStart || false,
+        scheduleBlock: slot.scheduleBlock,
+        isFirstInBlock: slot.isFirstInBlock,
+        scheduleStart: slot.scheduleStart,
+        scheduleEnd: slot.scheduleEnd
       };
     });
     
@@ -779,10 +865,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         times.forEach(time => {
           const [slotHour, slotMinute] = time.split(':').map(Number);
           
-          const isBooked = dayAppointments.some(apt => {
-            const aptTime = parseTime(apt.appointment_date);
-            return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-          });
+          // Проверяем занятость с учетом duration записей
+          const blockCheck = isSlotBlockedByAppointment(time, dayAppointments);
+          const isBooked = blockCheck.blocked;
 
           const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
           const now = new Date();
@@ -793,11 +878,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             time,
             isBooked,
             isPast,
-            appointment: isBooked ? dayAppointments.find(apt => {
-              const aptTime = parseTime(apt.appointment_date);
-              const slotTime = time.split(':');
-              return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
-            }) : null
+            appointment: blockCheck.appointment,
+            isAppointmentStart: blockCheck.isAppointmentStart
           });
         });
       });
@@ -819,17 +901,23 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return normalizedDate.startsWith(dateStr);
     });
 
-    // Собираем все слоты
+    // Сортируем расписание по времени начала
+    const sortedSchedule = [...schedule].sort((a, b) => {
+      const [aH, aM] = a.start_time.split(':').map(Number);
+      const [bH, bM] = b.start_time.split(':').map(Number);
+      return (aH * 60 + aM) - (bH * 60 + bM);
+    });
+
+    // Собираем все слоты с информацией о блоках расписания
     const allSlots = [];
-    schedule.forEach(s => {
+    sortedSchedule.forEach((s, scheduleIndex) => {
       const times = generateTimeSlots(s.start_time, s.end_time);
-      times.forEach(time => {
+      times.forEach((time, timeIndex) => {
         const [slotHour, slotMinute] = time.split(':').map(Number);
         
-        const isBooked = dayAppointments.some(apt => {
-          const aptTime = parseTime(apt.appointment_date);
-          return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-        });
+        // Проверяем занятость с учетом duration записей
+        const blockCheck = isSlotBlockedByAppointment(time, dayAppointments);
+        const isBooked = blockCheck.blocked;
 
         // Проверяем, является ли слот прошедшим
         const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
@@ -842,16 +930,17 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           time,
           isBooked,
           isPast,
-          appointment: isBooked ? dayAppointments.find(apt => {
-            const aptTime = parseTime(apt.appointment_date);
-            const slotTime = time.split(':');
-            return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
-          }) : null
+          appointment: blockCheck.appointment,
+          isAppointmentStart: blockCheck.isAppointmentStart,
+          scheduleBlock: scheduleIndex,
+          isFirstInBlock: timeIndex === 0,
+          scheduleStart: s.start_time,
+          scheduleEnd: s.end_time
         });
       });
     });
 
-    return { year, month, day, dateStr, slots: allSlots };
+    return { year, month, day, dateStr, slots: allSlots, hasMultipleSchedules: sortedSchedule.length > 1 };
   };
 
   const handleDayClick = async (year, month, day, skipScheduleCheck = false) => {
@@ -909,6 +998,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
     setSelectedSlot(daySlots);
     setSelectedTime(null); // Сбрасываем выбранное время при открытии
+    setSelectedEndTime(null);
+    setDuration(30);
+    setManualTimeMode(false);
+    setManualStartTime('');
+    setManualEndTime('');
     setSelectedSlotDoctor(null); // Сбрасываем врача слота при открытии (режим нескольких врачей)
     setShowDayAppointmentsTable(false);
     setShowModal(true);
@@ -948,13 +1042,34 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
   };
 
-  const handleSlotClick = (time, slot) => {
+  const handleSlotClick = (time, slot, isShiftClick = false) => {
     if (slot.isBooked) {
-      // Отмена записи
+      // Проверяем, оплачена ли запись - такие записи нельзя отменять
+      const isPaid = slot.appointment.paid === true || 
+                     slot.appointment.paid === 1 || 
+                     slot.appointment.status === 'completed';
+      
+      if (isPaid) {
+        // Показываем информационное сообщение - запись оплачена
+        const clientName = slot.appointment.client_last_name && slot.appointment.client_first_name
+          ? `${slot.appointment.client_last_name} ${slot.appointment.client_first_name}`
+          : 'Клиент';
+        
+        if (toast) {
+          toast.info(`Визит оплачен и завершён.\n\nКлиент: ${clientName}`);
+        } else {
+          alert(`Визит оплачен и завершён.\n\nКлиент: ${clientName}\n\nОтмена оплаченных записей невозможна.`);
+        }
+        return;
+      }
+      
+      // Отмена записи (только для неоплаченных)
       const clientName = slot.appointment.client_last_name && slot.appointment.client_first_name
         ? `${slot.appointment.client_last_name} ${slot.appointment.client_first_name}`
         : 'Клиент';
-      const confirmMessage = `Отменить запись на ${time}?\n\nКлиент: ${clientName}\nТелефон: ${slot.appointment.client_phone || 'не указан'}`;
+      const appointmentDuration = slot.appointment.duration || 30;
+      const endTimeStr = minutesToTime(timeToMinutes(time) + appointmentDuration);
+      const confirmMessage = `Отменить запись на ${time} - ${endTimeStr} (${appointmentDuration} мин)?\n\nКлиент: ${clientName}\nТелефон: ${slot.appointment.client_phone || 'не указан'}`;
       
       if (showConfirm) {
         showConfirm({
@@ -973,10 +1088,39 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       return;
     }
     
+    // Отключаем ручной режим при клике на слот
+    setManualTimeMode(false);
+    
     // В режиме нескольких врачей просто сохраняем выбранный слот, не переключая режим
     if (slot.doctor && selectedSlot?.allDoctorsMode && selectedSlot?.doctorsCount > 1) {
       setSelectedSlotDoctor(slot.doctor);
-      setSelectedTime(time);
+      // Если уже выбран начальный слот и это shift-клик или второй клик, выбираем конечный слот
+      if (selectedTime && (isShiftClick || selectedEndTime === null)) {
+        const startMinutes = timeToMinutes(selectedTime);
+        const clickedMinutes = timeToMinutes(time);
+        
+        if (clickedMinutes > startMinutes) {
+          // Клик после начала - это конец диапазона
+          setSelectedEndTime(time);
+          const newDuration = clickedMinutes - startMinutes + 30; // +30 чтобы включить конечный слот
+          setDuration(newDuration);
+        } else if (clickedMinutes < startMinutes) {
+          // Клик до начала - меняем местами: кликнутое время становится началом
+          setSelectedEndTime(selectedTime);
+          setSelectedTime(time);
+          const newDuration = startMinutes - clickedMinutes + 30;
+          setDuration(newDuration);
+        } else {
+          // Клик на то же время - сбрасываем конец
+          setSelectedEndTime(null);
+          setDuration(30);
+        }
+      } else {
+        // Первый клик - начало
+        setSelectedTime(time);
+        setSelectedEndTime(null);
+        setDuration(30);
+      }
       return;
     }
     
@@ -999,8 +1143,34 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       loadDoctorData();
     }
     
-    // Выбираем время
-    setSelectedTime(time);
+    // Логика выбора диапазона слотов
+    // Если уже выбран начальный слот и кликнули на другой - это конец диапазона
+    if (selectedTime && time !== selectedTime && (isShiftClick || selectedEndTime === null)) {
+      const startMinutes = timeToMinutes(selectedTime);
+      const clickedMinutes = timeToMinutes(time);
+      
+      if (clickedMinutes > startMinutes) {
+        // Клик после начала - это конец диапазона
+        setSelectedEndTime(time);
+        const newDuration = clickedMinutes - startMinutes + 30; // +30 чтобы включить конечный слот
+        setDuration(newDuration);
+      } else if (clickedMinutes < startMinutes) {
+        // Клик до начала - меняем местами
+        setSelectedEndTime(selectedTime);
+        setSelectedTime(time);
+        const newDuration = startMinutes - clickedMinutes + 30;
+        setDuration(newDuration);
+      }
+    } else if (selectedTime === time && selectedEndTime) {
+      // Клик на начальный слот когда уже выбран диапазон - сбрасываем
+      setSelectedEndTime(null);
+      setDuration(30);
+    } else {
+      // Первый клик или клик на новый слот - начало
+      setSelectedTime(time);
+      setSelectedEndTime(null);
+      setDuration(30);
+    }
   };
 
   const handleCreateAppointment = () => {
@@ -1008,7 +1178,23 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       if (toast) toast.warning('Сначала выберите клиента');
       return;
     }
-    if (!selectedTime) {
+    
+    // Определяем время начала (из слота или ручного ввода)
+    let startTime = selectedTime;
+    let appointmentDuration = duration;
+    
+    if (manualTimeMode) {
+      if (!manualStartTime || !manualEndTime) {
+        if (toast) toast.warning('Укажите время начала и окончания');
+        return;
+      }
+      startTime = manualStartTime;
+      appointmentDuration = calculateDuration(manualStartTime, manualEndTime);
+      if (appointmentDuration <= 0) {
+        if (toast) toast.warning('Время окончания должно быть позже времени начала');
+        return;
+      }
+    } else if (!startTime) {
       if (toast) toast.warning('Выберите время');
       return;
     }
@@ -1020,13 +1206,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
 
     // Парсим время, убеждаясь что минуты не теряются
-    const timeParts = selectedTime.split(':');
+    const timeParts = startTime.split(':');
     const hours = parseInt(timeParts[0], 10) || 0;
     const minutes = parseInt(timeParts[1], 10) || 0;
     
     const dateTime = formatDateTime(selectedSlot.year, selectedSlot.month, selectedSlot.day, hours, minutes);
     
-    createAppointment(dateTime);
+    createAppointment(dateTime, appointmentDuration);
   };
 
   const cancelAppointment = async (appointmentId) => {
@@ -1037,6 +1223,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       
       // Сбрасываем выбранное время
       setSelectedTime(null);
+      setSelectedEndTime(null);
+      setDuration(30);
       setSelectedSlotDoctor(null);
       
       // Загружаем обновленные записи
@@ -1075,7 +1263,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                 isBooked: slot.isBooked || false,
                 isPast: isPast,
                 doctor: slot.doctor,
-                appointment: slot.appointment || null
+                appointment: slot.appointment || null,
+                isAppointmentStart: slot.isAppointmentStart || false,
+                scheduleBlock: slot.scheduleBlock,
+                isFirstInBlock: slot.isFirstInBlock,
+                scheduleStart: slot.scheduleStart,
+                scheduleEnd: slot.scheduleEnd
               };
             });
             
@@ -1145,7 +1338,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
   };
 
-  const createAppointment = async (dateTime) => {
+  const createAppointment = async (dateTime, appointmentDuration = 30) => {
     // Защита от двойного вызова
     if (creating) {
       return;
@@ -1160,7 +1353,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           doctor_id: selectedDoctor.id,
           appointment_date: dateTime,
           services: selectedServices,
-          notes: notes
+          notes: notes,
+          duration: appointmentDuration
         });
       } else {
         // Определяем врача для записи
@@ -1172,12 +1366,17 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           doctor_id: doctorForAppointment.id,
           appointment_date: dateTime,
           services: selectedServices,
-          notes: notes
+          notes: notes,
+          duration: appointmentDuration
         });
         
         // Немедленно помечаем слот как занятый в selectedSlot (для режима всех врачей)
         if (showAllDoctorsMode && selectedSlot && selectedSlot.slots) {
-          const [hours, minutes] = selectedTime.split(':').map(Number);
+          // Извлекаем время из dateTime (формат: "YYYY-MM-DD HH:MM:SS")
+          const appointmentTime = parseTime(dateTime);
+          const hours = appointmentTime.hours;
+          const minutes = appointmentTime.minutes;
+          
           const updatedSlots = selectedSlot.slots.map(slot => {
             const [slotHour, slotMinute] = slot.time.split(':').map(Number);
             const slotDoctor = slot.doctor || selectedSlotDoctor;
@@ -1231,6 +1430,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         // Сбрасываем только выбранное время и форму, но НЕ закрываем модалку
         // Это позволяет сразу записать еще одного клиента
         setSelectedTime(null);
+        setSelectedEndTime(null);
+        setDuration(30);
+        setManualTimeMode(false);
+        setManualStartTime('');
+        setManualEndTime('');
         setSelectedSlotDoctor(null);
         setSelectedClient(null);
         setClientSearch('');
@@ -1262,7 +1466,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   isBooked: slot.isBooked || false,
                   isPast: isPast,
                   doctor: slot.doctor,
-                  appointment: slot.appointment || null
+                  appointment: slot.appointment || null,
+                  isAppointmentStart: slot.isAppointmentStart || false,
+                  scheduleBlock: slot.scheduleBlock,
+                  isFirstInBlock: slot.isFirstInBlock,
+                  scheduleStart: slot.scheduleStart,
+                  scheduleEnd: slot.scheduleEnd
                 };
               });
               
@@ -1313,6 +1522,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     setSelectedServices([]);
     setNotes('');
     setSelectedTime(null);
+    setSelectedEndTime(null);
+    setDuration(30);
+    setManualTimeMode(false);
+    setManualStartTime('');
+    setManualEndTime('');
     setSelectedSlot(null);
     setSelectedSlotDoctor(null);
     setEditingAppointmentId(null);
@@ -1922,21 +2136,188 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               />
             </div>
 
+            {/* Выбор длительности */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <label style={{ fontWeight: '600', margin: 0 }}>Длительность записи:</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualTimeMode(!manualTimeMode);
+                    if (!manualTimeMode) {
+                      setSelectedTime(null);
+                      setSelectedEndTime(null);
+                    } else {
+                      setManualStartTime('');
+                      setManualEndTime('');
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    background: manualTimeMode ? '#667eea' : '#f0f0f0',
+                    color: manualTimeMode ? 'white' : '#333',
+                    border: '1px solid #ddd',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  {manualTimeMode ? '📅 Выбрать слоты' : '✏️ Ввести вручную'}
+                </button>
+              </div>
+              
+              {/* Кнопки быстрого выбора длительности */}
+              {!manualTimeMode && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '8px', 
+                  flexWrap: 'wrap',
+                  marginBottom: '10px'
+                }}>
+                  {[
+                    { label: '30 мин', value: 30 },
+                    { label: '1 час', value: 60 },
+                    { label: '1.5 часа', value: 90 },
+                    { label: '2 часа', value: 120 },
+                    { label: '2.5 часа', value: 150 },
+                    { label: '3 часа', value: 180 }
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setDuration(opt.value);
+                        // Если выбрано начальное время, пересчитываем конечное
+                        if (selectedTime) {
+                          const startMinutes = timeToMinutes(selectedTime);
+                          const endMinutes = startMinutes + opt.value;
+                          if (endMinutes <= 24 * 60) {
+                            setSelectedEndTime(minutesToTime(endMinutes - 30)); // -30 потому что конечный слот включается
+                          }
+                        }
+                      }}
+                      style={{
+                        padding: '8px 14px',
+                        background: duration === opt.value ? '#667eea' : '#f5f5f5',
+                        color: duration === opt.value ? 'white' : '#333',
+                        border: duration === opt.value ? '2px solid #667eea' : '1px solid #ddd',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.9rem',
+                        fontWeight: duration === opt.value ? '600' : '400',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Ручной ввод времени */}
+              {manualTimeMode && (
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '15px', 
+                  alignItems: 'center',
+                  background: '#f8f9ff',
+                  padding: '15px',
+                  borderRadius: '10px',
+                  border: '1px solid #e0e0e0'
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.85rem', color: '#666' }}>
+                      Начало:
+                    </label>
+                    <input
+                      type="time"
+                      value={manualStartTime}
+                      onChange={(e) => setManualStartTime(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        border: '1px solid #ddd',
+                        fontSize: '1rem'
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: '1.5rem', color: '#667eea', marginTop: '20px' }}>→</div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.85rem', color: '#666' }}>
+                      Окончание:
+                    </label>
+                    <input
+                      type="time"
+                      value={manualEndTime}
+                      onChange={(e) => setManualEndTime(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        border: '1px solid #ddd',
+                        fontSize: '1rem'
+                      }}
+                    />
+                  </div>
+                  {manualStartTime && manualEndTime && (
+                    <div style={{ 
+                      background: '#e8f5e9', 
+                      padding: '10px 15px', 
+                      borderRadius: '8px',
+                      marginTop: '20px',
+                      fontWeight: '600',
+                      color: '#388e3c'
+                    }}>
+                      {calculateDuration(manualStartTime, manualEndTime)} мин
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Подсказка для выбора диапазона */}
+              {!manualTimeMode && (
+                <div style={{ 
+                  fontSize: '0.85rem', 
+                  color: '#666', 
+                  marginTop: '10px',
+                  padding: '8px 12px',
+                  background: '#fffde7',
+                  borderRadius: '6px',
+                  border: '1px solid #fff9c4'
+                }}>
+                  💡 Кликните на начальный слот, затем на конечный для выбора диапазона, или выберите длительность кнопками выше
+                </div>
+              )}
+            </div>
+
             {/* Слоты времени */}
             <div>
               <h3>Выберите время:</h3>
-              {selectedTime && (
+              {/* Информация о выбранном времени */}
+              {(selectedTime || (manualTimeMode && manualStartTime && manualEndTime)) && (
                 <div style={{
                   padding: '12px',
                   background: '#e8f5ff',
                   borderRadius: '8px',
                   marginBottom: '15px',
                   border: '2px solid #667eea',
-                  textAlign: 'center',
-                  fontWeight: '600',
-                  color: '#667eea'
+                  textAlign: 'center'
                 }}>
-                  ⏰ Выбрано время: {selectedTime}
+                  <div style={{ fontWeight: '600', color: '#667eea', fontSize: '1.1rem' }}>
+                    ⏰ {manualTimeMode 
+                      ? `${manualStartTime} - ${manualEndTime}` 
+                      : selectedEndTime 
+                        ? `${selectedTime} - ${minutesToTime(timeToMinutes(selectedEndTime) + 30)}`
+                        : `${selectedTime} - ${minutesToTime(timeToMinutes(selectedTime) + duration)}`
+                    }
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '5px' }}>
+                    Длительность: {manualTimeMode 
+                      ? calculateDuration(manualStartTime, manualEndTime) 
+                      : duration
+                    } мин
+                  </div>
                 </div>
               )}
               {creating && (
@@ -1977,108 +2358,547 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                         <div key={doctorGroup.doctor.id} style={{
                           display: 'flex',
                           flexDirection: 'column',
-                          border: '2px solid #e0e0e0',
+                          border: selectedSlotDoctor?.id === doctorGroup.doctor.id 
+                            ? '3px solid #667eea' 
+                            : '2px solid #e0e0e0',
                           borderRadius: '12px',
                           padding: '15px',
-                          background: '#fafafa'
+                          background: selectedSlotDoctor?.id === doctorGroup.doctor.id 
+                            ? '#f0f4ff' 
+                            : '#fafafa',
+                          transition: 'all 0.2s'
                         }}>
-                          <div style={{
-                            textAlign: 'center',
-                            marginBottom: '15px',
-                            paddingBottom: '10px',
-                            borderBottom: '2px solid #667eea'
-                          }}>
-                            <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' }}>
+                          <div 
+                            onClick={() => setSelectedSlotDoctor(doctorGroup.doctor)}
+                            style={{
+                              textAlign: 'center',
+                              marginBottom: '15px',
+                              paddingBottom: '10px',
+                              borderBottom: selectedSlotDoctor?.id === doctorGroup.doctor.id 
+                                ? '3px solid #667eea' 
+                                : '2px solid #667eea',
+                              cursor: 'pointer',
+                              borderRadius: '8px 8px 0 0',
+                              padding: '8px',
+                              margin: '-15px -15px 15px -15px',
+                              background: selectedSlotDoctor?.id === doctorGroup.doctor.id 
+                                ? '#667eea' 
+                                : 'transparent',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            <div style={{ 
+                              fontSize: '1.1rem', 
+                              fontWeight: 'bold', 
+                              color: selectedSlotDoctor?.id === doctorGroup.doctor.id ? 'white' : '#667eea', 
+                              marginBottom: '5px' 
+                            }}>
                               👨‍⚕️ {doctorGroup.doctor.lastName}
                             </div>
-                            <div style={{ fontSize: '0.85rem', color: '#666' }}>
+                            <div style={{ 
+                              fontSize: '0.85rem', 
+                              color: selectedSlotDoctor?.id === doctorGroup.doctor.id ? 'rgba(255,255,255,0.9)' : '#666' 
+                            }}>
                               {doctorGroup.doctor.firstName}
                             </div>
+                            {selectedSlotDoctor?.id === doctorGroup.doctor.id && (
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', marginTop: '4px' }}>
+                                ✓ Выбран
+                              </div>
+                            )}
                           </div>
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(2, 1fr)',
-                            gap: '8px'
-                          }}>
-                            {doctorGroup.slots.map((slot, slotIdx) => {
-                              const [slotHour, slotMinute] = slot.time.split(':').map(Number);
-                              const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
-                              const now = new Date();
-                              now.setSeconds(0, 0);
-                              now.setMilliseconds(0);
-                              slotDateTime.setSeconds(0, 0);
-                              slotDateTime.setMilliseconds(0);
-                              const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
-                              
-                              // Проверяем, выбран ли этот слот (время и врач совпадают)
-                              const isSelected = selectedTime === slot.time && 
-                                                selectedSlotDoctor && 
-                                                selectedSlotDoctor.id === slot.doctor?.id;
-                              
-                              // Слот считается занятым, если он реально занят или выбран
-                              const isSlotBooked = slot.isBooked || isSelected;
-                              
-                              // Слот недоступен, если он занят (но не выбран), прошедший или идет создание
-                              const isDisabled = (slot.isBooked && !isSelected) || isPast || creating;
-                              
-                              return (
-                                <button
-                                  key={slotIdx}
-                                  onClick={() => {
-                                    if (!isDisabled) {
-                                      handleSlotClick(slot.time, slot);
-                                    } else if (slot.isBooked && slot.appointment) {
-                                      // Если слот занят, можно отменить запись
-                                      handleSlotClick(slot.time, slot);
-                                    }
-                                  }}
-                                  disabled={isDisabled && !slot.isBooked}
-                                  style={{
-                                    padding: '12px',
-                                    fontSize: '0.95rem',
-                                    fontWeight: 'bold',
-                                    background: isPast 
-                                      ? '#f5f5f5' 
-                                      : (isSlotBooked 
-                                        ? '#ffebee' 
-                                        : '#e8f5e9'),
-                                    color: isPast 
-                                      ? '#999' 
-                                      : (isSlotBooked 
-                                        ? '#d32f2f' 
-                                        : '#388e3c'),
-                                    border: `2px solid ${isPast 
-                                      ? '#ccc' 
-                                      : (isSlotBooked 
-                                        ? '#f44336' 
-                                        : '#4caf50')}`,
-                                    borderRadius: '8px',
-                                    cursor: (isDisabled && !slot.isBooked) ? 'not-allowed' : (slot.isBooked ? 'pointer' : 'pointer'),
-                                    opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
-                                    transform: isSelected ? 'scale(1.05)' : 'none',
-                                    transition: 'all 0.2s',
+                          {(() => {
+                            // Группируем слоты по блокам расписания
+                            const slotsByBlock = new Map();
+                            doctorGroup.slots.forEach(slot => {
+                              const blockKey = slot.scheduleBlock !== undefined ? slot.scheduleBlock : 0;
+                              if (!slotsByBlock.has(blockKey)) {
+                                slotsByBlock.set(blockKey, {
+                                  slots: [],
+                                  scheduleStart: slot.scheduleStart,
+                                  scheduleEnd: slot.scheduleEnd
+                                });
+                              }
+                              slotsByBlock.get(blockKey).slots.push(slot);
+                            });
+                            
+                            const blocks = Array.from(slotsByBlock.entries()).sort((a, b) => a[0] - b[0]);
+                            
+                            return blocks.map(([blockIndex, blockData], blockIdx) => (
+                              <React.Fragment key={`block-${blockIndex}`}>
+                                {/* Разделитель между блоками расписания */}
+                                {blockIdx > 0 && (
+                                  <div style={{
+                                    gridColumn: '1 / -1',
                                     display: 'flex',
-                                    flexDirection: 'column',
                                     alignItems: 'center',
-                                    justifyContent: 'center'
-                                  }}
-                                >
-                                  <div style={{ fontSize: '1rem' }}>
-                                    {slot.time}
+                                    gap: '10px',
+                                    padding: '8px 0',
+                                    margin: '8px 0'
+                                  }}>
+                                    <div style={{ flex: 1, height: '2px', background: '#ffb74d' }}></div>
+                                    <span style={{ 
+                                      fontSize: '0.75rem', 
+                                      color: '#f57c00', 
+                                      fontWeight: '600',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      ☕ Перерыв
+                                    </span>
+                                    <div style={{ flex: 1, height: '2px', background: '#ffb74d' }}></div>
                                   </div>
-                                  <div style={{ fontSize: '0.65rem', marginTop: '3px' }}>
-                                    {isSlotBooked ? (isSelected ? 'Выбрано' : (slot.isBooked ? 'Занято' : 'Выбрано')) : 'Свободно'}
+                                )}
+                                {/* Заголовок блока с временем */}
+                                {blocks.length > 1 && blockData.scheduleStart && (
+                                  <div style={{
+                                    gridColumn: '1 / -1',
+                                    fontSize: '0.8rem',
+                                    color: '#667eea',
+                                    fontWeight: '600',
+                                    textAlign: 'center',
+                                    padding: '4px',
+                                    background: '#f0f4ff',
+                                    borderRadius: '6px',
+                                    marginBottom: '4px'
+                                  }}>
+                                    🕐 {blockData.scheduleStart} - {blockData.scheduleEnd}
                                   </div>
-                                </button>
-                              );
-                            })}
-                          </div>
+                                )}
+                                {/* Слоты в сетке */}
+                                <div style={{
+                                  gridColumn: '1 / -1',
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(2, 1fr)',
+                                  gap: '8px'
+                                }}>
+                                  {(() => {
+                                    // Группируем слоты: свободные отдельно, занятые одной записи - в один блок
+                                    const renderedAppointments = new Set();
+                                    
+                                    return blockData.slots.map((slot, slotIdx) => {
+                                      const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                                      const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                                      const now = new Date();
+                                      now.setSeconds(0, 0);
+                                      now.setMilliseconds(0);
+                                      slotDateTime.setSeconds(0, 0);
+                                      slotDateTime.setMilliseconds(0);
+                                      const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                                      
+                                      // Проверяем принадлежность к выбранному врачу
+                                      const isThisDoctorSelected = selectedSlotDoctor && 
+                                                                  selectedSlotDoctor.id === slot.doctor?.id;
+                                      
+                                      // Проверяем, входит ли слот в выбранный диапазон (только для выбранного врача)
+                                      const slotMinutes = timeToMinutes(slot.time);
+                                      const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
+                                      const endMinutes = selectedEndTime 
+                                        ? timeToMinutes(selectedEndTime) + 30 
+                                        : (selectedTime ? startMinutes + duration : null);
+                                      
+                                      const isInSelectedRange = !manualTimeMode && selectedTime && isThisDoctorSelected &&
+                                        slotMinutes >= startMinutes && slotMinutes < endMinutes;
+                                      const isStartSlot = selectedTime === slot.time && isThisDoctorSelected;
+                                      
+                                      // Информация о записи для занятого слота
+                                      const appointmentDuration = slot.appointment?.duration || 30;
+                                      const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                                      const appointmentId = slot.appointment?.id;
+                                      
+                                      // Для многослотовых записей - показываем только один объединённый блок
+                                      if (isMultiSlotAppointment && appointmentId) {
+                                        if (renderedAppointments.has(appointmentId)) {
+                                          // Уже показали этот блок записи - пропускаем
+                                          return null;
+                                        }
+                                        renderedAppointments.add(appointmentId);
+                                        
+                                        // Вычисляем время начала и окончания
+                                        const aptTime = parseTime(slot.appointment.appointment_date);
+                                        const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
+                                        const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
+                                        const endTime = minutesToTime(endMinutesCalc);
+                                        const slotsCount = Math.ceil(appointmentDuration / 30);
+                                        
+                                        // Проверяем оплачена ли запись
+                                        const isPaidAppointment = slot.appointment.paid === true || 
+                                                                  slot.appointment.paid === 1 || 
+                                                                  slot.appointment.status === 'completed';
+                                        
+                                        // Объединённый блок для многослотовой записи
+                                        return (
+                                          <div
+                                            key={`apt-${appointmentId}`}
+                                            onClick={() => handleSlotClick(startTime, slot, false)}
+                                            style={{
+                                              gridColumn: '1 / -1',
+                                              padding: '12px 16px',
+                                              background: isPaidAppointment 
+                                                ? 'linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%)'
+                                                : 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
+                                              border: `2px solid ${isPaidAppointment ? '#9e9e9e' : '#f44336'}`,
+                                              borderRadius: '12px',
+                                              cursor: isPaidAppointment ? 'default' : 'pointer',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              gap: '12px',
+                                              boxShadow: isPaidAppointment 
+                                                ? '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                                : '0 2px 8px rgba(244, 67, 54, 0.2)',
+                                              opacity: isPaidAppointment ? 0.8 : 1
+                                            }}
+                                          >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                              <div style={{
+                                                background: isPaidAppointment ? '#757575' : '#f44336',
+                                                color: 'white',
+                                                padding: '8px 12px',
+                                                borderRadius: '8px',
+                                                fontWeight: 'bold',
+                                                fontSize: '1rem'
+                                              }}>
+                                                {startTime} — {endTime}
+                                              </div>
+                                              <div style={{
+                                                color: isPaidAppointment ? '#616161' : '#c62828',
+                                                fontWeight: 'bold',
+                                                fontSize: '0.9rem'
+                                              }}>
+                                                {appointmentDuration} мин ({slotsCount} {slotsCount === 1 ? 'слот' : (slotsCount < 5 ? 'слота' : 'слотов')})
+                                              </div>
+                                            </div>
+                                            <div style={{
+                                              background: isPaidAppointment ? '#616161' : '#d32f2f',
+                                              color: 'white',
+                                              padding: '4px 10px',
+                                              borderRadius: '12px',
+                                              fontSize: '0.75rem',
+                                              fontWeight: 'bold'
+                                            }}>
+                                              {isPaidAppointment ? '✓ ОПЛАЧЕНО' : 'ЗАНЯТО'}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      
+                                      // Обычный слот (свободный или занятый на 30 мин)
+                                      const isDisabled = (slot.isBooked && !isStartSlot) || isPast || creating;
+                                      
+                                      // Проверяем оплачена ли запись
+                                      const isPaidSlot = slot.isBooked && slot.appointment && (
+                                        slot.appointment.paid === true || 
+                                        slot.appointment.paid === 1 || 
+                                        slot.appointment.status === 'completed'
+                                      );
+                                      
+                                      return (
+                                        <button
+                                          key={slotIdx}
+                                          onClick={(e) => {
+                                            if (!isDisabled || slot.isBooked) {
+                                              handleSlotClick(slot.time, slot, e.shiftKey);
+                                            }
+                                          }}
+                                          disabled={isDisabled && !slot.isBooked}
+                                          style={{
+                                            padding: '12px',
+                                            fontSize: '0.95rem',
+                                            fontWeight: 'bold',
+                                            background: isPast 
+                                              ? '#f5f5f5' 
+                                              : (slot.isBooked 
+                                                ? (isPaidSlot ? '#eeeeee' : '#ffebee')
+                                                : (isInSelectedRange
+                                                  ? (isStartSlot ? '#667eea' : '#a8b9f7')
+                                                  : '#e8f5e9')),
+                                            color: isPast 
+                                              ? '#999' 
+                                              : (slot.isBooked 
+                                                ? (isPaidSlot ? '#616161' : '#d32f2f')
+                                                : (isInSelectedRange
+                                                  ? 'white' 
+                                                  : '#388e3c')),
+                                            border: `2px solid ${isPast ? '#ccc' : (slot.isBooked ? (isPaidSlot ? '#9e9e9e' : '#f44336') : (isInSelectedRange ? '#667eea' : '#4caf50'))}`,
+                                            borderRadius: '8px',
+                                            cursor: isPaidSlot ? 'default' : ((isDisabled && !slot.isBooked) ? 'not-allowed' : 'pointer'),
+                                            opacity: creating ? 0.6 : (isPast ? 0.5 : (isPaidSlot ? 0.7 : 1)),
+                                            transform: isStartSlot ? 'scale(1.05)' : 'none',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                          }}
+                                        >
+                                          <div style={{ fontSize: '1rem' }}>
+                                            {slot.time}
+                                          </div>
+                                          <div style={{ fontSize: '0.65rem', marginTop: '3px' }}>
+                                            {slot.isBooked 
+                                              ? (isPaidSlot ? '✓ Оплачено' : `${appointmentDuration} мин`)
+                                              : (isStartSlot 
+                                                ? 'Начало' 
+                                                : (isInSelectedRange 
+                                                  ? '✓' 
+                                                  : 'Свободно'))}
+                                          </div>
+                                        </button>
+                                      );
+                                    });
+                                  })()}
+                                </div>
+                              </React.Fragment>
+                            ));
+                          })()}
                         </div>
                       ))}
                     </div>
                   );
                 } else {
                   // Обычное отображение для одного врача
+                  // Проверяем есть ли несколько блоков расписания
+                  const hasMultipleBlocks = actualSlots.hasMultipleSchedules || 
+                    (actualSlots.slots.length > 0 && actualSlots.slots.some(s => s.scheduleBlock !== undefined && s.scheduleBlock > 0));
+                  
+                  if (hasMultipleBlocks) {
+                    // Группируем слоты по блокам расписания
+                    const slotsByBlock = new Map();
+                    actualSlots.slots.forEach(slot => {
+                      const blockKey = slot.scheduleBlock !== undefined ? slot.scheduleBlock : 0;
+                      if (!slotsByBlock.has(blockKey)) {
+                        slotsByBlock.set(blockKey, {
+                          slots: [],
+                          scheduleStart: slot.scheduleStart,
+                          scheduleEnd: slot.scheduleEnd
+                        });
+                      }
+                      slotsByBlock.get(blockKey).slots.push(slot);
+                    });
+                    
+                    const blocks = Array.from(slotsByBlock.entries()).sort((a, b) => a[0] - b[0]);
+                    
+                    return (
+                      <div style={{ marginTop: '15px' }}>
+                        {blocks.map(([blockIndex, blockData], blockIdx) => {
+                          const renderedAppointments = new Set();
+                          
+                          return (
+                            <React.Fragment key={blockIndex}>
+                              {/* Разделитель перерыва между блоками */}
+                              {blockIdx > 0 && (
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  margin: '20px 0',
+                                  gap: '12px'
+                                }}>
+                                  <div style={{ flex: 1, height: '2px', background: 'linear-gradient(90deg, transparent, #ff9800, transparent)' }} />
+                                  <div style={{
+                                    background: '#fff3e0',
+                                    color: '#e65100',
+                                    padding: '6px 16px',
+                                    borderRadius: '20px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '500',
+                                    border: '1px solid #ffcc80',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    ☕ Перерыв
+                                  </div>
+                                  <div style={{ flex: 1, height: '2px', background: 'linear-gradient(90deg, transparent, #ff9800, transparent)' }} />
+                                </div>
+                              )}
+                              {/* Заголовок блока расписания */}
+                              {blockData.scheduleStart && blockData.scheduleEnd && (
+                                <div style={{
+                                  fontSize: '0.85rem',
+                                  color: '#666',
+                                  marginBottom: '10px',
+                                  padding: '6px 12px',
+                                  background: '#f0f4ff',
+                                  borderRadius: '6px',
+                                  display: 'inline-block'
+                                }}>
+                                  🕐 {blockData.scheduleStart} - {blockData.scheduleEnd}
+                                </div>
+                              )}
+                              {/* Слоты в сетке */}
+                              <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: 'repeat(4, 1fr)', 
+                                gap: '10px'
+                              }}>
+                                {blockData.slots.map((slot, idx) => {
+                                  const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                                  const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                                  const now = new Date();
+                                  now.setSeconds(0, 0);
+                                  now.setMilliseconds(0);
+                                  slotDateTime.setSeconds(0, 0);
+                                  slotDateTime.setMilliseconds(0);
+                                  const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                                  
+                                  const slotMinutes = timeToMinutes(slot.time);
+                                  const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
+                                  const endMinutes = selectedEndTime 
+                                    ? timeToMinutes(selectedEndTime) + 30 
+                                    : (selectedTime ? startMinutes + duration : null);
+                                  
+                                  const isInSelectedRange = !manualTimeMode && selectedTime && 
+                                    slotMinutes >= startMinutes && slotMinutes < endMinutes;
+                                  const isStartSlot = selectedTime === slot.time;
+                                  
+                                  const appointmentDuration = slot.appointment?.duration || 30;
+                                  const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                                  const appointmentId = slot.appointment?.id;
+                                  
+                                  // Для многослотовых записей - показываем только один объединённый блок
+                                  if (isMultiSlotAppointment && appointmentId) {
+                                    if (renderedAppointments.has(appointmentId)) {
+                                      return null;
+                                    }
+                                    renderedAppointments.add(appointmentId);
+                                    
+                                    const aptTime = parseTime(slot.appointment.appointment_date);
+                                    const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
+                                    const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
+                                    const endTime = minutesToTime(endMinutesCalc);
+                                    const slotsCount = Math.ceil(appointmentDuration / 30);
+                                    
+                                    // Проверяем оплачена ли запись
+                                    const isPaidAppointment = slot.appointment.paid === true || 
+                                                              slot.appointment.paid === 1 || 
+                                                              slot.appointment.status === 'completed';
+                                    
+                                    return (
+                                      <div
+                                        key={`apt-${appointmentId}`}
+                                        onClick={() => handleSlotClick(startTime, slot, false)}
+                                        style={{
+                                          gridColumn: '1 / -1',
+                                          padding: '16px 20px',
+                                          background: isPaidAppointment 
+                                            ? 'linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%)'
+                                            : 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
+                                          border: `2px solid ${isPaidAppointment ? '#9e9e9e' : '#f44336'}`,
+                                          borderRadius: '12px',
+                                          cursor: isPaidAppointment ? 'default' : 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          gap: '16px',
+                                          boxShadow: isPaidAppointment 
+                                            ? '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                            : '0 2px 8px rgba(244, 67, 54, 0.2)',
+                                          opacity: isPaidAppointment ? 0.8 : 1
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                          <div style={{
+                                            background: isPaidAppointment ? '#757575' : '#f44336',
+                                            color: 'white',
+                                            padding: '10px 16px',
+                                            borderRadius: '8px',
+                                            fontWeight: 'bold',
+                                            fontSize: '1.1rem'
+                                          }}>
+                                            {startTime} — {endTime}
+                                          </div>
+                                          <div style={{
+                                            color: isPaidAppointment ? '#616161' : '#c62828',
+                                            fontWeight: 'bold',
+                                            fontSize: '1rem'
+                                          }}>
+                                            {appointmentDuration} мин ({slotsCount} {slotsCount === 1 ? 'слот' : (slotsCount < 5 ? 'слота' : 'слотов')})
+                                          </div>
+                                        </div>
+                                        <div style={{
+                                          background: isPaidAppointment ? '#616161' : '#d32f2f',
+                                          color: 'white',
+                                          padding: '6px 14px',
+                                          borderRadius: '16px',
+                                          fontSize: '0.85rem',
+                                          fontWeight: 'bold'
+                                        }}>
+                                          {isPaidAppointment ? '✓ ОПЛАЧЕНО' : 'ЗАНЯТО'}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  
+                                  const isDisabled = (slot.isBooked && !isStartSlot) || isPast || creating;
+                                  
+                                  // Проверяем оплачена ли запись
+                                  const isPaidSlot = slot.isBooked && slot.appointment && (
+                                    slot.appointment.paid === true || 
+                                    slot.appointment.paid === 1 || 
+                                    slot.appointment.status === 'completed'
+                                  );
+                                  
+                                  return (
+                                    <button
+                                      key={idx}
+                                      onClick={(e) => {
+                                        if (!isDisabled || slot.isBooked) {
+                                          handleSlotClick(slot.time, slot, e.shiftKey);
+                                        }
+                                      }}
+                                      disabled={isDisabled && !slot.isBooked}
+                                      style={{
+                                        padding: '15px',
+                                        fontSize: '1rem',
+                                        fontWeight: 'bold',
+                                        background: isPast 
+                                          ? '#f5f5f5' 
+                                          : (slot.isBooked 
+                                            ? (isPaidSlot ? '#eeeeee' : '#ffebee')
+                                            : (isInSelectedRange
+                                              ? (isStartSlot ? '#667eea' : '#a8b9f7')
+                                              : '#e8f5e9')),
+                                        color: isPast 
+                                          ? '#999' 
+                                          : (slot.isBooked 
+                                            ? (isPaidSlot ? '#616161' : '#d32f2f')
+                                            : (isInSelectedRange
+                                              ? 'white' 
+                                              : '#388e3c')),
+                                        border: `2px solid ${isPast ? '#ccc' : (slot.isBooked ? (isPaidSlot ? '#9e9e9e' : '#f44336') : (isInSelectedRange ? '#667eea' : '#4caf50'))}`,
+                                        borderRadius: '8px',
+                                        cursor: isPaidSlot ? 'default' : ((isDisabled && !slot.isBooked) ? 'not-allowed' : 'pointer'),
+                                        opacity: creating ? 0.6 : (isPast ? 0.5 : (isPaidSlot ? 0.7 : 1)),
+                                        transform: isStartSlot ? 'scale(1.05)' : 'none',
+                                        transition: 'all 0.2s',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                      }}
+                                    >
+                                      <div style={{ fontSize: '1rem' }}>
+                                        {slot.time}
+                                      </div>
+                                      <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
+                                        {slot.isBooked 
+                                          ? (isPaidSlot ? '✓ Оплачено' : `${appointmentDuration} мин`)
+                                          : (isStartSlot 
+                                            ? 'Начало' 
+                                            : (isInSelectedRange 
+                                              ? '✓' 
+                                              : 'Свободно'))}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+                  
+                  // Обычное отображение без блоков расписания
                   return (
                     <div style={{ 
                       display: 'grid', 
@@ -2086,73 +2906,178 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                       gap: '10px', 
                       marginTop: '15px' 
                     }}>
-                      {actualSlots.slots.map((slot, idx) => {
-                        const [slotHour, slotMinute] = slot.time.split(':').map(Number);
-                        const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
-                        const now = new Date();
-                        now.setSeconds(0, 0);
-                        now.setMilliseconds(0);
-                        slotDateTime.setSeconds(0, 0);
-                        slotDateTime.setMilliseconds(0);
-                        const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                      {(() => {
+                        // Группируем слоты: свободные отдельно, занятые одной записи - в один блок
+                        const renderedAppointments = new Set();
                         
-                        // Слот недоступен, если он занят (но можно отменить), прошедший или идет создание
-                        const isDisabled = (slot.isBooked && selectedTime !== slot.time) || isPast || creating;
-                        
-                        return (
-                          <button
-                            key={idx}
-                            onClick={() => {
-                              if (!isDisabled || slot.isBooked) {
-                                handleSlotClick(slot.time, slot);
-                              }
-                            }}
-                            disabled={isDisabled && !slot.isBooked}
-                            style={{
-                              padding: '15px',
-                              fontSize: '1rem',
-                              fontWeight: 'bold',
-                              background: isPast 
-                                ? '#f5f5f5' 
-                                : (slot.isBooked 
-                                  ? '#ffebee' 
-                                  : (selectedTime === slot.time 
-                                    ? '#667eea' 
-                                    : '#e8f5e9')),
-                              color: isPast 
-                                ? '#999' 
-                                : (slot.isBooked 
-                                  ? '#d32f2f' 
-                                  : (selectedTime === slot.time 
-                                    ? 'white' 
-                                    : '#388e3c')),
-                              border: `2px solid ${isPast 
-                                ? '#ccc' 
-                                : (slot.isBooked 
-                                  ? '#f44336' 
-                                  : (selectedTime === slot.time 
-                                    ? '#667eea' 
-                                    : '#4caf50'))}`,
-                              borderRadius: '8px',
-                              cursor: (isDisabled && !slot.isBooked) ? 'not-allowed' : 'pointer',
-                              opacity: creating ? 0.6 : (isPast ? 0.5 : 1),
-                              transform: selectedTime === slot.time ? 'scale(1.05)' : 'none',
-                              transition: 'all 0.2s',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            <div style={{ fontSize: '1rem' }}>
-                              {slot.time}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
-                              {slot.isBooked ? 'Занято (отменить?)' : (selectedTime === slot.time ? 'Выбрано' : 'Свободно')}
-                            </div>
-                          </button>
-                        );
-                      })}
+                        return actualSlots.slots.map((slot, idx) => {
+                          const [slotHour, slotMinute] = slot.time.split(':').map(Number);
+                          const slotDateTime = new Date(actualSlots.year, actualSlots.month - 1, actualSlots.day, slotHour, slotMinute, 0, 0);
+                          const now = new Date();
+                          now.setSeconds(0, 0);
+                          now.setMilliseconds(0);
+                          slotDateTime.setSeconds(0, 0);
+                          slotDateTime.setMilliseconds(0);
+                          const isPast = slotDateTime.getTime() < now.getTime() || slot.isPast;
+                          
+                          // Проверяем, входит ли слот в выбранный диапазон
+                          const slotMinutes = timeToMinutes(slot.time);
+                          const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
+                          const endMinutes = selectedEndTime 
+                            ? timeToMinutes(selectedEndTime) + 30 
+                            : (selectedTime ? startMinutes + duration : null);
+                          
+                          const isInSelectedRange = !manualTimeMode && selectedTime && 
+                            slotMinutes >= startMinutes && slotMinutes < endMinutes;
+                          const isStartSlot = selectedTime === slot.time;
+                          
+                          // Определяем информацию о записи для занятого слота
+                          const appointmentDuration = slot.appointment?.duration || 30;
+                          const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                          const appointmentId = slot.appointment?.id;
+                          
+                          // Для многослотовых записей - показываем только один объединённый блок
+                          if (isMultiSlotAppointment && appointmentId) {
+                            if (renderedAppointments.has(appointmentId)) {
+                              // Уже показали этот блок записи - пропускаем
+                              return null;
+                            }
+                            renderedAppointments.add(appointmentId);
+                            
+                            // Вычисляем время начала и окончания
+                            const aptTime = parseTime(slot.appointment.appointment_date);
+                            const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
+                            const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
+                            const endTime = minutesToTime(endMinutesCalc);
+                            const slotsCount = Math.ceil(appointmentDuration / 30);
+                            
+                            // Проверяем оплачена ли запись
+                            const isPaidAppointment = slot.appointment.paid === true || 
+                                                      slot.appointment.paid === 1 || 
+                                                      slot.appointment.status === 'completed';
+                            
+                            // Объединённый блок для многослотовой записи
+                            return (
+                              <div
+                                key={`apt-${appointmentId}`}
+                                onClick={() => handleSlotClick(startTime, slot, false)}
+                                style={{
+                                  gridColumn: '1 / -1',
+                                  padding: '16px 20px',
+                                  background: isPaidAppointment 
+                                    ? 'linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%)'
+                                    : 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
+                                  border: `2px solid ${isPaidAppointment ? '#9e9e9e' : '#f44336'}`,
+                                  borderRadius: '12px',
+                                  cursor: isPaidAppointment ? 'default' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '16px',
+                                  boxShadow: isPaidAppointment 
+                                    ? '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                    : '0 2px 8px rgba(244, 67, 54, 0.2)',
+                                  opacity: isPaidAppointment ? 0.8 : 1
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                  <div style={{
+                                    background: isPaidAppointment ? '#757575' : '#f44336',
+                                    color: 'white',
+                                    padding: '10px 16px',
+                                    borderRadius: '8px',
+                                    fontWeight: 'bold',
+                                    fontSize: '1.1rem'
+                                  }}>
+                                    {startTime} — {endTime}
+                                  </div>
+                                  <div style={{
+                                    color: isPaidAppointment ? '#616161' : '#c62828',
+                                    fontWeight: 'bold',
+                                    fontSize: '1rem'
+                                  }}>
+                                    {appointmentDuration} мин ({slotsCount} {slotsCount === 1 ? 'слот' : (slotsCount < 5 ? 'слота' : 'слотов')})
+                                  </div>
+                                </div>
+                                <div style={{
+                                  background: isPaidAppointment ? '#616161' : '#d32f2f',
+                                  color: 'white',
+                                  padding: '6px 14px',
+                                  borderRadius: '16px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 'bold'
+                                }}>
+                                  {isPaidAppointment ? '✓ ОПЛАЧЕНО' : 'ЗАНЯТО'}
+                                </div>
+                              </div>
+                            );
+                          }
+                          
+                          // Обычный слот (свободный или занятый на 30 мин)
+                          const isDisabled = (slot.isBooked && !isStartSlot) || isPast || creating;
+                          
+                          // Проверяем оплачена ли запись
+                          const isPaidSlot = slot.isBooked && slot.appointment && (
+                            slot.appointment.paid === true || 
+                            slot.appointment.paid === 1 || 
+                            slot.appointment.status === 'completed'
+                          );
+                          
+                          return (
+                            <button
+                              key={idx}
+                              onClick={(e) => {
+                                if (!isDisabled || slot.isBooked) {
+                                  handleSlotClick(slot.time, slot, e.shiftKey);
+                                }
+                              }}
+                              disabled={isDisabled && !slot.isBooked}
+                              style={{
+                                padding: '15px',
+                                fontSize: '1rem',
+                                fontWeight: 'bold',
+                                background: isPast 
+                                  ? '#f5f5f5' 
+                                  : (slot.isBooked 
+                                    ? (isPaidSlot ? '#eeeeee' : '#ffebee')
+                                    : (isInSelectedRange
+                                      ? (isStartSlot ? '#667eea' : '#a8b9f7')
+                                      : '#e8f5e9')),
+                                color: isPast 
+                                  ? '#999' 
+                                  : (slot.isBooked 
+                                    ? (isPaidSlot ? '#616161' : '#d32f2f')
+                                    : (isInSelectedRange
+                                      ? 'white' 
+                                      : '#388e3c')),
+                                border: `2px solid ${isPast ? '#ccc' : (slot.isBooked ? (isPaidSlot ? '#9e9e9e' : '#f44336') : (isInSelectedRange ? '#667eea' : '#4caf50'))}`,
+                                borderRadius: '8px',
+                                cursor: isPaidSlot ? 'default' : ((isDisabled && !slot.isBooked) ? 'not-allowed' : 'pointer'),
+                                opacity: creating ? 0.6 : (isPast ? 0.5 : (isPaidSlot ? 0.7 : 1)),
+                                transform: isStartSlot ? 'scale(1.05)' : 'none',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              <div style={{ fontSize: '1rem' }}>
+                                {slot.time}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', marginTop: '5px' }}>
+                                {slot.isBooked 
+                                  ? (isPaidSlot ? '✓ Оплачено' : `${appointmentDuration} мин`)
+                                  : (isStartSlot 
+                                    ? 'Начало' 
+                                    : (isInSelectedRange 
+                                      ? '✓' 
+                                      : 'Свободно'))}
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
                   );
                 }
@@ -2235,7 +3160,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               >
                 Закрыть
               </button>
-              {selectedTime && (
+              {(selectedTime || (manualTimeMode && manualStartTime && manualEndTime)) && (
                 <button
                   type="button"
                   onClick={(e) => {

@@ -624,6 +624,43 @@ app.delete('/api/doctors/:id', async (req, res) => {
   }
 });
 
+// ========== DOCTOR NOTIFICATIONS ==========
+
+// Получить записи в статусе "waiting" для врача (для уведомлений)
+app.get('/api/doctors/:id/waiting-patients', async (req, res) => {
+  try {
+    const doctorId = req.params.id;
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Получаем записи со статусом "waiting" на сегодня для этого врача
+    const waitingPatients = await db.all(
+      usePostgres
+        ? `SELECT a.id, a.appointment_date, a.status,
+                  c."firstName" as client_first_name, c."lastName" as client_last_name, c."middleName" as client_middle_name
+           FROM appointments a
+           JOIN clients c ON a.client_id = c.id
+           WHERE a.doctor_id = $1 
+             AND a.status = 'waiting'
+             AND DATE(a.appointment_date::timestamp) = $2
+           ORDER BY a.appointment_date ASC`
+        : `SELECT a.id, a.appointment_date, a.status,
+                  c.firstName as client_first_name, c.lastName as client_last_name, c.middleName as client_middle_name
+           FROM appointments a
+           JOIN clients c ON a.client_id = c.id
+           WHERE a.doctor_id = ? 
+             AND a.status = 'waiting'
+             AND DATE(a.appointment_date) = ?
+           ORDER BY a.appointment_date ASC`,
+      [doctorId, today]
+    );
+    
+    res.json(waitingPatients);
+  } catch (error) {
+    console.error('Ошибка получения ожидающих пациентов:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== MATERIALS ==========
 
 // Получить все материалы
@@ -1155,6 +1192,7 @@ app.get('/api/appointments', async (req, res) => {
             a.paid,
             a.called_today,
             a.created_at,
+            COALESCE(a.duration, 30) as duration,
             d."lastName" as doctor_lastName,
             d."firstName" as doctor_firstName,
             d."middleName" as doctor_middleName,
@@ -1392,27 +1430,49 @@ app.get('/api/appointments/:id', async (req, res) => {
 
 // Создать запись
 app.post('/api/appointments', async (req, res) => {
-  const { client_id, appointment_date, doctor_id, services, notes } = req.body;
+  const { client_id, appointment_date, doctor_id, services, notes, duration = 30 } = req.body;
   
   try {
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
     
-    // Проверяем, нет ли уже записи на это время для этого врача
-    // ВАЖНО: используем точное сравнение строк, а не timestamp, чтобы не терять минуты
-    const existingAppointment = await db.get(
+    // Проверяем конфликты с учетом duration
+    // Новая запись: [dateToSave, dateToSave + duration]
+    // Существующая запись: [existing.appointment_date, existing.appointment_date + existing.duration]
+    // Конфликт есть, если интервалы пересекаются
+    const conflictingAppointment = await db.get(
       usePostgres
-        ? `SELECT id, appointment_date FROM appointments 
+        ? `SELECT id, appointment_date, duration FROM appointments 
            WHERE doctor_id = $1 
-           AND appointment_date = $2
-           AND status != $3`
-        : 'SELECT id FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status != ?',
-      [doctor_id, dateToSave, 'cancelled']
+           AND status != $2
+           AND (
+             -- Новая запись начинается во время существующей
+             ($3::timestamp >= appointment_date::timestamp 
+              AND $3::timestamp < (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+             OR
+             -- Новая запись заканчивается во время существующей
+             (($3::timestamp + ($4 || ' minutes')::interval) > appointment_date::timestamp 
+              AND ($3::timestamp + ($4 || ' minutes')::interval) <= (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+             OR
+             -- Новая запись полностью покрывает существующую
+             ($3::timestamp <= appointment_date::timestamp 
+              AND ($3::timestamp + ($4 || ' minutes')::interval) >= (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+           )`
+        : `SELECT id FROM appointments WHERE doctor_id = ? AND status != ? 
+           AND (
+             datetime(?) >= datetime(appointment_date) 
+             AND datetime(?) < datetime(appointment_date, '+' || COALESCE(duration, 30) || ' minutes')
+             OR datetime(?, '+' || ? || ' minutes') > datetime(appointment_date)
+             AND datetime(?, '+' || ? || ' minutes') <= datetime(appointment_date, '+' || COALESCE(duration, 30) || ' minutes')
+           )`,
+      usePostgres 
+        ? [doctor_id, 'cancelled', dateToSave, duration]
+        : [doctor_id, 'cancelled', dateToSave, dateToSave, dateToSave, duration, dateToSave, duration]
     );
     
-    if (existingAppointment) {
+    if (conflictingAppointment) {
       return res.status(400).json({ 
-        error: 'На это время уже есть запись. Пожалуйста, выберите другое время.' 
+        error: 'На это время уже есть запись или время пересекается с другой записью. Пожалуйста, выберите другое время.' 
       });
     }
     
@@ -1421,8 +1481,8 @@ app.post('/api/appointments', async (req, res) => {
     
     if (usePostgres) {
       const result = await db.query(
-        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, appointment_date',
-        [client_id, dateToSave, doctor_id, notes, 'scheduled']
+        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, appointment_date',
+        [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
       );
       appointmentId = result[0].id;
       
@@ -1440,8 +1500,8 @@ app.post('/api/appointments', async (req, res) => {
       }
     } else {
       const result = await db.run(
-        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status) VALUES (?, ?, ?, ?, ?)',
-        [client_id, dateToSave, doctor_id, notes, 'scheduled']
+        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES (?, ?, ?, ?, ?, ?)',
+        [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
       );
       appointmentId = result.lastID;
     }
@@ -1477,7 +1537,8 @@ app.post('/api/appointments', async (req, res) => {
       appointment_date: finalAppointmentDate,
       doctor_id,
       services,
-      notes
+      notes,
+      duration
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1486,18 +1547,54 @@ app.post('/api/appointments', async (req, res) => {
 
 // Обновить запись (редактирование)
 app.put('/api/appointments/:id', async (req, res) => {
-  const { appointment_date, doctor_id, services, notes } = req.body;
+  const { appointment_date, doctor_id, services, notes, duration = 30 } = req.body;
   
   try {
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
     
+    // Проверяем конфликты с учетом duration (исключая текущую запись)
+    const conflictingAppointment = await db.get(
+      usePostgres
+        ? `SELECT id, appointment_date, duration FROM appointments 
+           WHERE doctor_id = $1 
+           AND status != $2
+           AND id != $5
+           AND (
+             -- Новая запись начинается во время существующей
+             ($3::timestamp >= appointment_date::timestamp 
+              AND $3::timestamp < (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+             OR
+             -- Новая запись заканчивается во время существующей
+             (($3::timestamp + ($4 || ' minutes')::interval) > appointment_date::timestamp 
+              AND ($3::timestamp + ($4 || ' minutes')::interval) <= (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+             OR
+             -- Новая запись полностью покрывает существующую
+             ($3::timestamp <= appointment_date::timestamp 
+              AND ($3::timestamp + ($4 || ' minutes')::interval) >= (appointment_date::timestamp + (COALESCE(duration, 30) || ' minutes')::interval))
+           )`
+        : `SELECT id FROM appointments WHERE doctor_id = ? AND status != ? AND id != ?
+           AND (
+             datetime(?) >= datetime(appointment_date) 
+             AND datetime(?) < datetime(appointment_date, '+' || COALESCE(duration, 30) || ' minutes')
+           )`,
+      usePostgres 
+        ? [doctor_id, 'cancelled', dateToSave, duration, req.params.id]
+        : [doctor_id, 'cancelled', req.params.id, dateToSave, dateToSave]
+    );
+    
+    if (conflictingAppointment) {
+      return res.status(400).json({ 
+        error: 'На это время уже есть запись или время пересекается с другой записью. Пожалуйста, выберите другое время.' 
+      });
+    }
+    
     // Обновляем основную информацию о записи
     await db.run(
       usePostgres
-        ? 'UPDATE appointments SET appointment_date = $1, doctor_id = $2, notes = $3 WHERE id = $4'
-        : 'UPDATE appointments SET appointment_date = ?, doctor_id = ?, notes = ? WHERE id = ?',
-      [dateToSave, doctor_id, notes || '', req.params.id]
+        ? 'UPDATE appointments SET appointment_date = $1, doctor_id = $2, notes = $3, duration = $4 WHERE id = $5'
+        : 'UPDATE appointments SET appointment_date = ?, doctor_id = ?, notes = ?, duration = ? WHERE id = ?',
+      [dateToSave, doctor_id, notes || '', duration, req.params.id]
     );
     
     // Удаляем старые услуги
@@ -1528,7 +1625,8 @@ app.put('/api/appointments/:id', async (req, res) => {
       appointment_date: dateToSave,
       doctor_id,
       services,
-      notes
+      notes,
+      duration
     });
   } catch (error) {
     console.error('❌ Ошибка обновления записи:', error);
@@ -3787,6 +3885,7 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
         a.notes,
         a.diagnosis,
         a.client_id,
+        COALESCE(a.duration, 30) as duration,
         c."firstName" as client_first_name,
         c."lastName" as client_last_name,
         c.phone as client_phone
@@ -3967,6 +4066,7 @@ app.get('/api/doctors/:id/daily-appointments', async (req, res) => {
         a.status,
         a.notes,
         a.diagnosis,
+        COALESCE(a.duration, 30) as duration,
         c."firstName" as client_first_name,
         c."lastName" as client_last_name,
         c.phone as client_phone

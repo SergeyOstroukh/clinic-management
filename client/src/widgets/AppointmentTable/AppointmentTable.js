@@ -29,6 +29,24 @@ const AppointmentTable = ({
     return client?.phone || '-';
   };
 
+  // Функция для форматирования диапазона времени
+  const formatTimeRange = (appointmentDate, duration) => {
+    const startTime = formatTime(appointmentDate);
+    if (!duration || duration <= 30) {
+      return startTime;
+    }
+    
+    // Парсим время начала
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + duration;
+    const endHours = Math.floor(endMinutes / 60);
+    const endMins = endMinutes % 60;
+    const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
+    
+    return `${startTime} — ${endTime}`;
+  };
+
   if (appointments.length === 0) {
     return (
       <div className="empty-state">
@@ -70,7 +88,7 @@ const AppointmentTable = ({
             >
               <td className="number-cell">{index + 1}</td>
               <td className="time-cell">
-                {formatTime(apt.appointment_date)}
+                {formatTimeRange(apt.appointment_date, apt.duration)}
               </td>
               <td className="client-cell">
                 <span

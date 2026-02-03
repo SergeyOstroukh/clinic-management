@@ -298,6 +298,67 @@
   color: #f44336;
 }
 
+/* Уведомление о пришедшем клиенте */
+.waiting-notification-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+}
+
+.notification-icon {
+  font-size: 4rem;
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
+}
+
+.notification-message {
+  flex: 1;
+}
+
+.notification-client-name {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.notification-time {
+  font-size: 1.1rem;
+  color: #666;
+  margin: 0 0 8px 0;
+}
+
+.notification-status {
+  font-size: 1rem;
+  color: #ff9800;
+  font-weight: 600;
+  margin: 0;
+  padding: 8px 16px;
+  background: #fff3e0;
+  border-radius: 20px;
+  display: inline-block;
+}
+
+.notification-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+  margin-top: 10px;
+}
+
+.btn-large {
+  padding: 15px 40px !important;
+  font-size: 1.1rem !important;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
   .dashboard-header {

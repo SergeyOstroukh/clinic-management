@@ -35,6 +35,9 @@ async function initializeDatabase() {
     await migrateAppliedComposites();
     console.log('✅ Миграция applied_composites проверена');
     
+    await migrateAppointmentDuration();
+    console.log('✅ Миграция duration в appointments проверена');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -873,6 +876,44 @@ async function migrateAppliedComposites() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции applied_composites:', error.message);
+  }
+}
+
+// Миграция: добавление поля duration в appointments для поддержки записей разной длительности
+async function migrateAppointmentDuration() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (usePostgres) {
+      const columnExists = await db.all(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'appointments' AND column_name = $1
+      `, ['duration']);
+
+      if (columnExists.length === 0) {
+        console.log('   🔄 Добавление поля duration в appointments...');
+        // duration в минутах, по умолчанию 30 минут (один слот)
+        await db.run(`ALTER TABLE appointments ADD COLUMN duration INTEGER DEFAULT 30`);
+        console.log('   ✅ Поле duration добавлено в appointments');
+      } else {
+        console.log('   ✅ Поле duration уже существует');
+      }
+    } else {
+      // SQLite
+      const tableInfo = await db.all(`PRAGMA table_info(appointments)`);
+      const hasColumn = tableInfo.some(col => col.name === 'duration');
+      
+      if (!hasColumn) {
+        console.log('   🔄 Добавление поля duration в appointments...');
+        await db.run(`ALTER TABLE appointments ADD COLUMN duration INTEGER DEFAULT 30`);
+        console.log('   ✅ Поле duration добавлено в appointments');
+      } else {
+        console.log('   ✅ Поле duration уже существует');
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции duration:', error.message);
   }
 }
 

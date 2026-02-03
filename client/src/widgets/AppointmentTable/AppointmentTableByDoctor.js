@@ -70,6 +70,24 @@ const AppointmentTableByDoctor = ({
     return '--:--';
   };
 
+  // Функция для форматирования диапазона времени
+  const formatTimeRange = (appointmentDate, duration) => {
+    const startTime = formatTime(appointmentDate);
+    if (!duration || duration <= 30) {
+      return startTime;
+    }
+    
+    // Парсим время начала
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + duration;
+    const endHours = Math.floor(endMinutes / 60);
+    const endMins = endMinutes % 60;
+    const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
+    
+    return `${startTime}—${endTime}`;
+  };
+
   // Группируем записи по врачам
   const appointmentsByDoctor = {};
   
@@ -119,7 +137,7 @@ const AppointmentTableByDoctor = ({
                     className={`phone-icon ${apt.called_today === 1 ? 'called' : ''}`}
                     onClick={(e) => { e.stopPropagation(); onCallStatusToggle(apt.id, apt.called_today === 1); }}
                   >📞</span>
-                  <span className="appointment-time">{formatTime(apt.appointment_date)}</span>
+                  <span className="appointment-time">{formatTimeRange(apt.appointment_date, apt.duration)}</span>
                   <span className="client-name-link">{getClientName(apt.client_id)}</span>
                   <span className={`status-dot status-${apt.status || 'scheduled'}`}></span>
                 </div>
