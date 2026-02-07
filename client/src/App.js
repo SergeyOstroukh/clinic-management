@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import axios from 'axios';
 
@@ -17,10 +17,13 @@ import ChangePassword from './components/ChangePassword';
 import { ToastContainer } from './components/Toast';
 import { useToast } from './hooks/useToast';
 import { useConfirmModal } from './hooks/useConfirmModal';
+import { useSocketEvent } from './hooks/useSocket';
+import { useNotificationSound } from './hooks/useNotificationSound';
 import PhoneInput from './components/PhoneInput';
 import Pagination from './components/Pagination';
 import ConfirmModal from './components/ConfirmModal/ConfirmModal';
 import { CompleteVisit } from './features/CompleteVisit';
+import { Modal } from './shared/ui';
 
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -36,6 +39,9 @@ function App() {
   
   // Модалка подтверждения
   const { confirmModal, showConfirm } = useConfirmModal();
+  
+  // Звуковые уведомления
+  const { playDoctorBell, playPaymentReady } = useNotificationSound();
   
   // Авторизация
   const [currentUser, setCurrentUser] = useState(null);
@@ -102,6 +108,11 @@ function App() {
   const [editingMaterial, setEditingMaterial] = useState(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
 
+  // Уведомление врача о пришедшем клиенте (глобальное, на любой странице)
+  const [waitingNotification, setWaitingNotification] = useState(null);
+  const [waitingQueue, setWaitingQueue] = useState([]);
+  const acknowledgedPatientsRef = useRef(new Set());
+
   // Формы
   const [clientForm, setClientForm] = useState({ 
     lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' 
@@ -131,6 +142,7 @@ function App() {
 
   useEffect(() => {
     if (isAuthenticated) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Обработчик события создания записи из календаря - обновляем таблицу
@@ -152,6 +164,7 @@ function App() {
       window.removeEventListener('appointmentCreated', handleAppointmentCreated);
       window.removeEventListener('appointmentUpdated', handleAppointmentUpdated);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Закрыть dropdown при клике вне его
@@ -205,7 +218,7 @@ function App() {
     setCurrentView('home');
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [appointmentsRes, clientsRes, servicesRes, doctorsRes, materialsRes] = await Promise.all([
         axios.get(`${API_URL}/appointments`),
@@ -222,7 +235,99 @@ function App() {
     } catch (error) {
       console.error('Ошибка загрузки данных:', error);
     }
-  };
+  }, []);
+
+  // === Socket.IO: Real-time синхронизация ===
+  // При изменении записи (статус, оплата, завершение приема) — обновляем данные
+  useSocketEvent('appointmentUpdated', useCallback((data) => {
+    console.log('🔌 Real-time: запись обновлена', data);
+    if (isAuthenticated) {
+      loadData();
+      // Уведомляем внутренние компоненты (календарь и т.д.)
+      window.dispatchEvent(new Event('appointmentUpdated'));
+      
+      // Звук для администратора: врач завершил приём → готово к оплате
+      if (currentUser?.role !== 'doctor' && data.type === 'visit_completed') {
+        playPaymentReady();
+        toast.info('💰 Приём завершён — готово к оплате');
+      }
+    }
+  }, [isAuthenticated, loadData, currentUser?.role, playPaymentReady, toast]));
+
+  // При создании новой записи — обновляем данные
+  useSocketEvent('appointmentCreated', useCallback((data) => {
+    console.log('🔌 Real-time: новая запись создана', data);
+    if (isAuthenticated) {
+      loadData();
+      window.dispatchEvent(new Event('appointmentCreated'));
+    }
+  }, [isAuthenticated, loadData]));
+
+  // === Уведомление врача о пришедшем клиенте (статус "waiting") ===
+  const checkWaitingPatients = useCallback(async () => {
+    if (!currentUser?.doctor_id) return;
+    
+    try {
+      const response = await axios.get(`${API_URL}/doctors/${currentUser.doctor_id}/waiting-patients`);
+      const waitingPatients = response.data || [];
+      
+      // Находим новых пациентов, для которых ещё не показано уведомление
+      const newPatients = waitingPatients.filter(p => !acknowledgedPatientsRef.current.has(p.id));
+      
+      if (newPatients.length > 0) {
+        console.log('🔔 Новые ожидающие пациенты:', newPatients.length);
+        setWaitingQueue(prev => {
+          // Добавляем только тех, кого ещё нет в очереди
+          const existingIds = new Set(prev.map(p => p.id));
+          const truly = newPatients.filter(p => !existingIds.has(p.id));
+          return truly.length > 0 ? [...prev, ...truly] : prev;
+        });
+      }
+    } catch (error) {
+      console.error('Ошибка проверки ожидающих пациентов:', error);
+    }
+  }, [currentUser?.doctor_id]);
+
+  // Показываем уведомление из очереди (по одному) + звук
+  useEffect(() => {
+    if (waitingQueue.length > 0 && !waitingNotification) {
+      setWaitingNotification(waitingQueue[0]);
+      // Звоночек для врача — клиент пришёл
+      playDoctorBell();
+    }
+  }, [waitingQueue, waitingNotification, playDoctorBell]);
+
+  // Обработчик нажатия "Понятно" — закрываем модалку
+  const handleAcknowledgeWaiting = useCallback(() => {
+    if (waitingNotification) {
+      acknowledgedPatientsRef.current.add(waitingNotification.id);
+      setWaitingQueue(prev => prev.filter(p => p.id !== waitingNotification.id));
+      setWaitingNotification(null);
+    }
+  }, [waitingNotification]);
+
+  // Socket.IO: мгновенная проверка при изменении статуса записи на "waiting"
+  useSocketEvent('appointmentUpdated', useCallback((data) => {
+    if (currentUser?.role === 'doctor' && currentUser?.doctor_id) {
+      if (data.type === 'status_change' && data.status === 'waiting') {
+        console.log('🔔 Статус изменён на "waiting" — проверяем ожидающих');
+        checkWaitingPatients();
+      }
+    }
+  }, [currentUser?.role, currentUser?.doctor_id, checkWaitingPatients]));
+
+  // Первая проверка при загрузке + backup polling каждые 30 сек
+  useEffect(() => {
+    if (!currentUser?.doctor_id) return;
+    
+    const initialTimeout = setTimeout(checkWaitingPatients, 500);
+    const interval = setInterval(checkWaitingPatients, 30000);
+    
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, [currentUser?.doctor_id, checkWaitingPatients]);
 
   // Фильтрация записей по дате
   const getAppointmentsByDate = () => {
@@ -2275,6 +2380,58 @@ function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Модальное окно уведомления врача о пришедшем клиенте */}
+      {currentUser?.role === 'doctor' && waitingNotification && (
+        <Modal isOpen={true} onClose={handleAcknowledgeWaiting}>
+          <div style={{ textAlign: 'center', padding: '10px' }}>
+            <h2 style={{ marginBottom: '20px', fontSize: '1.4rem' }}>🔔 Клиент ожидает</h2>
+            <div style={{ 
+              fontSize: '3rem', 
+              marginBottom: '15px' 
+            }}>👤</div>
+            <p style={{ 
+              fontSize: '1.3rem', 
+              fontWeight: '700', 
+              color: '#333', 
+              marginBottom: '10px' 
+            }}>
+              {waitingNotification.client_last_name} {waitingNotification.client_first_name} {waitingNotification.client_middle_name || ''}
+            </p>
+            <p style={{ 
+              fontSize: '1rem', 
+              color: '#666', 
+              marginBottom: '8px' 
+            }}>
+              Запись на {(() => {
+                try {
+                  const d = new Date(waitingNotification.appointment_date);
+                  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                } catch { return '—'; }
+              })()}
+            </p>
+            <p style={{ 
+              fontSize: '1.1rem', 
+              color: '#28a745', 
+              fontWeight: '600',
+              marginBottom: '25px' 
+            }}>
+              ✅ Клиент пришёл и ожидает приёма
+            </p>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleAcknowledgeWaiting}
+              style={{ 
+                padding: '12px 40px', 
+                fontSize: '1.1rem',
+                borderRadius: '8px'
+              }}
+            >
+              ✓ Понятно
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Toast уведомления */}
