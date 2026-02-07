@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import ConfirmModal from '../ConfirmModal/ConfirmModal';
 import { useConfirmModal } from '../../hooks/useConfirmModal';
+import { useSocketEvent } from '../../hooks/useSocket';
 import './BookingCalendar.css';
 
 const getApiUrl = () => {
@@ -317,6 +318,28 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDoctor]);
+
+  // Socket.IO: real-time обновление при изменении записей с другого устройства
+  useSocketEvent('appointmentUpdated', useCallback(() => {
+    if (selectedDoctor) {
+      loadAppointments();
+    }
+    if (showAllDoctorsMode && doctors.length > 0) {
+      loadAllDoctorsData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDoctor, showAllDoctorsMode, doctors.length]));
+
+  useSocketEvent('appointmentCreated', useCallback(() => {
+    if (selectedDoctor) {
+      loadAppointments();
+      loadNearestSlots();
+    }
+    if (showAllDoctorsMode && doctors.length > 0) {
+      loadAllDoctorsData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDoctor, showAllDoctorsMode, doctors.length]));
 
   const loadDoctors = async () => {
     try {

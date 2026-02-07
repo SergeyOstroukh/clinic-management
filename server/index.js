@@ -6,14 +6,35 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const http = require('http');
+const { Server } = require('socket.io');
 
 // Импорт модуля базы данных
 const { db, usePostgres } = require('./database');
 const { initializeDatabase } = require('./init-db');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Socket.IO с CORS настройками
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    credentials: true
+  }
+});
+
+// Логируем подключения Socket.IO
+io.on('connection', (socket) => {
+  console.log(`🔌 Socket.IO: клиент подключен (${socket.id})`);
+  
+  socket.on('disconnect', () => {
+    console.log(`🔌 Socket.IO: клиент отключен (${socket.id})`);
+  });
+});
 
 // Middleware
 const corsOptions = {
@@ -1531,6 +1552,13 @@ app.post('/api/appointments', async (req, res) => {
       }
     }
     
+    // Real-time: уведомляем все подключенные клиенты о новой записи
+    io.emit('appointmentCreated', { 
+      appointmentId,
+      doctor_id,
+      type: 'new_appointment'
+    });
+    
     res.json({
       id: appointmentId,
       client_id,
@@ -1619,6 +1647,14 @@ app.put('/api/appointments/:id', async (req, res) => {
     }
     
     console.log('✅ Запись успешно обновлена');
+    
+    // Real-time: уведомляем все подключенные клиенты
+    io.emit('appointmentUpdated', { 
+      appointmentId: parseInt(req.params.id), 
+      doctor_id,
+      type: 'appointment_edited'
+    });
+    
     res.json({
       message: 'Запись обновлена',
       id: req.params.id,
@@ -1648,6 +1684,12 @@ app.patch('/api/appointments/:id/call-status', async (req, res) => {
         : 'UPDATE appointments SET called_today = ? WHERE id = ?',
       [boolValue, req.params.id]
     );
+    
+    // Real-time: уведомляем все подключенные клиенты
+    io.emit('appointmentUpdated', { 
+      appointmentId: parseInt(req.params.id), 
+      type: 'call_status_change'
+    });
     
     // Возвращаем нормализованное значение для клиента
     res.json({ 
@@ -1686,6 +1728,13 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
       updateValues
     );
     
+    // Real-time: уведомляем все подключенные клиенты
+    io.emit('appointmentUpdated', { 
+      appointmentId: parseInt(req.params.id), 
+      status,
+      type: 'status_change'
+    });
+    
     res.json({ message: 'Статус обновлен', status, changes: result.changes });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1703,6 +1752,13 @@ app.patch('/api/appointments/:id/complete-payment', async (req, res) => {
         : 'UPDATE appointments SET status = ?, paid = ?, discount_amount = ? WHERE id = ?',
       ['completed', true, discount_amount || 0, req.params.id]
     );
+    // Real-time: уведомляем все подключенные клиенты
+    io.emit('appointmentUpdated', { 
+      appointmentId: parseInt(req.params.id), 
+      status: 'completed',
+      type: 'payment_completed'
+    });
+    
     res.json({
       message: 'Оплата завершена',
       status: 'completed',
@@ -1897,6 +1953,13 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
         normalizedPlan ? `${normalizedPlan.length} символов` : 'пустой'
       );
     }
+    
+    // Real-time: уведомляем все подключенные клиенты
+    io.emit('appointmentUpdated', { 
+      appointmentId: parseInt(req.params.id), 
+      status: 'ready_for_payment',
+      type: 'visit_completed'
+    });
     
     res.json({ message: 'Прием завершен', status: 'ready_for_payment' });
   } catch (error) {
@@ -4110,10 +4173,11 @@ if (NODE_ENV === 'production') {
   });
 }
 
-// Запуск сервера
-app.listen(PORT, '0.0.0.0', () => {
+// Запуск сервера (через http server для Socket.IO)
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`🌍 Режим: ${NODE_ENV}`);
   console.log(`💾 База данных: ${usePostgres ? 'PostgreSQL' : 'SQLite'}`);
+  console.log(`🔌 Socket.IO: real-time синхронизация включена`);
 });
 

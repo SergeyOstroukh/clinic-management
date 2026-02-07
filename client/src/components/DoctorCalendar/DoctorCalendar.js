@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { useSocketEvent } from '../../hooks/useSocket';
 import './DoctorCalendar.css';
 
 const getApiUrl = () => {
@@ -44,6 +45,21 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, appointments]);
+
+  // Socket.IO: обновляем данные при изменении записей в реальном времени
+  useSocketEvent('appointmentUpdated', useCallback(() => {
+    if (currentUser?.doctor_id) {
+      loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.doctor_id, currentYear, currentMonth]));
+
+  useSocketEvent('appointmentCreated', useCallback(() => {
+    if (currentUser?.doctor_id) {
+      loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.doctor_id, currentYear, currentMonth]));
 
   const loadData = async () => {
     try {
