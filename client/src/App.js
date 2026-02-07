@@ -3,7 +3,7 @@ import './App.css';
 import axios from 'axios';
 
 // FSD imports
-import { getTodayDateString, getFullName } from './shared/lib';
+import { getTodayDateString, getFullName, formatTime } from './shared/lib';
 import { AppointmentTable, AppointmentTableByDoctor, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { AdministratorsPage } from './pages/AdministratorsPage';
@@ -2404,12 +2404,7 @@ function App() {
               color: '#666', 
               marginBottom: '8px' 
             }}>
-              Запись на {(() => {
-                try {
-                  const d = new Date(waitingNotification.appointment_date);
-                  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                } catch { return '—'; }
-              })()}
+              Запись на {formatTime(waitingNotification.appointment_date)}
             </p>
             <p style={{ 
               fontSize: '1.1rem', 
