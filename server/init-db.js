@@ -53,6 +53,9 @@ async function initializeDatabase() {
     await migrateFormDeferred();
     console.log('✅ Миграция form_deferred в appointments проверена');
     
+    await migratePerformanceIndexes();
+    console.log('✅ Индексы производительности проверены');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -1134,6 +1137,44 @@ async function migrateFormDeferred() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции form_deferred:', error.message);
+  }
+}
+
+// Миграция: индексы для ускорения запросов (календарь, отчёты)
+async function migratePerformanceIndexes() {
+  try {
+    const { usePostgres } = require('./database');
+    if (!usePostgres) return;
+
+    const indexes = [
+      { name: 'idx_appointments_doctor_id', table: 'appointments', columns: 'doctor_id' },
+      { name: 'idx_appointments_status', table: 'appointments', columns: 'status' },
+      { name: 'idx_appointments_doctor_date', table: 'appointments', columns: 'doctor_id, appointment_date' },
+      { name: 'idx_appointment_services_apt_id', table: 'appointment_services', columns: 'appointment_id' },
+      { name: 'idx_appointment_materials_apt_id', table: 'appointment_materials', columns: 'appointment_id' },
+      { name: 'idx_doctor_schedules_doctor_id', table: 'doctor_schedules', columns: 'doctor_id' },
+      { name: 'idx_doctor_specific_dates_doctor_id', table: 'doctor_specific_dates', columns: 'doctor_id' },
+      { name: 'idx_doctor_specific_dates_work_date', table: 'doctor_specific_dates', columns: 'doctor_id, work_date' },
+    ];
+
+    for (const { name, table, columns } of indexes) {
+      try {
+        const exists = await db.query(`
+          SELECT 1 FROM pg_indexes WHERE indexname = $1
+        `, [name]);
+        
+        if (exists.length === 0) {
+          console.log(`   🔄 Создание индекса ${name}...`);
+          await db.run(`CREATE INDEX ${name} ON ${table} (${columns})`);
+          console.log(`   ✅ Индекс ${name} создан`);
+        }
+      } catch (idxError) {
+        // Индекс может уже существовать с другим именем — не критично
+        console.log(`   ℹ️  Индекс ${name}: ${idxError.message.includes('already exists') ? 'уже существует' : idxError.message}`);
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка создания индексов:', error.message);
   }
 }
 
