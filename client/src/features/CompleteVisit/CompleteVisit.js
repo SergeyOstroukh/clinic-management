@@ -583,7 +583,7 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     setIsSubmitting(true);
     try {
       // Сохраняем прием
-      await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
+      const result = await axios.patch(`${API_URL}/appointments/${visit.id}/complete-visit`, {
         diagnosis,
         services: normalizedServices,
         materials: normalizedMaterials,
@@ -597,6 +597,13 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
         treatment_stage: treatmentStage || null,
         form_deferred: deferForm,
       });
+      
+      // Если сервер вернул предупреждение о форме 037/у — показываем врачу
+      if (result.data?.formWarning) {
+        console.warn('⚠️ Предупреждение формы 037/у:', result.data.formWarning);
+        if (toast) toast.warning(`Приём завершён, но запись для формы 037/у не создана: ${result.data.formWarning}`);
+        else alert(`Приём завершён, но запись для формы 037/у не создана: ${result.data.formWarning}`);
+      }
       
       // Отправляем событие для обновления списка записей
       window.dispatchEvent(new Event('appointmentUpdated'));

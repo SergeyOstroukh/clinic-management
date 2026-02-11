@@ -418,7 +418,14 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
   const submitDeferredForm = async () => {
     setSubmittingForm(true);
     try {
-      await axios.patch(`${API_URL}/appointments/${editingId}/fill-deferred-form`, formData);
+      const result = await axios.patch(`${API_URL}/appointments/${editingId}/fill-deferred-form`, formData);
+      
+      // Если сервер вернул предупреждение о форме 037/у — показываем врачу
+      if (result.data?.formWarning) {
+        console.warn('⚠️ Предупреждение формы 037/у:', result.data.formWarning);
+        alert(`Данные сохранены, но запись для формы 037/у не создана: ${result.data.formWarning}`);
+      }
+      
       setEditingId(null);
       setFormData({
         visit_type: '', preventive_work: '', diagnosis_code: '',
