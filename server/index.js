@@ -139,14 +139,14 @@ app.get('/api/clients', async (req, res) => {
 
 // Создать клиента
 app.post('/api/clients', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, date_of_birth, passport_number } = req.body;
+  const { lastName, firstName, middleName, phone, address, email, notes, date_of_birth, passport_number, citizenship_data, population_type } = req.body;
   
   try {
     const result = await db.query(
-      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes, date_of_birth, passport_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
-      [lastName, firstName, middleName, phone, address, email, notes, date_of_birth || null, passport_number || null]
+      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes, date_of_birth, passport_number, citizenship_data, population_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id',
+      [lastName, firstName, middleName, phone, address, email, notes, date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city']
     );
-    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes, date_of_birth: date_of_birth || null, passport_number: passport_number || null });
+    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes, date_of_birth: date_of_birth || null, passport_number: passport_number || null, citizenship_data: citizenship_data || null, population_type: population_type || 'city' });
   } catch (error) {
     console.error('Ошибка создания клиента:', error);
     res.status(500).json({ error: error.message });
@@ -176,7 +176,7 @@ app.get('/api/clients/:id', async (req, res) => {
 
 // Обновить клиента (только для главного админа или для обновления treatment_plan врачом)
 app.put('/api/clients/:id', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser, date_of_birth, passport_number } = req.body;
+  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser, date_of_birth, passport_number, citizenship_data, population_type } = req.body;
   
   try {
     if (!currentUser) {
@@ -205,12 +205,12 @@ app.put('/api/clients/:id', async (req, res) => {
       
       res.json({ message: 'План лечения обновлен', changes: result.changes });
     } else {
-      // Полное обновление (только для superadmin), включая date_of_birth и passport_number
+      // Полное обновление (только для superadmin), включая date_of_birth, passport_number, citizenship_data и population_type
       const result = await db.run(
         usePostgres
-          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8, date_of_birth = $9, passport_number = $10 WHERE id = $11'
-          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ?, date_of_birth = ?, passport_number = ? WHERE id = ?',
-        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, date_of_birth || null, passport_number || null, req.params.id]
+          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8, date_of_birth = $9, passport_number = $10, citizenship_data = $11, population_type = $12 WHERE id = $13'
+          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ?, date_of_birth = ?, passport_number = ?, citizenship_data = ?, population_type = ? WHERE id = ?',
+        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city', req.params.id]
       );
       
       if (result.changes === 0) {
@@ -1318,6 +1318,41 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+// Получить отложенные записи формы 037/у для врача
+// ВАЖНО: этот маршрут ДОЛЖЕН быть перед /api/appointments/:id, иначе Express перехватит "deferred-forms" как :id
+app.get('/api/appointments/deferred-forms', async (req, res) => {
+  const { doctor_id } = req.query;
+  if (!doctor_id) {
+    return res.status(400).json({ error: 'doctor_id обязателен' });
+  }
+  try {
+    const deferred = await db.all(
+      usePostgres
+        ? `SELECT a.id, a.appointment_date, a.diagnosis, a.status, a.form_deferred,
+             c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type,
+             d."lastName" AS doctor_last_name, d."firstName" AS doctor_first_name
+           FROM appointments a
+           LEFT JOIN clients c ON a.client_id = c.id
+           LEFT JOIN doctors d ON a.doctor_id = d.id
+           WHERE a.doctor_id = $1 AND a.form_deferred = true
+           ORDER BY a.appointment_date DESC`
+        : `SELECT a.id, a.appointment_date, a.diagnosis, a.status, a.form_deferred,
+             c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type,
+             d."lastName" AS doctor_last_name, d."firstName" AS doctor_first_name
+           FROM appointments a
+           LEFT JOIN clients c ON a.client_id = c.id
+           LEFT JOIN doctors d ON a.doctor_id = d.id
+           WHERE a.doctor_id = ? AND a.form_deferred = 1
+           ORDER BY a.appointment_date DESC`,
+      [doctor_id]
+    );
+    res.json(deferred);
+  } catch (error) {
+    console.error('Ошибка получения отложенных форм:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Получить одну запись по ID с услугами и материалами
 app.get('/api/appointments/:id', async (req, res) => {
   try {
@@ -1772,7 +1807,7 @@ app.patch('/api/appointments/:id/complete-payment', async (req, res) => {
 
 // Завершить прием (врач)
 app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
-  const { diagnosis, services, materials, treatment_plan, applied_composites } = req.body;
+  const { diagnosis, services, materials, treatment_plan, applied_composites, visit_type, diagnosis_code, treatment_code, treatment_description, preventive_work, treatment_stage, form_deferred } = req.body;
   
   try {
     // Получаем старые материалы для восстановления остатков
@@ -1932,11 +1967,26 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
     const appliedCompositesJson = Array.isArray(applied_composites) && applied_composites.length > 0
       ? JSON.stringify(applied_composites.map(c => ({ composite_service_id: c.composite_service_id, quantity: c.quantity || 1 })))
       : '[]';
+    const isDeferred = form_deferred === true;
     await db.run(
       usePostgres
-        ? 'UPDATE appointments SET diagnosis = $1, status = $2, total_price = $3, applied_composites = $4::jsonb WHERE id = $5'
-        : 'UPDATE appointments SET diagnosis = ?, status = ?, total_price = ?, applied_composites = ? WHERE id = ?',
-      [diagnosis, 'ready_for_payment', totalPrice, appliedCompositesJson, req.params.id]
+        ? `UPDATE appointments SET diagnosis = $1, status = $2, total_price = $3, applied_composites = $4::jsonb,
+           visit_type = $5, diagnosis_code = $6, treatment_code = $7, treatment_description = $8, preventive_work = $9, treatment_stage = $10,
+           form_deferred = $11
+           WHERE id = $12`
+        : `UPDATE appointments SET diagnosis = ?, status = ?, total_price = ?, applied_composites = ?,
+           visit_type = ?, diagnosis_code = ?, treatment_code = ?, treatment_description = ?, preventive_work = ?, treatment_stage = ?,
+           form_deferred = ?
+           WHERE id = ?`,
+      [diagnosis, 'ready_for_payment', totalPrice, appliedCompositesJson,
+       isDeferred ? null : (visit_type || null),
+       isDeferred ? null : (diagnosis_code || null),
+       isDeferred ? null : (treatment_code || null),
+       isDeferred ? null : (treatment_description || null),
+       isDeferred ? null : (preventive_work || null),
+       isDeferred ? null : (treatment_stage || null),
+       isDeferred,
+       req.params.id]
     );
 
     // Сохраняем план лечения, если он был передан и найден клиент
@@ -1953,6 +2003,91 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
         normalizedPlan ? `${normalizedPlan.length} символов` : 'пустой'
       );
     }
+
+    // === АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ЗАПИСИ ФОРМЫ 037/у ===
+    // Пропускаем создание записи формы, если врач выбрал «заполнить позже»
+    if (!isDeferred) try {
+      // Получаем полные данные о записи и клиенте
+      const fullAppointment = await db.get(
+        usePostgres
+          ? 'SELECT a.*, c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type FROM appointments a LEFT JOIN clients c ON a.client_id = c.id WHERE a.id = $1'
+          : 'SELECT a.*, c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type FROM appointments a LEFT JOIN clients c ON a.client_id = c.id WHERE a.id = ?',
+        [req.params.id]
+      );
+
+      if (fullAppointment && fullAppointment.doctor_id) {
+        // Формируем ФИО
+        const patientName = [fullAppointment.lastName, fullAppointment.firstName, fullAppointment.middleName].filter(Boolean).join(' ');
+        
+        // Вычисляем возраст из даты рождения
+        let patientAge = null;
+        if (fullAppointment.date_of_birth) {
+          const dob = new Date(fullAppointment.date_of_birth);
+          const today = new Date();
+          patientAge = today.getFullYear() - dob.getFullYear();
+          const m = today.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+            patientAge--;
+          }
+        }
+
+        // Определяем дату и время записи
+        const appointmentDate = fullAppointment.appointment_date || new Date().toISOString().split('T')[0];
+        // appointment_date может содержать и дату и время, парсим
+        let recordDate = appointmentDate;
+        let recordTime = null;
+        if (appointmentDate.includes(' ')) {
+          const parts = appointmentDate.split(' ');
+          recordDate = parts[0];
+          recordTime = parts[1] || null;
+        } else if (appointmentDate.includes('T')) {
+          const parts = appointmentDate.split('T');
+          recordDate = parts[0];
+          recordTime = parts[1] ? parts[1].substring(0, 5) : null;
+        }
+
+        // Удаляем старую запись для этого приёма (если перезавершается)
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM doctor_work_records WHERE appointment_id = $1'
+            : 'DELETE FROM doctor_work_records WHERE appointment_id = ?',
+          [req.params.id]
+        );
+
+        // Создаём новую запись формы 037/у
+        await db.run(
+          usePostgres
+            ? `INSERT INTO doctor_work_records 
+               (doctor_id, record_date, record_time, patient_name, patient_address, citizenship_data, patient_age, visit_type, preventive_work, diagnosis_code, diagnosis_description, treatment_code, treatment_description, treatment_stage, population_type, appointment_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+            : `INSERT INTO doctor_work_records 
+               (doctor_id, record_date, record_time, patient_name, patient_address, citizenship_data, patient_age, visit_type, preventive_work, diagnosis_code, diagnosis_description, treatment_code, treatment_description, treatment_stage, population_type, appointment_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            fullAppointment.doctor_id,
+            recordDate,
+            recordTime,
+            patientName || 'Неизвестный пациент',
+            fullAppointment.address || null,
+            fullAppointment.citizenship_data || null,
+            patientAge,
+            visit_type || null,
+            preventive_work || null,
+            diagnosis_code || null,
+            diagnosis || null,
+            treatment_code || null,
+            treatment_description || null,
+            treatment_stage || null,
+            fullAppointment.population_type || 'city',
+            parseInt(req.params.id)
+          ]
+        );
+        console.log(`✅ Запись формы 037/у автоматически создана для приёма #${req.params.id}`);
+      }
+    } catch (workRecordError) {
+      // Не прерываем завершение приёма из-за ошибки формы 037/у
+      console.error('⚠️  Ошибка автосоздания записи формы 037/у:', workRecordError.message);
+    }
     
     // Real-time: уведомляем все подключенные клиенты
     io.emit('appointmentUpdated', { 
@@ -1961,8 +2096,131 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       type: 'visit_completed'
     });
     
-    res.json({ message: 'Прием завершен', status: 'ready_for_payment' });
+    res.json({ message: 'Прием завершен', status: 'ready_for_payment', form_deferred: isDeferred });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Заполнить отложенные данные формы 037/у
+app.patch('/api/appointments/:id/fill-deferred-form', async (req, res) => {
+  const { visit_type, diagnosis_code, treatment_code, treatment_description, preventive_work, treatment_stage } = req.body;
+  try {
+    // Проверяем, что запись существует и form_deferred = true
+    const appointment = await db.get(
+      usePostgres
+        ? 'SELECT a.*, c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type FROM appointments a LEFT JOIN clients c ON a.client_id = c.id WHERE a.id = $1'
+        : 'SELECT a.*, c."lastName", c."firstName", c."middleName", c.address, c.citizenship_data, c.date_of_birth, c.population_type FROM appointments a LEFT JOIN clients c ON a.client_id = c.id WHERE a.id = ?',
+      [req.params.id]
+    );
+
+    if (!appointment) {
+      return res.status(404).json({ error: 'Запись не найдена' });
+    }
+    if (!appointment.form_deferred) {
+      return res.status(400).json({ error: 'Форма уже заполнена для этой записи' });
+    }
+
+    // Обновляем поля формы и снимаем флаг form_deferred
+    await db.run(
+      usePostgres
+        ? `UPDATE appointments SET 
+             visit_type = $1, diagnosis_code = $2, treatment_code = $3, 
+             treatment_description = $4, preventive_work = $5, treatment_stage = $6,
+             form_deferred = false
+           WHERE id = $7`
+        : `UPDATE appointments SET 
+             visit_type = ?, diagnosis_code = ?, treatment_code = ?, 
+             treatment_description = ?, preventive_work = ?, treatment_stage = ?,
+             form_deferred = 0
+           WHERE id = ?`,
+      [
+        visit_type || null, diagnosis_code || null, treatment_code || null,
+        treatment_description || null, preventive_work || null, treatment_stage || null,
+        req.params.id
+      ]
+    );
+
+    // Создаём запись формы 037/у (тот же код, что и в complete-visit)
+    try {
+      if (appointment.doctor_id) {
+        const patientName = [appointment.lastName, appointment.firstName, appointment.middleName].filter(Boolean).join(' ');
+        
+        let patientAge = null;
+        if (appointment.date_of_birth) {
+          const dob = new Date(appointment.date_of_birth);
+          const today = new Date();
+          patientAge = today.getFullYear() - dob.getFullYear();
+          const m = today.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+            patientAge--;
+          }
+        }
+
+        const appointmentDate = appointment.appointment_date || new Date().toISOString().split('T')[0];
+        let recordDate = appointmentDate;
+        let recordTime = null;
+        if (appointmentDate.includes(' ')) {
+          const parts = appointmentDate.split(' ');
+          recordDate = parts[0];
+          recordTime = parts[1] || null;
+        } else if (appointmentDate.includes('T')) {
+          const parts = appointmentDate.split('T');
+          recordDate = parts[0];
+          recordTime = parts[1] ? parts[1].substring(0, 5) : null;
+        }
+
+        // Удаляем старую запись для этого приёма (если была)
+        await db.run(
+          usePostgres
+            ? 'DELETE FROM doctor_work_records WHERE appointment_id = $1'
+            : 'DELETE FROM doctor_work_records WHERE appointment_id = ?',
+          [req.params.id]
+        );
+
+        // Создаём новую запись формы 037/у
+        await db.run(
+          usePostgres
+            ? `INSERT INTO doctor_work_records 
+               (doctor_id, record_date, record_time, patient_name, patient_address, citizenship_data, patient_age, visit_type, preventive_work, diagnosis_code, diagnosis_description, treatment_code, treatment_description, treatment_stage, population_type, appointment_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+            : `INSERT INTO doctor_work_records 
+               (doctor_id, record_date, record_time, patient_name, patient_address, citizenship_data, patient_age, visit_type, preventive_work, diagnosis_code, diagnosis_description, treatment_code, treatment_description, treatment_stage, population_type, appointment_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            appointment.doctor_id,
+            recordDate,
+            recordTime,
+            patientName || 'Неизвестный пациент',
+            appointment.address || null,
+            appointment.citizenship_data || null,
+            patientAge,
+            visit_type || null,
+            preventive_work || null,
+            diagnosis_code || null,
+            appointment.diagnosis || null,
+            treatment_code || null,
+            treatment_description || null,
+            treatment_stage || null,
+            appointment.population_type || 'city',
+            parseInt(req.params.id)
+          ]
+        );
+        console.log(`✅ Запись формы 037/у создана из отложенных для приёма #${req.params.id}`);
+      }
+    } catch (workRecordError) {
+      console.error('⚠️  Ошибка создания записи формы 037/у из отложенных:', workRecordError.message);
+    }
+
+    // Real-time уведомление
+    io.emit('appointmentUpdated', {
+      appointmentId: parseInt(req.params.id),
+      type: 'deferred_form_filled'
+    });
+
+    res.json({ message: 'Данные формы 037/у заполнены', form_deferred: false });
+  } catch (error) {
+    console.error('Ошибка заполнения отложенной формы:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -4157,6 +4415,256 @@ app.get('/api/doctors/:id/daily-appointments', async (req, res) => {
     res.json(normalizedAppointments);
   } catch (error) {
     console.error('Ошибка получения записей врача на день:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ======================
+// ФОРМА 037/у — ЛИСТОК УЧЁТА РАБОТЫ ВРАЧА
+// ======================
+
+// Получить записи формы 037/у (с фильтрами)
+app.get('/api/doctor-work-records', async (req, res) => {
+  try {
+    const { doctor_id, date_from, date_to, month, year } = req.query;
+    
+    let query = `
+      SELECT dwr.*, 
+             d."lastName" as doctor_last_name, 
+             d."firstName" as doctor_first_name, 
+             d."middleName" as doctor_middle_name,
+             d.specialization as doctor_specialization
+      FROM doctor_work_records dwr
+      LEFT JOIN doctors d ON dwr.doctor_id = d.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let paramIndex = 1;
+    
+    if (doctor_id) {
+      query += ` AND dwr.doctor_id = $${paramIndex++}`;
+      params.push(doctor_id);
+    }
+    
+    if (date_from && date_to) {
+      query += ` AND dwr.record_date >= $${paramIndex++} AND dwr.record_date <= $${paramIndex++}`;
+      params.push(date_from, date_to);
+    } else if (month && year) {
+      query += ` AND EXTRACT(MONTH FROM dwr.record_date) = $${paramIndex++} AND EXTRACT(YEAR FROM dwr.record_date) = $${paramIndex++}`;
+      params.push(month, year);
+    }
+    
+    query += ' ORDER BY dwr.record_date DESC, dwr.record_time DESC';
+    
+    const records = await db.all(query, params);
+    res.json(records);
+  } catch (error) {
+    console.error('Ошибка получения записей 037/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить одну запись
+app.get('/api/doctor-work-records/:id', async (req, res) => {
+  try {
+    const record = await db.get(
+      `SELECT dwr.*, 
+              d."lastName" as doctor_last_name, 
+              d."firstName" as doctor_first_name, 
+              d."middleName" as doctor_middle_name
+       FROM doctor_work_records dwr
+       LEFT JOIN doctors d ON dwr.doctor_id = d.id
+       WHERE dwr.id = $1`,
+      [req.params.id]
+    );
+    if (!record) {
+      return res.status(404).json({ error: 'Запись не найдена' });
+    }
+    res.json(record);
+  } catch (error) {
+    console.error('Ошибка получения записи 037/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать запись
+app.post('/api/doctor-work-records', async (req, res) => {
+  try {
+    const {
+      doctor_id, record_date, record_time, patient_name,
+      patient_address, citizenship_data, patient_age,
+      visit_type, preventive_work, diagnosis_code,
+      diagnosis_description, treatment_code, treatment_description,
+      appointment_id
+    } = req.body;
+    
+    if (!doctor_id || !record_date || !patient_name) {
+      return res.status(400).json({ error: 'Обязательные поля: doctor_id, record_date, patient_name' });
+    }
+    
+    const result = await db.run(`
+      INSERT INTO doctor_work_records 
+        (doctor_id, record_date, record_time, patient_name, patient_address, 
+         citizenship_data, patient_age, visit_type, preventive_work,
+         diagnosis_code, diagnosis_description, treatment_code, treatment_description, appointment_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING id
+    `, [
+      doctor_id, record_date, record_time || null, patient_name,
+      patient_address || null, citizenship_data || null, patient_age || null,
+      visit_type || null, preventive_work || null, diagnosis_code || null,
+      diagnosis_description || null, treatment_code || null, treatment_description || null,
+      appointment_id || null
+    ]);
+    
+    const newId = result.id || result.lastID;
+    res.status(201).json({ id: newId, message: 'Запись создана' });
+  } catch (error) {
+    console.error('Ошибка создания записи 037/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновить запись
+app.put('/api/doctor-work-records/:id', async (req, res) => {
+  try {
+    const {
+      doctor_id, record_date, record_time, patient_name,
+      patient_address, citizenship_data, patient_age,
+      visit_type, preventive_work, diagnosis_code,
+      diagnosis_description, treatment_code, treatment_description
+    } = req.body;
+    
+    await db.run(`
+      UPDATE doctor_work_records SET
+        doctor_id = $1, record_date = $2, record_time = $3, patient_name = $4,
+        patient_address = $5, citizenship_data = $6, patient_age = $7,
+        visit_type = $8, preventive_work = $9, diagnosis_code = $10,
+        diagnosis_description = $11, treatment_code = $12, treatment_description = $13,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $14
+    `, [
+      doctor_id, record_date, record_time || null, patient_name,
+      patient_address || null, citizenship_data || null, patient_age || null,
+      visit_type || null, preventive_work || null, diagnosis_code || null,
+      diagnosis_description || null, treatment_code || null, treatment_description || null,
+      req.params.id
+    ]);
+    
+    res.json({ message: 'Запись обновлена' });
+  } catch (error) {
+    console.error('Ошибка обновления записи 037/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить запись
+app.delete('/api/doctor-work-records/:id', async (req, res) => {
+  try {
+    await db.run('DELETE FROM doctor_work_records WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Запись удалена' });
+  } catch (error) {
+    console.error('Ошибка удаления записи 037/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ======================
+// ФОРМА 039/у — ДНЕВНИК УЧЁТА РАБОТЫ (СВОДНЫЙ ОТЧЁТ)
+// ======================
+
+// Генерация сводного отчёта 039/у на основе данных 037/у
+app.get('/api/report-039', async (req, res) => {
+  try {
+    const { doctor_id, month, year } = req.query;
+    
+    if (!doctor_id || !month || !year) {
+      return res.status(400).json({ error: 'Обязательные параметры: doctor_id, month, year' });
+    }
+    
+    // Получаем данные врача
+    const doctor = await db.get('SELECT * FROM doctors WHERE id = $1', [doctor_id]);
+    if (!doctor) {
+      return res.status(404).json({ error: 'Врач не найден' });
+    }
+    
+    // Получаем все записи за месяц
+    const records = await db.all(`
+      SELECT * FROM doctor_work_records 
+      WHERE doctor_id = $1 
+        AND EXTRACT(MONTH FROM record_date) = $2 
+        AND EXTRACT(YEAR FROM record_date) = $3
+      ORDER BY record_date, record_time
+    `, [doctor_id, month, year]);
+    
+    // Количество рабочих дней
+    const workDays = await db.all(`
+      SELECT DISTINCT record_date FROM doctor_work_records
+      WHERE doctor_id = $1 
+        AND EXTRACT(MONTH FROM record_date) = $2 
+        AND EXTRACT(YEAR FROM record_date) = $3
+      ORDER BY record_date
+    `, [doctor_id, month, year]);
+    
+    // Группировка по дням для дневника
+    const dailyData = {};
+    for (const record of records) {
+      const day = new Date(record.record_date).getDate();
+      if (!dailyData[day]) {
+        dailyData[day] = [];
+      }
+      dailyData[day].push(record);
+    }
+    
+    // Подсчёт показателей формы 039/у
+    const summary = {
+      // Общее число посещений
+      totalVisits: records.length,
+      // Число первичных посещений
+      primaryVisits: records.filter(r => r.visit_type === 'primary').length,
+      // Число повторных посещений
+      repeatVisits: records.filter(r => r.visit_type === 'repeat').length,
+      // Профилактические
+      preventiveVisits: records.filter(r => r.visit_type === 'preventive').length,
+      
+      // Диагнозы по группам (на основе кодов из формы 039/у)
+      diagnosisCounts: {},
+      // Лечебные мероприятия по группам
+      treatmentCounts: {},
+      
+      // Рабочие дни
+      workDaysCount: workDays.length,
+      workDates: workDays.map(d => d.record_date),
+      
+      // Дневные данные
+      dailyData
+    };
+    
+    // Группировка диагнозов по кодам
+    for (const record of records) {
+      if (record.diagnosis_code) {
+        const code = record.diagnosis_code.trim();
+        summary.diagnosisCounts[code] = (summary.diagnosisCounts[code] || 0) + 1;
+      }
+    }
+    
+    // Группировка лечения по кодам
+    for (const record of records) {
+      if (record.treatment_code) {
+        const code = record.treatment_code.trim();
+        summary.treatmentCounts[code] = (summary.treatmentCounts[code] || 0) + 1;
+      }
+    }
+    
+    res.json({
+      doctor,
+      month: parseInt(month),
+      year: parseInt(year),
+      records,
+      summary
+    });
+  } catch (error) {
+    console.error('Ошибка генерации отчёта 039/у:', error);
     res.status(500).json({ error: error.message });
   }
 });

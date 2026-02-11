@@ -351,6 +351,7 @@ const ClientCard = ({
     const clientEmail = clientDataForPrint?.email ? String(clientDataForPrint.email).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     const clientDateOfBirth = clientDataForPrint?.date_of_birth ? new Date(clientDataForPrint.date_of_birth).toLocaleDateString('ru-RU') : '';
     const clientPassport = clientDataForPrint?.passport_number ? String(clientDataForPrint.passport_number).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+    const clientCitizenship = clientDataForPrint?.citizenship_data ? String(clientDataForPrint.citizenship_data).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
     
     const printWindow = window.open('', '_blank');
     const printContent = `
@@ -444,6 +445,7 @@ const ClientCard = ({
             ${clientEmail ? `<p><strong>Email:</strong> ${clientEmail}</p>` : ''}
             ${clientDateOfBirth ? `<p><strong>Дата рождения:</strong> ${clientDateOfBirth}</p>` : ''}
             ${clientPassport ? `<p><strong>Номер паспорта:</strong> ${clientPassport}</p>` : ''}
+            ${clientCitizenship ? `<p><strong>Гражданство:</strong> ${clientCitizenship}</p>` : ''}
             <p><strong>Дата:</strong> ${formatDate(new Date(), 'dd.MM.yyyy')}</p>
           </div>
           
@@ -1138,6 +1140,18 @@ const ClientCard = ({
                       <div className="info-item">
                         <span className="info-label">Номер паспорта:</span>
                         <span className="info-value">{client.passport_number}</span>
+                      </div>
+                    )}
+                    {client.citizenship_data && (
+                      <div className="info-item">
+                        <span className="info-label">Гражданство:</span>
+                        <span className="info-value">{client.citizenship_data}</span>
+                      </div>
+                    )}
+                    {client.population_type && (
+                      <div className="info-item">
+                        <span className="info-label">Тип населения:</span>
+                        <span className="info-value">{client.population_type === 'rural' ? 'Сельское' : 'Городское'}</span>
                       </div>
                     )}
                     {client.notes && (

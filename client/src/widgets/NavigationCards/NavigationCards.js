@@ -6,7 +6,8 @@ export const NavigationCards = ({
   clientsCount, 
   servicesCount, 
   materialsCount,
-  currentUser
+  currentUser,
+  deferredFormsCount = 0
 }) => {
   const allCards = [
     { id: 'booking', icon: '🗓️', title: 'Запись пациентов', gradient: 'booking', allowedRoles: ['superadmin', 'administrator'] },
@@ -19,7 +20,7 @@ export const NavigationCards = ({
     { id: 'materials', icon: '📦', title: 'Все материалы', gradient: 'materials', allowedRoles: ['superadmin'] },
     { id: 'composite-services', icon: '🔧', title: 'Конструктор услуг', gradient: 'services', allowedRoles: ['superadmin'] },
     { id: 'statistics', icon: '📊', title: 'Статистика и отчеты', gradient: 'reports', allowedRoles: ['superadmin'] },
-    { id: 'reports', icon: '📊', title: 'Отчеты', gradient: 'reports', allowedRoles: ['superadmin'] },
+    { id: 'reports-forms', icon: '📋', title: 'Отчёты / Формы', gradient: 'reports', allowedRoles: ['superadmin', 'doctor'] },
   ];
 
   // Фильтруем карточки по роли пользователя
@@ -37,6 +38,9 @@ export const NavigationCards = ({
         >
           <div className="nav-card-icon">{card.icon}</div>
           <h3>{card.title}</h3>
+          {card.id === 'doctor-dashboard' && deferredFormsCount > 0 && (
+            <span className="nav-card-badge">{deferredFormsCount}</span>
+          )}
         </div>
       ))}
     </div>

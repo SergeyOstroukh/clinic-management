@@ -11,6 +11,149 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
+// Виды посещений для формы 037/у (графа 7) — коды из инструкции
+// Код формируется: X.Y где X = 1(первичное)/2(повторное), Y определяется population_type клиента
+// На бэкенде population_type клиента подставляется автоматически
+const VISIT_TYPES = [
+  { value: 'primary', label: 'Первичное' },
+  { value: 'repeat', label: 'Повторное' },
+  { value: 'preventive', label: 'Профилактическое' },
+  { value: 'consultation', label: 'Консультация' },
+  { value: 'emergency', label: 'Неотложное' },
+];
+
+// Коды лечебно-профилактической работы (коды 3-8 из формы 039/у, графа 8)
+const PREVENTIVE_CODES = [
+  { value: '3', label: '3 — Профосмотр (самостоятельно)' },
+  { value: '4', label: '4 — Здоровые, ранее санированные' },
+  { value: '5', label: '5 — Санированы по обращению' },
+  { value: '6', label: '6 — Осмотрены в плановом порядке' },
+  { value: '7', label: '7 — Здоровые, ранее санированные (плановые)' },
+  { value: '8', label: '8 — Санированы в плановом порядке' },
+];
+
+// Коды диагнозов формы 039/у (графа 9) — полный список из приложения 2
+const DIAGNOSIS_CODES_039 = [
+  { code: '10',  label: 'Зубные отложения (К03.6)' },
+  { code: '20',  label: 'Некариозные поражения постоянных зубов (К00.3-К00.5, К03.1, К03.2)' },
+  { code: '21',  label: 'Некариозные поражения временных зубов' },
+  { code: '30',  label: 'Кариес постоянных зубов (К02)' },
+  { code: '31',  label: 'Кариес временных зубов' },
+  { code: '40',  label: 'Пульпит постоянных зубов (К04.0-К04.3)' },
+  { code: '41',  label: 'Пульпит временных зубов' },
+  { code: '50',  label: 'Апикальный периодонтит постоянных зубов (К04.4-К04.7, К04.9)' },
+  { code: '51',  label: 'Апикальный периодонтит временных зубов' },
+  { code: '60',  label: 'Болезни пародонта (К05)' },
+  { code: '61',  label: 'Другие изменения десны и беззубого альвеолярного края (К06)' },
+  { code: '62',  label: 'Атрофия беззубого альвеолярного отростка (К08.2)' },
+  { code: '70',  label: 'Заболевания слизистой оболочки рта (К12-К12.1, К13, К14)' },
+  { code: '80',  label: 'Кисты корневые (К04.8)' },
+  { code: '81',  label: 'Кисты полости рта (К09)' },
+  { code: '90',  label: 'Воспалительные заболевания кожи и подкожной клетчатки (L)' },
+  { code: '91',  label: 'Воспалительные заболевания челюстей (К10.2, К10.3, К10.9)' },
+  { code: '92',  label: 'Флегмона и абсцессы (К12.2)' },
+  { code: '100', label: 'Поражения тройничного и лицевого нервов (G50, G51, S04)' },
+  { code: '101', label: 'Болезни височно-нижнечелюстного сустава (K07.6)' },
+  { code: '102', label: 'Болезни слюнных желез (К11)' },
+  { code: '103', label: 'Травмы лицевых костей, челюстей, перелом зуба (S02)' },
+  { code: '104', label: 'Травмы головы (S00.5, S01.4, S01.5, S03.0, S03.2, S03.4)' },
+  { code: '105', label: 'Другие уточненные болезни челюсти, экзостозы (К10.8)' },
+  { code: '106', label: 'Новообразования (C00-C06, D00, D10.0-D10.3, D37)' },
+  { code: '107', label: 'Челюстно-лицевые и врожденные аномалии (К07.1-К07.5, К10.0, Q35-Q38)' },
+  { code: '108', label: 'Нарушение развития и прорезывания зубов (К00.1-К00.2, К00.6-К01)' },
+  { code: '109', label: 'Частичная адентия (К00.00, К08.1)' },
+  { code: '110', label: 'Полная адентия (К00.01, К08.1)' },
+  { code: '111', label: 'Оставшийся корень зуба (К08.3)' },
+  { code: '112', label: 'Повышенное стирание зубов (К03.0)' },
+  { code: '113', label: 'Патологическая резорбция зубов (К03.3)' },
+  { code: '114', label: 'Другие болезни твердых тканей зубов (К03.7, К03.80)' },
+  { code: '115', label: 'Другие уточненные болезни твердых тканей зубов (К03.88)' },
+  { code: '116', label: 'Верхнечелюстной синусит (J01.0, J01.8, J32.0)' },
+  { code: '117', label: 'Стоматологическое обследование (Z01.2)' },
+  { code: '118', label: 'Наличие имплантатов зубов и челюсти (Z96.5)' },
+  { code: '119', label: 'Наличие зубного протезного устройства (Z97.2)' },
+  { code: '120', label: 'Прочие заболевания' },
+];
+
+// Этапы лечения (графа 10) — Л1, Л2, Л3
+const TREATMENT_STAGES = [
+  { value: 'Л1', label: 'Л1 — Первый этап лечения' },
+  { value: 'Л2', label: 'Л2 — Второй этап лечения' },
+  { value: 'Л3', label: 'Л3 — Третий этап лечения' },
+];
+
+// Коды лечения формы 039/у (графа 11) — основные числовые коды из приложения 2
+const TREATMENT_CODES_039 = [
+  // Профилактические мероприятия
+  { code: '210', label: 'Беседа, мотивация, обучение гигиене' },
+  { code: '220', label: 'Контроль гигиены' },
+  { code: '230', label: 'Применение фторпрепаратов местно' },
+  { code: '231', label: 'Лечение начального кариеса (профилактическое)' },
+  { code: '240', label: 'Герметизация фиссур' },
+  { code: '241', label: 'Герметизация фиссур инвазивным методом' },
+  // Терапевтическое лечение
+  { code: '300', label: 'Удаление зубных отложений' },
+  { code: '301', label: 'Удаление зубных отложений аппаратными методами' },
+  { code: '310', label: 'Шинирование зубов' },
+  { code: '320', label: 'Другое лечение заболеваний пародонта' },
+  { code: '321', label: 'Лечение пародонта с применением лазерных технологий' },
+  { code: '330', label: 'Запломбировано постоянных зубов (всего зубов)' },
+  { code: '340', label: 'Запломбировано временных зубов (всего зубов)' },
+  { code: '350', label: 'Наложено пломб (всего)' },
+  { code: '360', label: 'Законченное эндодонтическое лечение постоянных зубов' },
+  { code: '361', label: 'Эндодонтическое лечение по ортопедическим показаниям' },
+  { code: '362', label: 'Повторное эндодонтическое лечение' },
+  { code: '370', label: 'Законченное эндодонтическое лечение временных зубов' },
+  { code: '375', label: 'Закончено терапевтическое лечение (лицо)' },
+  { code: '380', label: 'Закончено пародонтологическое лечение (лицо)' },
+  { code: '390', label: 'Закончено лечение заболеваний слизистой рта (лицо)' },
+  { code: '395', label: 'Отбеливание зубов' },
+  // Амбулаторно-хирургическое лечение
+  { code: '400', label: 'Удалено постоянных зубов' },
+  { code: '402', label: 'Удаление по ортодонтическим показаниям' },
+  { code: '404', label: 'Удалено дентальных имплантатов' },
+  { code: '410', label: 'Удалено временных зубов' },
+  { code: '411', label: 'Удаление временных зубов по физиологической смене' },
+  { code: '420', label: 'Амбулаторно-хирургическая операция' },
+  { code: '430', label: 'Операция в плановом порядке' },
+  { code: '432', label: 'Операция на мягких тканях' },
+  { code: '434', label: 'Операция на костях лицевого скелета' },
+  { code: '435', label: 'Костная аугментация' },
+  { code: '436', label: 'Операция дентальной имплантации' },
+  { code: '437', label: 'Синус-лифтинг' },
+  { code: '438', label: 'Другие операции (экзостозы, органосохраняющие и др.)' },
+  { code: '440', label: 'Операция по экстренным показаниям' },
+  { code: '442', label: 'Операция по поводу травм' },
+  { code: '444', label: 'Операция по поводу воспалительных заболеваний' },
+  { code: '446', label: 'Другие экстренные операции' },
+  { code: '450', label: 'Местное лечение открытых ран (перевязки, снятие шин)' },
+  { code: '460', label: 'Закончено хирургическое лечение (лицо)' },
+  // Ортодонтическое лечение
+  { code: '500', label: 'Взято на ортодонтическое лечение (лицо)' },
+  { code: '510', label: 'Изготовлено ортодонтических аппаратов' },
+  { code: '511', label: 'Механический съемный аппарат' },
+  { code: '512', label: 'Механический несъемный аппарат' },
+  { code: '513', label: 'Функциональный аппарат' },
+  { code: '514', label: 'Функционально-направляющий аппарат' },
+  { code: '515', label: 'Сочетанный аппарат' },
+  { code: '520', label: 'Закончено ортодонтическое лечение (лицо)' },
+  // Ортопедическое лечение
+  { code: '600', label: 'Посещение на льготном зубопротезировании' },
+  { code: '601', label: 'Починка протеза' },
+  { code: '602', label: 'Виниры' },
+  { code: '603', label: 'Штифтовые, штифтово-культевые вкладки' },
+  { code: '604', label: 'Вкладки' },
+  { code: '610', label: 'Одиночная коронка' },
+  { code: '620', label: 'Мостовидный протез' },
+  { code: '640', label: 'Провизорная коронка прямым методом' },
+  { code: '650', label: 'Съемный протез' },
+  { code: '655', label: 'Каппа' },
+  { code: '660', label: 'Закончено ортопедическое лечение (лицо)' },
+  // Обезболивание
+  { code: '700', label: 'Обезболивание общее' },
+  { code: '710', label: 'Обезболивание местное' },
+];
+
 const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast }) => {
   // Проверяем, оплачен ли прием
   const isPaid = visit.status === 'completed' || visit.paid === true || visit.paid === 1 || visit.paid === 'true';
@@ -29,6 +172,15 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
   const [compositeServiceSearch, setCompositeServiceSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeSection, setActiveSection] = useState('services'); // 'services', 'materials' или 'composite'
+
+  // Поля формы 037/у
+  const [visitType, setVisitType] = useState(visit.visit_type || '');
+  const [diagnosisCode, setDiagnosisCode] = useState(visit.diagnosis_code || '');
+  const [treatmentCode, setTreatmentCode] = useState(visit.treatment_code || '');
+  const [treatmentDesc, setTreatmentDesc] = useState(visit.treatment_description || '');
+  const [preventiveWork, setPreventiveWork] = useState(visit.preventive_work || '');
+  const [treatmentStage, setTreatmentStage] = useState(visit.treatment_stage || '');
+  const [showFormFields, setShowFormFields] = useState(false);
 
   // Загружаем составные услуги
   useEffect(() => {
@@ -74,6 +226,13 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     setSelectedServices(visit.services || []);
     setSelectedMaterials(visit.materials || []);
     setExpandedCompositeIds([]);
+    // Поля формы 037/у
+    setVisitType(visit.visit_type || '');
+    setDiagnosisCode(visit.diagnosis_code || '');
+    setTreatmentCode(visit.treatment_code || '');
+    setTreatmentDesc(visit.treatment_description || '');
+    setPreventiveWork(visit.preventive_work || '');
+    setTreatmentStage(visit.treatment_stage || '');
   }, [visit]);
 
   const toggleService = (serviceId) => {
@@ -170,7 +329,10 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     return total.toFixed(2);
   };
 
-  const handleSubmit = async () => {
+  // Проверяем, заполнены ли данные формы 037/у (хотя бы одно поле)
+  const isFormFilled = visitType || diagnosisCode || treatmentCode || treatmentDesc || preventiveWork || treatmentStage;
+
+  const handleSubmit = async (deferForm = false) => {
     if (!diagnosis.trim()) {
       if (toast) toast.warning('Пожалуйста, введите диагноз');
       else alert('Пожалуйста, введите диагноз');
@@ -180,6 +342,15 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
     if (!hasServices) {
       if (toast) toast.warning('Пожалуйста, выберите хотя бы одну услугу');
       else alert('Пожалуйста, выберите хотя бы одну услугу');
+      return;
+    }
+
+    // Если не заполнена форма 037/у и не нажата кнопка «заполнить позже» — блокируем
+    if (!deferForm && !isFormFilled) {
+      if (toast) toast.warning('Заполните данные для формы 037/у или нажмите «Форму заполнить позже»');
+      else alert('Заполните данные для формы 037/у или нажмите «Форму заполнить позже»');
+      // Автоматически раскрываем секцию формы
+      setShowFormFields(true);
       return;
     }
 
@@ -243,7 +414,14 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
         services: normalizedServices,
         materials: normalizedMaterials,
         treatment_plan: treatmentPlan,
-        applied_composites: selectedComposites
+        applied_composites: selectedComposites,
+        visit_type: visitType || null,
+        diagnosis_code: diagnosisCode || null,
+        treatment_code: treatmentCode || null,
+        treatment_description: treatmentDesc || null,
+        preventive_work: preventiveWork || null,
+        treatment_stage: treatmentStage || null,
+        form_deferred: deferForm,
       });
       
       // Отправляем событие для обновления списка записей
@@ -299,6 +477,141 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
           required
           disabled={isPaid}
         />
+      </div>
+
+      {/* Поля формы 037/у — сворачиваемый блок */}
+      <div className="form-section form-037-fields-section">
+        <div
+          className="form-037-toggle"
+          onClick={() => setShowFormFields(!showFormFields)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setShowFormFields(!showFormFields)}
+        >
+          <span className="form-037-toggle-icon">{showFormFields ? '▼' : '▶'}</span>
+          <label className="form-label" style={{ cursor: 'pointer', margin: 0 }}>
+            📋 Данные для формы 037/у
+          </label>
+          <span className="form-037-toggle-hint">
+            {showFormFields ? 'свернуть' : 'развернуть'}
+          </span>
+        </div>
+
+        {showFormFields && (
+          <div className="form-037-fields">
+            <div className="form-037-row">
+              <div className="form-037-col">
+                <label className="form-label-sm">Вид посещения</label>
+                <select
+                  value={visitType}
+                  onChange={(e) => setVisitType(e.target.value)}
+                  className="form-037-select"
+                  disabled={isPaid}
+                >
+                  <option value="">— Не указано —</option>
+                  {VISIT_TYPES.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-037-col">
+                <label className="form-label-sm">Лечебно-проф. работа (коды 3-8)</label>
+                <select
+                  value={preventiveWork}
+                  onChange={(e) => setPreventiveWork(e.target.value)}
+                  className="form-037-select"
+                  disabled={isPaid}
+                >
+                  <option value="">— Не указано —</option>
+                  {PREVENTIVE_CODES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-037-row">
+              <div className="form-037-col">
+                <label className="form-label-sm">Код диагноза (графа 9, форма 039)</label>
+                <select
+                  value={diagnosisCode}
+                  onChange={(e) => setDiagnosisCode(e.target.value)}
+                  className="form-037-select"
+                  disabled={isPaid}
+                >
+                  <option value="">— Выберите —</option>
+                  {DIAGNOSIS_CODES_039.map(d => (
+                    <option key={d.code} value={d.code}>{d.code} — {d.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Или введите код вручную"
+                  value={diagnosisCode}
+                  onChange={(e) => setDiagnosisCode(e.target.value)}
+                  className="form-037-input"
+                  disabled={isPaid}
+                  style={{ marginTop: '4px' }}
+                />
+              </div>
+              <div className="form-037-col">
+                <label className="form-label-sm">Этап лечения (графа 10)</label>
+                <select
+                  value={treatmentStage}
+                  onChange={(e) => setTreatmentStage(e.target.value)}
+                  className="form-037-select"
+                  disabled={isPaid}
+                >
+                  <option value="">— Не указано —</option>
+                  {TREATMENT_STAGES.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-037-row">
+              <div className="form-037-col">
+                <label className="form-label-sm">Код лечения (графа 11, форма 039)</label>
+                <select
+                  value={treatmentCode}
+                  onChange={(e) => setTreatmentCode(e.target.value)}
+                  className="form-037-select"
+                  disabled={isPaid}
+                >
+                  <option value="">— Выберите —</option>
+                  {TREATMENT_CODES_039.map(c => (
+                    <option key={c.code} value={c.code}>{c.code} — {c.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Или введите код вручную"
+                  value={treatmentCode}
+                  onChange={(e) => setTreatmentCode(e.target.value)}
+                  className="form-037-input"
+                  disabled={isPaid}
+                  style={{ marginTop: '4px' }}
+                />
+              </div>
+              <div className="form-037-col" style={{ flex: 1 }}>
+                <label className="form-label-sm">Описание лечения</label>
+                <textarea
+                  placeholder="Что было сделано (пломба, удаление, эндодонтия и т.д.)"
+                  value={treatmentDesc}
+                  onChange={(e) => setTreatmentDesc(e.target.value)}
+                  className="form-037-textarea"
+                  rows={2}
+                  disabled={isPaid}
+                />
+              </div>
+            </div>
+
+            <div className="form-037-hint">
+              💡 Эти данные автоматически попадут в формы 037/у и 039/у (Отчёты / Формы)
+            </div>
+          </div>
+        )}
       </div>
 
       {/* План лечения */}
@@ -681,9 +994,19 @@ const CompleteVisit = ({ visit, services, materials, onSuccess, onCancel, toast 
             ✅ Прием оплачен
           </button>
         ) : (
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? 'Сохранение...' : '✅ Завершить прием'}
-          </button>
+          <>
+            <button 
+              className="btn btn-defer" 
+              onClick={() => handleSubmit(true)} 
+              disabled={isSubmitting}
+              title="Завершить прием, а данные для формы 037/у заполнить позже"
+            >
+              {isSubmitting ? 'Сохранение...' : '⏳ Форму заполнить позже'}
+            </button>
+            <button className="btn btn-primary" onClick={() => handleSubmit(false)} disabled={isSubmitting}>
+              {isSubmitting ? 'Сохранение...' : '✅ Завершить прием'}
+            </button>
+          </>
         )}
       </div>
     </div>
