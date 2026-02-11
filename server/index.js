@@ -4243,152 +4243,57 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
     
     const appointments = await db.all(query, [doctorId, startDate, endDate]);
     
-    // ВАЖНО: Преобразуем appointment_date в строку сразу после получения из БД
-    // Это нужно, потому что драйвер PostgreSQL может вернуть объект Date даже после TO_CHAR
-    const appointmentsWithStringDates = appointments.map(apt => {
-      let dateStr = apt.appointment_date;
-      
-      // Если это объект Date, преобразуем в строку
-      if (dateStr instanceof Date) {
-        const year = dateStr.getFullYear();
-        const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-        const day = String(dateStr.getDate()).padStart(2, '0');
-        const hours = String(dateStr.getHours()).padStart(2, '0');
-        const minutes = String(dateStr.getMinutes()).padStart(2, '0');
-        const seconds = String(dateStr.getSeconds()).padStart(2, '0');
-        dateStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-      } else {
-        // Если это строка, убеждаемся что она в правильном формате
-        dateStr = String(dateStr);
-        // Если это формат типа "Wed Dec 10 2025 17:", получаем из БД напрямую
-        if (dateStr.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:/)) {
-          // Это обрезанный формат - нужно получить из БД
-          // Но это асинхронно, поэтому пока оставляем как есть - обработаем ниже
-        }
+    // Нормализуем даты в строки
+    const normalizeDate = (dateVal) => {
+      if (dateVal instanceof Date) {
+        const y = dateVal.getFullYear();
+        const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+        const d = String(dateVal.getDate()).padStart(2, '0');
+        const h = String(dateVal.getHours()).padStart(2, '0');
+        const mi = String(dateVal.getMinutes()).padStart(2, '0');
+        const s = String(dateVal.getSeconds()).padStart(2, '0');
+        return `${y}-${m}-${d} ${h}:${mi}:${s}`;
       }
+      return normalizeAppointmentDate(String(dateVal));
+    };
+
+    const appointmentIds = appointments.map(a => a.id);
+    
+    // Загружаем услуги для ВСЕХ записей одним запросом (вместо N отдельных)
+    let servicesMap = {};
+    if (appointmentIds.length > 0) {
+      const placeholders = usePostgres
+        ? appointmentIds.map((_, i) => `$${i + 1}`).join(',')
+        : appointmentIds.map(() => '?').join(',');
       
-      return {
-        ...apt,
-        appointment_date: dateStr
-      };
-    });
-    
-    console.log('Получены записи из БД (первые 3):', appointmentsWithStringDates.slice(0, 3).map(apt => ({
-      id: apt.id,
-      appointment_date: apt.appointment_date,
-      type: typeof apt.appointment_date
-    })));
-    
-    // Получаем услуги для каждой записи
-    const appointmentsWithServices = await Promise.all(appointmentsWithStringDates.map(async (appointment) => {
-      const services = await db.all(
-        usePostgres
-          ? `SELECT aps.service_id, aps.quantity, s.name, s.price 
-             FROM appointment_services aps
-             JOIN services s ON aps.service_id = s.id
-             WHERE aps.appointment_id = $1`
-          : `SELECT aps.service_id, aps.quantity, s.name, s.price 
-             FROM appointment_services aps
-             JOIN services s ON aps.service_id = s.id
-             WHERE aps.appointment_id = ?`,
-        [appointment.id]
+      const allServices = await db.all(
+        `SELECT aps.appointment_id, aps.service_id, aps.quantity, s.name, s.price 
+         FROM appointment_services aps
+         JOIN services s ON aps.service_id = s.id
+         WHERE aps.appointment_id IN (${placeholders})`,
+        appointmentIds
       );
       
-      // ВАЖНО: Получаем appointment_date из БД напрямую в правильном формате
-      // Это гарантирует, что мы получаем правильное время с минутами
-      let normalizedAppointmentDate;
-      const dbDate = await db.get(
-        usePostgres
-          ? `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`
-          : `SELECT strftime('%Y-%m-%d %H:%M:%S', appointment_date) as appointment_date FROM appointments WHERE id = ?`,
-        [appointment.id]
-      );
-      
-      if (dbDate && dbDate.appointment_date) {
-        normalizedAppointmentDate = String(dbDate.appointment_date);
-      } else {
-        // Fallback: используем то, что пришло из первого запроса
-        let dateStr = appointment.appointment_date;
-        
-        if (dateStr instanceof Date) {
-          const year = dateStr.getFullYear();
-          const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-          const day = String(dateStr.getDate()).padStart(2, '0');
-          const hours = String(dateStr.getHours()).padStart(2, '0');
-          const minutes = String(dateStr.getMinutes()).padStart(2, '0');
-          const seconds = String(dateStr.getSeconds()).padStart(2, '0');
-          normalizedAppointmentDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-        } else {
-          normalizedAppointmentDate = normalizeAppointmentDate(String(dateStr));
+      // Группируем услуги по appointment_id
+      for (const svc of allServices) {
+        if (!servicesMap[svc.appointment_id]) {
+          servicesMap[svc.appointment_id] = [];
         }
-      }
-      
-      const result = {
-        ...appointment,
-        appointment_date: normalizedAppointmentDate,
-        services: services
-      };
-      
-      // Логируем для отладки
-      if (appointment.id === 43 || appointment.id === 42) {
-        console.log('Результат для записи', appointment.id, ':', {
-          original: appointment.appointment_date,
-          normalized: normalizedAppointmentDate,
-          type: typeof normalizedAppointmentDate
+        servicesMap[svc.appointment_id].push({
+          service_id: svc.service_id,
+          quantity: svc.quantity,
+          name: svc.name,
+          price: svc.price
         });
       }
-      
-      return result;
+    }
+
+    // Собираем финальный результат (без дополнительных SQL-запросов)
+    const finalAppointments = appointments.map(apt => ({
+      ...apt,
+      appointment_date: normalizeDate(apt.appointment_date),
+      services: servicesMap[apt.id] || []
     }));
-    
-    console.log('Отправка записей клиенту (первые 3):', appointmentsWithServices.slice(0, 3).map(apt => ({
-      id: apt.id,
-      appointment_date: apt.appointment_date,
-      type: typeof apt.appointment_date
-    })));
-    
-    // ВАЖНО: Убеждаемся, что все appointment_date - это строки в правильном формате
-    // Это нужно для правильной сериализации в JSON
-    const finalAppointments = appointmentsWithServices.map(apt => {
-      let dateStr = apt.appointment_date;
-      
-      // Если это объект Date, преобразуем в строку
-      if (dateStr instanceof Date) {
-        const year = dateStr.getFullYear();
-        const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-        const day = String(dateStr.getDate()).padStart(2, '0');
-        const hours = String(dateStr.getHours()).padStart(2, '0');
-        const minutes = String(dateStr.getMinutes()).padStart(2, '0');
-        const seconds = String(dateStr.getSeconds()).padStart(2, '0');
-        dateStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-      } else {
-        // Преобразуем в строку
-        dateStr = String(dateStr);
-        
-        // Если это формат типа "Wed Dec 10 2025 17:" (результат toString()), 
-        // получаем из БД заново
-        if (dateStr.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:/)) {
-          // Это обрезанный формат - получаем из БД
-          // Но это асинхронно, поэтому используем normalizeAppointmentDate
-          dateStr = normalizeAppointmentDate(dateStr);
-        } else {
-          // Нормализуем формат
-          dateStr = normalizeAppointmentDate(dateStr);
-        }
-      }
-      
-      return {
-        ...apt,
-        appointment_date: dateStr
-      };
-    });
-    
-    // Дополнительная проверка перед отправкой
-    finalAppointments.forEach(apt => {
-      if (!apt.appointment_date || !apt.appointment_date.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-        console.error('⚠️ ОШИБКА: Неправильный формат appointment_date перед отправкой:', apt.id, apt.appointment_date);
-      }
-    });
     
     res.json(finalAppointments);
   } catch (error) {

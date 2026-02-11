@@ -486,121 +486,121 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   // Загрузка данных всех врачей для режима "Все записи"
   const loadAllDoctorsData = async () => {
     try {
-      const allSchedulesData = {};
       const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
       const slotsByDate = {};
 
-      // Загружаем данные для каждого врача
-      for (const doctor of doctors) {
-        try {
-          const [schedulesRes, datesRes, appointmentsRes] = await Promise.all([
-            axios.get(`${API_URL}/schedules?doctor_id=${doctor.id}`),
-            axios.get(`${API_URL}/specific-dates?doctor_id=${doctor.id}`),
-            axios.get(`${API_URL}/doctors/${doctor.id}/monthly-appointments?month=${currentMonth}&year=${currentYear}`)
-          ]);
+      // Загружаем данные для ВСЕХ врачей ПАРАЛЛЕЛЬНО (вместо последовательного цикла)
+      const doctorResults = await Promise.all(
+        doctors.map(async (doctor) => {
+          try {
+            const [schedulesRes, datesRes, appointmentsRes] = await Promise.all([
+              axios.get(`${API_URL}/schedules?doctor_id=${doctor.id}`),
+              axios.get(`${API_URL}/specific-dates?doctor_id=${doctor.id}`),
+              axios.get(`${API_URL}/doctors/${doctor.id}/monthly-appointments?month=${currentMonth}&year=${currentYear}`)
+            ]);
+            return {
+              doctor,
+              schedules: schedulesRes.data,
+              specificDates: datesRes.data,
+              appointments: appointmentsRes.data.filter(apt => apt.status !== 'cancelled')
+            };
+          } catch (error) {
+            console.error(`Ошибка загрузки данных для врача ${doctor.id}:`, error);
+            return null;
+          }
+        })
+      );
 
-          allSchedulesData[doctor.id] = {
-            schedules: schedulesRes.data,
-            specificDates: datesRes.data,
-            appointments: appointmentsRes.data.filter(apt => apt.status !== 'cancelled')
-          };
+      // Обрабатываем результаты (генерация слотов — чистые вычисления, быстро)
+      for (const result of doctorResults) {
+        if (!result) continue;
+        const { doctor, schedules, specificDates, appointments } = result;
 
-          // Генерируем слоты для каждого дня месяца
-          for (let day = 1; day <= daysInMonth; day++) {
-            const dateStr = formatDate(currentYear, currentMonth, day);
-            const dayOfWeek = new Date(currentYear, currentMonth - 1, day).getDay();
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = formatDate(currentYear, currentMonth, day);
+          const dayOfWeek = new Date(currentYear, currentMonth - 1, day).getDay();
 
-            // Получаем расписание на этот день (несколько слотов в день поддерживаются)
-            let daySchedule = [];
-            const specificForDay = allSchedulesData[doctor.id].specificDates.filter(
-              sd => sd.work_date === dateStr && sd.is_active
+          // Получаем расписание на этот день
+          let daySchedule = [];
+          const specificForDay = specificDates.filter(
+            sd => sd.work_date === dateStr && sd.is_active
+          );
+          if (specificForDay.length > 0) {
+            daySchedule = specificForDay.map(sd => ({ start_time: sd.start_time, end_time: sd.end_time }));
+          } else {
+            const daySchedules = schedules.filter(
+              s => s.day_of_week === dayOfWeek && s.is_active
             );
-            if (specificForDay.length > 0) {
-              daySchedule = specificForDay.map(sd => ({ start_time: sd.start_time, end_time: sd.end_time }));
-            } else {
-              const daySchedules = allSchedulesData[doctor.id].schedules.filter(
-                s => s.day_of_week === dayOfWeek && s.is_active
-              );
-              daySchedule = daySchedules.map(s => ({ start_time: s.start_time, end_time: s.end_time }));
-            }
+            daySchedule = daySchedules.map(s => ({ start_time: s.start_time, end_time: s.end_time }));
+          }
 
-            if (daySchedule.length === 0) continue;
+          if (daySchedule.length === 0) continue;
 
-            // Сортируем расписания по времени начала
-            const sortedSchedule = [...daySchedule].sort((a, b) => {
-              const aMinutes = parseInt(a.start_time.split(':')[0]) * 60 + parseInt(a.start_time.split(':')[1]);
-              const bMinutes = parseInt(b.start_time.split(':')[0]) * 60 + parseInt(b.start_time.split(':')[1]);
-              return aMinutes - bMinutes;
-            });
+          // Фильтруем приёмы для этого дня один раз (вместо повторной фильтрации в каждом слоте)
+          const dayAppointments = appointments.filter(apt => {
+            if (!apt.appointment_date || apt.status === 'cancelled') return false;
+            const normalizedDate = normalizeDateString(apt.appointment_date);
+            return normalizedDate.startsWith(dateStr);
+          });
 
-            // Генерируем слоты для этого дня с информацией о блоке расписания
-            sortedSchedule.forEach((s, scheduleIndex) => {
-              const times = generateTimeSlots(s.start_time, s.end_time);
-              times.forEach((time, timeIndex) => {
-                const [slotHour, slotMinute] = time.split(':').map(Number);
-                const slotDateTime = new Date(currentYear, currentMonth - 1, day, slotHour, slotMinute, 0, 0);
-                const now = new Date();
-                now.setSeconds(0, 0);
-                const isPast = slotDateTime.getTime() < now.getTime();
+          const sortedSchedule = [...daySchedule].sort((a, b) => {
+            const aMinutes = parseInt(a.start_time.split(':')[0]) * 60 + parseInt(a.start_time.split(':')[1]);
+            const bMinutes = parseInt(b.start_time.split(':')[0]) * 60 + parseInt(b.start_time.split(':')[1]);
+            return aMinutes - bMinutes;
+          });
 
-                // Проверяем, занят ли слот (с учетом duration записей)
-                const dayAppointments = allSchedulesData[doctor.id].appointments.filter(apt => {
-                  if (!apt.appointment_date || apt.status === 'cancelled') return false;
-                  const normalizedDate = normalizeDateString(apt.appointment_date);
-                  return normalizedDate.startsWith(dateStr);
-                });
+          sortedSchedule.forEach((s, scheduleIndex) => {
+            const times = generateTimeSlots(s.start_time, s.end_time);
+            times.forEach((time, timeIndex) => {
+              const [slotHour, slotMinute] = time.split(':').map(Number);
+              const slotDateTime = new Date(currentYear, currentMonth - 1, day, slotHour, slotMinute, 0, 0);
+              const now = new Date();
+              now.setSeconds(0, 0);
+              const isPast = slotDateTime.getTime() < now.getTime();
 
-                const slotMinutes = slotHour * 60 + slotMinute;
-                
-                // Ищем запись, которая перекрывает этот слот (с учетом duration)
-                const bookingAppointment = dayAppointments.find(apt => {
-                  const aptTime = parseTime(apt.appointment_date);
-                  const aptStartMinutes = aptTime.hours * 60 + aptTime.minutes;
-                  const aptDuration = apt.duration || 30;
-                  const aptEndMinutes = aptStartMinutes + aptDuration;
-                  
-                  // Слот занят, если его время попадает в диапазон записи [start, end)
-                  return slotMinutes >= aptStartMinutes && slotMinutes < aptEndMinutes;
-                });
-                
-                const isBooked = !!bookingAppointment;
-                
-                // Определяем, является ли этот слот началом записи (для отображения duration)
-                const isAppointmentStart = bookingAppointment ? (() => {
-                  const aptTime = parseTime(bookingAppointment.appointment_date);
-                  return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-                })() : false;
+              const slotMinutes = slotHour * 60 + slotMinute;
+              
+              const bookingAppointment = dayAppointments.find(apt => {
+                const aptTime = parseTime(apt.appointment_date);
+                const aptStartMinutes = aptTime.hours * 60 + aptTime.minutes;
+                const aptDuration = apt.duration || 30;
+                const aptEndMinutes = aptStartMinutes + aptDuration;
+                return slotMinutes >= aptStartMinutes && slotMinutes < aptEndMinutes;
+              });
+              
+              const isBooked = !!bookingAppointment;
+              
+              const isAppointmentStart = bookingAppointment ? (() => {
+                const aptTime = parseTime(bookingAppointment.appointment_date);
+                return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
+              })() : false;
 
-                // Сохраняем все слоты (включая занятые и прошедшие)
-                if (!slotsByDate[dateStr]) {
-                  slotsByDate[dateStr] = [];
-                }
-                slotsByDate[dateStr].push({
-                  doctor,
-                  time,
-                  year: currentYear,
-                  month: currentMonth,
-                  day,
-                  dateStr,
-                  isBooked,
-                  isPast,
-                  isAppointmentStart,
-                  appointment: bookingAppointment || null,
-                  scheduleBlock: scheduleIndex, // Индекс блока расписания
-                  isFirstInBlock: timeIndex === 0, // Первый слот в блоке
-                  scheduleStart: s.start_time,
-                  scheduleEnd: s.end_time
-                });
+              if (!slotsByDate[dateStr]) {
+                slotsByDate[dateStr] = [];
+              }
+              slotsByDate[dateStr].push({
+                doctor,
+                time,
+                year: currentYear,
+                month: currentMonth,
+                day,
+                dateStr,
+                isBooked,
+                isPast,
+                isAppointmentStart,
+                appointment: bookingAppointment || null,
+                scheduleBlock: scheduleIndex,
+                isFirstInBlock: timeIndex === 0,
+                scheduleStart: s.start_time,
+                scheduleEnd: s.end_time
               });
             });
-          }
-        } catch (error) {
-          console.error(`Ошибка загрузки данных для врача ${doctor.id}:`, error);
+          });
         }
       }
 
       setAllDoctorsSlots(slotsByDate);
-      return slotsByDate; // Возвращаем данные для немедленного использования
+      return slotsByDate;
     } catch (error) {
       console.error('Ошибка загрузки данных всех врачей:', error);
       return {};
