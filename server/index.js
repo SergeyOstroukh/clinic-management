@@ -2006,6 +2006,7 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
 
     // === АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ЗАПИСИ ФОРМЫ 037/у ===
     // Пропускаем создание записи формы, если врач выбрал «заполнить позже»
+    let formRecordWarning = null;
     if (!isDeferred) try {
       // Получаем полные данные о записи и клиенте
       const fullAppointment = await db.get(
@@ -2031,16 +2032,20 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
           }
         }
 
-        // Определяем дату и время записи
-        const appointmentDate = fullAppointment.appointment_date || new Date().toISOString().split('T')[0];
-        // appointment_date может содержать и дату и время, парсим
+        // Определяем дату и время записи — безопасный парсинг (Date объект, строка или null)
+        let rawDate = fullAppointment.appointment_date;
+        // Если PostgreSQL вернул Date объект — конвертируем в строку
+        if (rawDate instanceof Date) {
+          rawDate = rawDate.toISOString();
+        }
+        const appointmentDate = (rawDate && typeof rawDate === 'string') ? rawDate : new Date().toISOString().split('T')[0];
         let recordDate = appointmentDate;
         let recordTime = null;
-        if (appointmentDate.includes(' ')) {
+        if (typeof appointmentDate === 'string' && appointmentDate.includes(' ')) {
           const parts = appointmentDate.split(' ');
           recordDate = parts[0];
           recordTime = parts[1] || null;
-        } else if (appointmentDate.includes('T')) {
+        } else if (typeof appointmentDate === 'string' && appointmentDate.includes('T')) {
           const parts = appointmentDate.split('T');
           recordDate = parts[0];
           recordTime = parts[1] ? parts[1].substring(0, 5) : null;
@@ -2082,11 +2087,15 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
             parseInt(req.params.id)
           ]
         );
-        console.log(`✅ Запись формы 037/у автоматически создана для приёма #${req.params.id}`);
+        console.log(`✅ Запись формы 037/у автоматически создана для приёма #${req.params.id}, diagnosis_code=${diagnosis_code}, treatment_code=${treatment_code}`);
+      } else {
+        formRecordWarning = 'Не удалось создать запись формы 037/у: не найден врач для записи';
+        console.warn(`⚠️  ${formRecordWarning} (appointment #${req.params.id})`);
       }
     } catch (workRecordError) {
-      // Не прерываем завершение приёма из-за ошибки формы 037/у
-      console.error('⚠️  Ошибка автосоздания записи формы 037/у:', workRecordError.message);
+      // Не прерываем завершение приёма из-за ошибки формы 037/у, но передаём предупреждение клиенту
+      formRecordWarning = `Ошибка создания записи формы 037/у: ${workRecordError.message}`;
+      console.error(`⚠️  ${formRecordWarning} (appointment #${req.params.id})`, workRecordError.stack);
     }
     
     // Real-time: уведомляем все подключенные клиенты
@@ -2096,7 +2105,9 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       type: 'visit_completed'
     });
     
-    res.json({ message: 'Прием завершен', status: 'ready_for_payment', form_deferred: isDeferred });
+    const response = { message: 'Прием завершен', status: 'ready_for_payment', form_deferred: isDeferred };
+    if (formRecordWarning) response.formWarning = formRecordWarning;
+    res.json(response);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2142,6 +2153,7 @@ app.patch('/api/appointments/:id/fill-deferred-form', async (req, res) => {
     );
 
     // Создаём запись формы 037/у (тот же код, что и в complete-visit)
+    let formRecordWarning = null;
     try {
       if (appointment.doctor_id) {
         const patientName = [appointment.lastName, appointment.firstName, appointment.middleName].filter(Boolean).join(' ');
@@ -2157,14 +2169,19 @@ app.patch('/api/appointments/:id/fill-deferred-form', async (req, res) => {
           }
         }
 
-        const appointmentDate = appointment.appointment_date || new Date().toISOString().split('T')[0];
+        // Безопасный парсинг даты (Date объект, строка или null)
+        let rawDate = appointment.appointment_date;
+        if (rawDate instanceof Date) {
+          rawDate = rawDate.toISOString();
+        }
+        const appointmentDate = (rawDate && typeof rawDate === 'string') ? rawDate : new Date().toISOString().split('T')[0];
         let recordDate = appointmentDate;
         let recordTime = null;
-        if (appointmentDate.includes(' ')) {
+        if (typeof appointmentDate === 'string' && appointmentDate.includes(' ')) {
           const parts = appointmentDate.split(' ');
           recordDate = parts[0];
           recordTime = parts[1] || null;
-        } else if (appointmentDate.includes('T')) {
+        } else if (typeof appointmentDate === 'string' && appointmentDate.includes('T')) {
           const parts = appointmentDate.split('T');
           recordDate = parts[0];
           recordTime = parts[1] ? parts[1].substring(0, 5) : null;
@@ -2206,10 +2223,14 @@ app.patch('/api/appointments/:id/fill-deferred-form', async (req, res) => {
             parseInt(req.params.id)
           ]
         );
-        console.log(`✅ Запись формы 037/у создана из отложенных для приёма #${req.params.id}`);
+        console.log(`✅ Запись формы 037/у создана из отложенных для приёма #${req.params.id}, diagnosis_code=${diagnosis_code}, treatment_code=${treatment_code}`);
+      } else {
+        formRecordWarning = 'Не удалось создать запись формы 037/у: не найден врач';
+        console.warn(`⚠️  ${formRecordWarning} (appointment #${req.params.id})`);
       }
     } catch (workRecordError) {
-      console.error('⚠️  Ошибка создания записи формы 037/у из отложенных:', workRecordError.message);
+      formRecordWarning = `Ошибка создания записи формы 037/у: ${workRecordError.message}`;
+      console.error(`⚠️  ${formRecordWarning} (appointment #${req.params.id})`, workRecordError.stack);
     }
 
     // Real-time уведомление
@@ -2218,7 +2239,9 @@ app.patch('/api/appointments/:id/fill-deferred-form', async (req, res) => {
       type: 'deferred_form_filled'
     });
 
-    res.json({ message: 'Данные формы 037/у заполнены', form_deferred: false });
+    const response = { message: 'Данные формы 037/у заполнены', form_deferred: false };
+    if (formRecordWarning) response.formWarning = formRecordWarning;
+    res.json(response);
   } catch (error) {
     console.error('Ошибка заполнения отложенной формы:', error);
     res.status(500).json({ error: error.message });
@@ -4669,6 +4692,168 @@ app.get('/api/report-039', async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка генерации отчёта 039/у:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ======================
+// ДИАГНОСТИКА: проверка таблицы doctor_work_records
+// ======================
+
+app.get('/api/debug/doctor-work-records-check', async (req, res) => {
+  try {
+    // Проверяем, существует ли таблица
+    const tableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'doctor_work_records'
+      )
+    `);
+
+    if (!tableExists[0]?.exists) {
+      return res.json({ ok: false, error: 'Таблица doctor_work_records не существует' });
+    }
+
+    // Получаем список колонок таблицы
+    const columns = await db.all(`
+      SELECT column_name, data_type, is_nullable 
+      FROM information_schema.columns 
+      WHERE table_name = 'doctor_work_records'
+      ORDER BY ordinal_position
+    `);
+    const columnNames = columns.map(c => c.column_name);
+
+    // Проверяем обязательные колонки
+    const requiredColumns = [
+      'doctor_id', 'record_date', 'record_time', 'patient_name', 'patient_address',
+      'citizenship_data', 'patient_age', 'visit_type', 'preventive_work',
+      'diagnosis_code', 'diagnosis_description', 'treatment_code', 'treatment_description',
+      'treatment_stage', 'population_type', 'appointment_id'
+    ];
+    const missingColumns = requiredColumns.filter(c => !columnNames.includes(c));
+
+    // Считаем общее количество записей
+    const countResult = await db.get('SELECT COUNT(*) as total FROM doctor_work_records');
+    
+    // Последние 5 записей (для диагностики)
+    const recentRecords = await db.all(`
+      SELECT id, doctor_id, record_date, diagnosis_code, treatment_code, visit_type, appointment_id, created_at
+      FROM doctor_work_records ORDER BY id DESC LIMIT 5
+    `);
+
+    res.json({
+      ok: missingColumns.length === 0,
+      tableExists: true,
+      columns: columnNames,
+      missingColumns,
+      totalRecords: countResult?.total || 0,
+      recentRecords
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message, stack: error.stack });
+  }
+});
+
+// ======================
+// РЕМОНТ: пересоздание doctor_work_records для завершённых приёмов, у которых записи формы потерялись
+// ======================
+
+app.post('/api/debug/repair-work-records', async (req, res) => {
+  try {
+    // Находим все завершённые приёмы (status IN ('ready_for_payment','completed','paid'))
+    // у которых form_deferred = false (форма должна была быть создана)
+    // и для которых НЕТ записи в doctor_work_records
+    const orphanedAppointments = await db.all(`
+      SELECT a.id, a.doctor_id, a.appointment_date, a.diagnosis, a.visit_type,
+             a.diagnosis_code, a.treatment_code, a.treatment_description,
+             a.preventive_work, a.treatment_stage, a.form_deferred,
+             c."lastName", c."firstName", c."middleName", c.address, 
+             c.citizenship_data, c.date_of_birth, c.population_type
+      FROM appointments a
+      LEFT JOIN clients c ON a.client_id = c.id
+      LEFT JOIN doctor_work_records dwr ON dwr.appointment_id = a.id
+      WHERE a.status IN ('ready_for_payment', 'completed', 'paid')
+        AND a.doctor_id IS NOT NULL
+        AND (a.form_deferred IS NULL OR a.form_deferred = false)
+        AND dwr.id IS NULL
+      ORDER BY a.id DESC
+    `);
+
+    if (orphanedAppointments.length === 0) {
+      return res.json({ repaired: 0, message: 'Все завершённые приёмы имеют записи в doctor_work_records' });
+    }
+
+    let repaired = 0;
+    const errors = [];
+
+    for (const appt of orphanedAppointments) {
+      try {
+        const patientName = [appt.lastName, appt.firstName, appt.middleName].filter(Boolean).join(' ');
+        
+        let patientAge = null;
+        if (appt.date_of_birth) {
+          const dob = new Date(appt.date_of_birth);
+          const today = new Date();
+          patientAge = today.getFullYear() - dob.getFullYear();
+          const m = today.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+            patientAge--;
+          }
+        }
+
+        let rawDate = appt.appointment_date;
+        if (rawDate instanceof Date) rawDate = rawDate.toISOString();
+        const appointmentDate = (rawDate && typeof rawDate === 'string') ? rawDate : new Date().toISOString().split('T')[0];
+        let recordDate = appointmentDate;
+        let recordTime = null;
+        if (typeof appointmentDate === 'string' && appointmentDate.includes(' ')) {
+          const parts = appointmentDate.split(' ');
+          recordDate = parts[0];
+          recordTime = parts[1] || null;
+        } else if (typeof appointmentDate === 'string' && appointmentDate.includes('T')) {
+          const parts = appointmentDate.split('T');
+          recordDate = parts[0];
+          recordTime = parts[1] ? parts[1].substring(0, 5) : null;
+        }
+
+        await db.run(`
+          INSERT INTO doctor_work_records 
+          (doctor_id, record_date, record_time, patient_name, patient_address, citizenship_data, patient_age, visit_type, preventive_work, diagnosis_code, diagnosis_description, treatment_code, treatment_description, treatment_stage, population_type, appointment_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        `, [
+          appt.doctor_id,
+          recordDate,
+          recordTime,
+          patientName || 'Неизвестный пациент',
+          appt.address || null,
+          appt.citizenship_data || null,
+          patientAge,
+          appt.visit_type || null,
+          appt.preventive_work || null,
+          appt.diagnosis_code || null,
+          appt.diagnosis || null,
+          appt.treatment_code || null,
+          appt.treatment_description || null,
+          appt.treatment_stage || null,
+          appt.population_type || 'city',
+          appt.id
+        ]);
+        repaired++;
+        console.log(`🔧 Восстановлена запись формы 037/у для приёма #${appt.id}`);
+      } catch (insertError) {
+        errors.push({ appointmentId: appt.id, error: insertError.message });
+        console.error(`⚠️  Ошибка восстановления записи для приёма #${appt.id}:`, insertError.message);
+      }
+    }
+
+    res.json({
+      found: orphanedAppointments.length,
+      repaired,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Восстановлено ${repaired} из ${orphanedAppointments.length} записей`
+    });
+  } catch (error) {
+    console.error('Ошибка ремонта doctor_work_records:', error);
     res.status(500).json({ error: error.message });
   }
 });

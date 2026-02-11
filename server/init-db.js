@@ -984,6 +984,32 @@ async function migrateDoctorWorkRecords() {
       console.log('   ✅ Таблица doctor_work_records создана');
     } else {
       console.log('   ✅ Таблица doctor_work_records уже существует');
+      
+      // Проверяем и добавляем недостающие колонки (если таблица была создана старой версией)
+      const columnsToCheck = [
+        { column: 'appointment_id', type: 'INTEGER', desc: 'ID записи' },
+        { column: 'citizenship_data', type: 'TEXT', desc: 'данных о гражданстве' },
+        { column: 'preventive_work', type: 'TEXT', desc: 'профилактической работы' },
+        { column: 'treatment_stage', type: 'TEXT', desc: 'этапа лечения' },
+        { column: 'population_type', type: "TEXT DEFAULT 'city'", desc: 'типа населения' },
+      ];
+
+      for (const { column, type, desc } of columnsToCheck) {
+        try {
+          const exists = await db.all(`
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name = 'doctor_work_records' AND column_name = $1
+          `, [column]);
+
+          if (exists.length === 0) {
+            console.log(`   🔄 Добавление поля ${column} в doctor_work_records...`);
+            await db.run(`ALTER TABLE doctor_work_records ADD COLUMN ${column} ${type}`);
+            console.log(`   ✅ Поле ${desc} добавлено в doctor_work_records`);
+          }
+        } catch (colError) {
+          console.error(`   ⚠️  Ошибка добавления ${column} в doctor_work_records:`, colError.message);
+        }
+      }
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции doctor_work_records:', error.message);
