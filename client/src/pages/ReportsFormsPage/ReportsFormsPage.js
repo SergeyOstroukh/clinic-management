@@ -505,6 +505,11 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
     const isRural = (r) => r.population_type === 'rural';
     const isChild = (r) => r.patient_age !== null && r.patient_age !== undefined && r.patient_age < 18;
     const isAdult = (r) => r.patient_age === null || r.patient_age === undefined || r.patient_age >= 18;
+    // Проверка: содержит ли поле (возможно через запятую) конкретный код
+    const fieldHasCode = (fieldValue, code) => {
+      if (!fieldValue) return false;
+      return fieldValue.split(',').map(s => s.trim()).includes(code);
+    };
 
     // Вычислить значение ячейки для конкретной строки и дня (или итого)
     const getCellValue = (rowCode, day) => {
@@ -588,7 +593,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
 
       // === ДИАГНОЗЫ (коды 10–199) ===
       else if (/^\d+$/.test(code) && parseInt(code) >= 10 && parseInt(code) < 200) {
-        count = countByFilter(r => r.diagnosis_code === code);
+        count = countByFilter(r => fieldHasCode(r.diagnosis_code, code));
       }
       // 200 — Проведено консультаций
       else if (code === '200') {
@@ -610,10 +615,10 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         if (CHILD_SUBCODES[code]) {
           // Авто-расчёт: считаем записи с родительским кодом лечения у пациентов до 18 лет
           const parentCode = CHILD_SUBCODES[code];
-          count = countByFilter(r => r.treatment_code === parentCode && isChild(r));
+          count = countByFilter(r => fieldHasCode(r.treatment_code, parentCode) && isChild(r));
         } else {
-          // Обычное точное совпадение с treatment_code
-          count = countByFilter(r => r.treatment_code === code);
+          // Проверка: содержит ли treatment_code данный код (с учётом мультивыбора через запятую)
+          count = countByFilter(r => fieldHasCode(r.treatment_code, code));
         }
       }
       else return '';

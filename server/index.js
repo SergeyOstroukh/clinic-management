@@ -4640,19 +4640,23 @@ app.get('/api/report-039', async (req, res) => {
       dailyData
     };
     
-    // Группировка диагнозов по кодам
+    // Группировка диагнозов по кодам (поддержка мультивыбора через запятую)
     for (const record of records) {
       if (record.diagnosis_code) {
-        const code = record.diagnosis_code.trim();
-        summary.diagnosisCounts[code] = (summary.diagnosisCounts[code] || 0) + 1;
+        const codes = record.diagnosis_code.split(',').map(s => s.trim()).filter(Boolean);
+        for (const code of codes) {
+          summary.diagnosisCounts[code] = (summary.diagnosisCounts[code] || 0) + 1;
+        }
       }
     }
     
-    // Группировка лечения по кодам
+    // Группировка лечения по кодам (поддержка мультивыбора через запятую)
     for (const record of records) {
       if (record.treatment_code) {
-        const code = record.treatment_code.trim();
-        summary.treatmentCounts[code] = (summary.treatmentCounts[code] || 0) + 1;
+        const codes = record.treatment_code.split(',').map(s => s.trim()).filter(Boolean);
+        for (const code of codes) {
+          summary.treatmentCounts[code] = (summary.treatmentCounts[code] || 0) + 1;
+        }
       }
     }
     
