@@ -20,7 +20,7 @@ export const NavigationCards = ({
     { id: 'materials', icon: '📦', title: 'Все материалы', gradient: 'materials', allowedRoles: ['superadmin'] },
     { id: 'composite-services', icon: '🔧', title: 'Конструктор услуг', gradient: 'services', allowedRoles: ['superadmin'] },
     { id: 'statistics', icon: '📊', title: 'Статистика и отчеты', gradient: 'reports', allowedRoles: ['superadmin'] },
-    { id: 'reports-forms', icon: '📋', title: 'Отчёты / Формы', gradient: 'reports', allowedRoles: ['superadmin', 'doctor'] },
+    { id: 'reports-forms', icon: '📋', title: 'Отчёты / Формы', gradient: 'reports', allowedRoles: ['superadmin', 'administrator', 'doctor'] },
   ];
 
   // Фильтруем карточки по роли пользователя

@@ -1584,8 +1584,8 @@ function App() {
           />
         )}
 
-        {/* Отчёты / Формы (037/у, 039/у) — доступно superadmin и врачам */}
-        {currentView === 'reports-forms' && (currentUser.role === 'superadmin' || currentUser.role === 'doctor') && (
+        {/* Отчёты / Формы (037/у, 039/у) — доступно superadmin, administrator и врачам */}
+        {currentView === 'reports-forms' && (currentUser.role === 'superadmin' || currentUser.role === 'administrator' || currentUser.role === 'doctor') && (
           <ReportsFormsPage onNavigate={setCurrentView} currentUser={currentUser} />
         )}
 

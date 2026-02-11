@@ -784,20 +784,32 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
 
       {/* Фильтры */}
       <div className="reports-filters">
-        <div className="filter-group">
-          <label>Врач</label>
-          <select
-            value={selectedDoctorId}
-            onChange={(e) => setSelectedDoctorId(e.target.value)}
-          >
-            <option value="">Выберите врача</option>
-            {doctors.map(doctor => (
-              <option key={doctor.id} value={doctor.id}>
-                {doctor.lastName} {doctor.firstName} {doctor.middleName || ''} — {doctor.specialization || ''}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Выбор врача — только для администраторов. Врач видит только свои данные */}
+        {currentUser?.role !== 'doctor' ? (
+          <div className="filter-group">
+            <label>Врач</label>
+            <select
+              value={selectedDoctorId}
+              onChange={(e) => setSelectedDoctorId(e.target.value)}
+            >
+              <option value="">Выберите врача</option>
+              {doctors.map(doctor => (
+                <option key={doctor.id} value={doctor.id}>
+                  {doctor.lastName} {doctor.firstName} {doctor.middleName || ''} — {doctor.specialization || ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="filter-group">
+            <label>Врач</label>
+            <span style={{ fontWeight: 600, fontSize: '15px' }}>
+              {doctors.find(d => String(d.id) === selectedDoctorId)
+                ? `${doctors.find(d => String(d.id) === selectedDoctorId).lastName} ${doctors.find(d => String(d.id) === selectedDoctorId).firstName} ${doctors.find(d => String(d.id) === selectedDoctorId).middleName || ''}`
+                : currentUser?.full_name || 'Загрузка...'}
+            </span>
+          </div>
+        )}
         <div className="filter-group">
           <label>Месяц</label>
           <select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
