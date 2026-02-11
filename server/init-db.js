@@ -38,6 +38,21 @@ async function initializeDatabase() {
     await migrateAppointmentDuration();
     console.log('✅ Миграция duration в appointments проверена');
     
+    await migrateDoctorWorkRecords();
+    console.log('✅ Миграция doctor_work_records проверена');
+    
+    await migrateClientCitizenship();
+    console.log('✅ Миграция citizenship_data в clients проверена');
+    
+    await migrateAppointmentFormFields();
+    console.log('✅ Миграция полей формы 037/у в appointments проверена');
+    
+    await migratePopulationTypeAndTreatmentStage();
+    console.log('✅ Миграция population_type и treatment_stage проверена');
+    
+    await migrateFormDeferred();
+    console.log('✅ Миграция form_deferred в appointments проверена');
+    
     console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error.message);
@@ -914,6 +929,185 @@ async function migrateAppointmentDuration() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции duration:', error.message);
+  }
+}
+
+// Миграция: создание таблицы doctor_work_records для формы 037/у
+async function migrateDoctorWorkRecords() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция doctor_work_records доступна только для PostgreSQL');
+      return;
+    }
+
+    const tableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'doctor_work_records'
+      )
+    `);
+
+    if (!tableExists[0]?.exists) {
+      console.log('   🔄 Создание таблицы doctor_work_records (форма 037/у)...');
+      
+      await db.run(`
+        CREATE TABLE doctor_work_records (
+          id SERIAL PRIMARY KEY,
+          doctor_id INTEGER NOT NULL,
+          record_date DATE NOT NULL,
+          record_time TEXT,
+          patient_name TEXT NOT NULL,
+          patient_address TEXT,
+          citizenship_data TEXT,
+          patient_age INTEGER,
+          visit_type TEXT,
+          preventive_work TEXT,
+          diagnosis_code TEXT,
+          diagnosis_description TEXT,
+          treatment_code TEXT,
+          treatment_description TEXT,
+          appointment_id INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (doctor_id) REFERENCES doctors(id),
+          FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+        )
+      `);
+      
+      // Индексы для быстрого поиска
+      await db.run(`CREATE INDEX idx_dwr_doctor_id ON doctor_work_records(doctor_id)`);
+      await db.run(`CREATE INDEX idx_dwr_record_date ON doctor_work_records(record_date)`);
+      await db.run(`CREATE INDEX idx_dwr_doctor_date ON doctor_work_records(doctor_id, record_date)`);
+      
+      console.log('   ✅ Таблица doctor_work_records создана');
+    } else {
+      console.log('   ✅ Таблица doctor_work_records уже существует');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции doctor_work_records:', error.message);
+  }
+}
+
+// Миграция: добавление citizenship_data в таблицу clients
+async function migrateClientCitizenship() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция citizenship_data доступна только для PostgreSQL');
+      return;
+    }
+
+    const columnExists = await db.all(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'clients' AND column_name = $1
+    `, ['citizenship_data']);
+
+    if (columnExists.length === 0) {
+      console.log('   🔄 Добавление поля citizenship_data в таблицу clients...');
+      await db.run(`ALTER TABLE clients ADD COLUMN citizenship_data TEXT`);
+      console.log('   ✅ Поле citizenship_data добавлено');
+    } else {
+      console.log('   ✅ Поле citizenship_data уже существует');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции citizenship_data:', error.message);
+  }
+}
+
+// Миграция: добавление полей формы 037/у в таблицу appointments
+async function migrateAppointmentFormFields() {
+  try {
+    const { usePostgres } = require('./database');
+    
+    if (!usePostgres) {
+      console.log('   ℹ️  Миграция полей формы 037/у доступна только для PostgreSQL');
+      return;
+    }
+
+    const fields = [
+      { column: 'visit_type', type: 'TEXT', desc: 'вида посещения' },
+      { column: 'diagnosis_code', type: 'TEXT', desc: 'кода диагноза МКБ-10С' },
+      { column: 'treatment_code', type: 'TEXT', desc: 'кода лечения' },
+      { column: 'treatment_description', type: 'TEXT', desc: 'описания лечения' },
+      { column: 'preventive_work', type: 'TEXT', desc: 'лечебно-профилактической работы' },
+    ];
+
+    for (const { column, type, desc } of fields) {
+      const columnExists = await db.all(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'appointments' AND column_name = $1
+      `, [column]);
+
+      if (columnExists.length === 0) {
+        console.log(`   🔄 Добавление поля ${column} в appointments...`);
+        await db.run(`ALTER TABLE appointments ADD COLUMN ${column} ${type}`);
+        console.log(`   ✅ Поле ${desc} добавлено`);
+      } else {
+        console.log(`   ✅ Поле ${desc} уже существует`);
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции полей формы 037/у:', error.message);
+  }
+}
+
+// Миграция: population_type в clients + treatment_stage в appointments + новые поля в doctor_work_records
+async function migratePopulationTypeAndTreatmentStage() {
+  try {
+    const { usePostgres } = require('./database');
+    if (!usePostgres) return;
+
+    const fields = [
+      { table: 'clients', column: 'population_type', type: "TEXT DEFAULT 'city'", desc: 'типа населения (город/село)' },
+      { table: 'appointments', column: 'treatment_stage', type: 'TEXT', desc: 'этапа лечения (Л1/Л2/Л3)' },
+      { table: 'doctor_work_records', column: 'treatment_stage', type: 'TEXT', desc: 'этапа лечения в записи формы' },
+      { table: 'doctor_work_records', column: 'population_type', type: "TEXT DEFAULT 'city'", desc: 'типа населения в записи формы' },
+    ];
+
+    for (const { table, column, type, desc } of fields) {
+      const exists = await db.all(`
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name = $1 AND column_name = $2
+      `, [table, column]);
+
+      if (exists.length === 0) {
+        console.log(`   🔄 Добавление поля ${column} в ${table}...`);
+        await db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+        console.log(`   ✅ Поле ${desc} добавлено`);
+      } else {
+        console.log(`   ✅ Поле ${desc} уже существует`);
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции population_type/treatment_stage:', error.message);
+  }
+}
+
+// Миграция: form_deferred в appointments — флаг «заполнить данные формы 037/у позже»
+async function migrateFormDeferred() {
+  try {
+    const { usePostgres } = require('./database');
+    if (!usePostgres) return;
+
+    const exists = await db.all(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = $1 AND column_name = $2
+    `, ['appointments', 'form_deferred']);
+
+    if (exists.length === 0) {
+      console.log('   🔄 Добавление поля form_deferred в appointments...');
+      await db.run(`ALTER TABLE appointments ADD COLUMN form_deferred BOOLEAN DEFAULT FALSE`);
+      console.log('   ✅ Поле form_deferred добавлено');
+    } else {
+      console.log('   ✅ Поле form_deferred уже существует');
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции form_deferred:', error.message);
   }
 }
 

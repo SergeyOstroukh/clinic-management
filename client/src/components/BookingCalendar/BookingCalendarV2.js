@@ -211,7 +211,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     middleName: '',
     phone: '',
     date_of_birth: '',
-    passport_number: ''
+    passport_number: '',
+    citizenship_data: '',
+    population_type: 'city'
   });
 
   useEffect(() => {
@@ -569,27 +571,26 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
                 })() : false;
 
-                // Сохраняем все слоты (включая занятые), но только не прошедшие
-                if (!isPast) {
-                  if (!slotsByDate[dateStr]) {
-                    slotsByDate[dateStr] = [];
-                  }
-                  slotsByDate[dateStr].push({
-                    doctor,
-                    time,
-                    year: currentYear,
-                    month: currentMonth,
-                    day,
-                    dateStr,
-                    isBooked,
-                    isAppointmentStart,
-                    appointment: bookingAppointment || null,
-                    scheduleBlock: scheduleIndex, // Индекс блока расписания
-                    isFirstInBlock: timeIndex === 0, // Первый слот в блоке
-                    scheduleStart: s.start_time,
-                    scheduleEnd: s.end_time
-                  });
+                // Сохраняем все слоты (включая занятые и прошедшие)
+                if (!slotsByDate[dateStr]) {
+                  slotsByDate[dateStr] = [];
                 }
+                slotsByDate[dateStr].push({
+                  doctor,
+                  time,
+                  year: currentYear,
+                  month: currentMonth,
+                  day,
+                  dateStr,
+                  isBooked,
+                  isPast,
+                  isAppointmentStart,
+                  appointment: bookingAppointment || null,
+                  scheduleBlock: scheduleIndex, // Индекс блока расписания
+                  isFirstInBlock: timeIndex === 0, // Первый слот в блоке
+                  scheduleStart: s.start_time,
+                  scheduleEnd: s.end_time
+                });
               });
             });
           }
@@ -696,16 +697,21 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
         return slotDateTime.getTime() >= now.getTime();
       });
-      if (availableToday.length === 0) return 'past-today';
+      // Если нет свободных будущих слотов, но есть занятые — показываем как занято
+      if (availableToday.length === 0 && bookedSlots.length === 0) return 'past-today';
+      if (availableToday.length === 0 && bookedSlots.length > 0) return 'fully-booked';
     }
     
+    // Считаем только НЕ прошедшие свободные слоты для статуса
+    const activeFreeSlots = freeSlots.filter(slot => !slot.isPast);
+    
     // Если есть занятые слоты, показываем как частично занятый
-    if (bookedSlots.length > 0 && freeSlots.length > 0) {
+    if (bookedSlots.length > 0 && activeFreeSlots.length > 0) {
       return 'partially-booked';
     }
     
-    // Если все слоты заняты
-    if (bookedSlots.length > 0 && freeSlots.length === 0) {
+    // Если все слоты заняты или свободные прошли
+    if (bookedSlots.length > 0 && activeFreeSlots.length === 0) {
       return 'fully-booked';
     }
     
@@ -1343,7 +1349,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       
       // Закрываем модалку создания клиента
       setShowCreateClientModal(false);
-      setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '' });
+      setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
       
       if (toast) toast.success('✅ Клиент успешно создан!');
     } catch (error) {
@@ -3300,7 +3306,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               <button
                 onClick={() => {
                   setShowCreateClientModal(false);
-                  setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '' });
+                  setNewClientForm({ lastName: '', firstName: '', middleName: '', phone: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
                 }}
                 style={{
                   padding: '10px 20px',

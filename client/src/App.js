@@ -11,6 +11,7 @@ import { StatisticsPage } from './pages/StatisticsPage';
 import CompositeServicesPage from './pages/CompositeServicesPage';
 import { LoginPage } from './pages/LoginPage';
 import { DoctorDashboard } from './pages/DoctorDashboard';
+import { ReportsFormsPage } from './pages/ReportsFormsPage';
 import DoctorSchedule from './components/DoctorSchedule/DoctorSchedule';
 import BookingCalendar from './components/BookingCalendar/BookingCalendarV2';
 import ChangePassword from './components/ChangePassword';
@@ -112,10 +113,13 @@ function App() {
   const [waitingNotification, setWaitingNotification] = useState(null);
   const [waitingQueue, setWaitingQueue] = useState([]);
   const acknowledgedPatientsRef = useRef(new Set());
+  
+  // Количество отложенных форм (для бейджа на карточке «Мой кабинет»)
+  const [deferredFormsCount, setDeferredFormsCount] = useState(0);
 
   // Формы
   const [clientForm, setClientForm] = useState({ 
-    lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' 
+    lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city'
   });
   const [appointmentForm, setAppointmentForm] = useState({
     client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
@@ -237,12 +241,36 @@ function App() {
     }
   }, []);
 
+  // Загрузка количества отложенных форм для врача (для бейджа)
+  const loadDeferredFormsCount = useCallback(async () => {
+    if (currentUser?.role !== 'doctor' || !currentUser?.doctor_id) return;
+    try {
+      const res = await axios.get(`${API_URL}/appointments/deferred-forms`, {
+        params: { doctor_id: currentUser.doctor_id }
+      });
+      setDeferredFormsCount(res.data.length);
+    } catch (err) {
+      console.error('Ошибка загрузки количества отложенных форм:', err);
+    }
+  }, [currentUser?.role, currentUser?.doctor_id]);
+
+  // Загружаем при авторизации и при обновлении записей
+  useEffect(() => {
+    if (isAuthenticated) loadDeferredFormsCount();
+    
+    // Обновляем при событиях обновления записей (завершение приема и т.д.)
+    const handler = () => loadDeferredFormsCount();
+    window.addEventListener('appointmentUpdated', handler);
+    return () => window.removeEventListener('appointmentUpdated', handler);
+  }, [isAuthenticated, loadDeferredFormsCount]);
+
   // === Socket.IO: Real-time синхронизация ===
   // При изменении записи (статус, оплата, завершение приема) — обновляем данные
   useSocketEvent('appointmentUpdated', useCallback((data) => {
     console.log('🔌 Real-time: запись обновлена', data);
     if (isAuthenticated) {
       loadData();
+      loadDeferredFormsCount();
       // Уведомляем внутренние компоненты (календарь и т.д.)
       window.dispatchEvent(new Event('appointmentUpdated'));
       
@@ -252,7 +280,7 @@ function App() {
         toast.info('💰 Приём завершён — готово к оплате');
       }
     }
-  }, [isAuthenticated, loadData, currentUser?.role, playPaymentReady, toast]));
+  }, [isAuthenticated, loadData, loadDeferredFormsCount, currentUser?.role, playPaymentReady, toast]));
 
   // При создании новой записи — обновляем данные
   useSocketEvent('appointmentCreated', useCallback((data) => {
@@ -625,7 +653,7 @@ function App() {
       await loadData();
       
       // Очищаем форму и закрываем модалку
-      setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
+      setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
       setEditingClient(null);
       setShowClientModal(false);
     } catch (error) {
@@ -905,6 +933,7 @@ function App() {
           servicesCount={services.length}
           materialsCount={materials.length}
           currentUser={currentUser}
+          deferredFormsCount={deferredFormsCount}
         />
 
         {/* Заголовок и кнопки */}
@@ -1107,7 +1136,7 @@ function App() {
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
                 <button className="btn btn-primary" onClick={() => {
                   setEditingClient(null);
-                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
+                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
                   setShowClientModal(true);
                 }}>+ Добавить клиента</button>
               </div>
@@ -1221,7 +1250,9 @@ function App() {
                                         if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
                                         return String(v).slice(0, 10);
                                       })(),
-                                      passport_number: client.passport_number || ''
+                                      passport_number: client.passport_number || '',
+                                      citizenship_data: client.citizenship_data || '',
+                                      population_type: client.population_type || 'city'
                                     });
                                     setShowClientModal(true);
                                   }}
@@ -1553,18 +1584,11 @@ function App() {
           />
         )}
 
-        {/* Отчеты - только для superadmin (старая версия, можно удалить позже) */}
-        {currentView === 'reports' && currentUser.role === 'superadmin' && (
-          <div>
-            <div className="section-header">
-              <h2>📊 Отчеты и статистика</h2>
-              <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
-            </div>
-            <div className="empty-state">
-              <p>Раздел в разработке</p>
-            </div>
-          </div>
+        {/* Отчёты / Формы (037/у, 039/у) — доступно superadmin и врачам */}
+        {currentView === 'reports-forms' && (currentUser.role === 'superadmin' || currentUser.role === 'doctor') && (
+          <ReportsFormsPage onNavigate={setCurrentView} currentUser={currentUser} />
         )}
+
 
         {/* Расписание врачей - доступно всем */}
         {/* Личный кабинет врача */}
@@ -1734,7 +1758,7 @@ function App() {
                   className="btn btn-small"
                   onClick={() => {
                     setEditingClient(null);
-                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '' });
+                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
                     setShowClientModal(true);
                   }}
                 >
@@ -2335,6 +2359,23 @@ function App() {
                 value={clientForm.passport_number}
                 onChange={(e) => setClientForm({ ...clientForm, passport_number: e.target.value })}
               />
+
+              <label>Гражданство (для иностранных граждан)</label>
+              <input
+                type="text"
+                placeholder="Например: Российская Федерация"
+                value={clientForm.citizenship_data}
+                onChange={(e) => setClientForm({ ...clientForm, citizenship_data: e.target.value })}
+              />
+
+              <label>Тип населения (для форм 037/039)</label>
+              <select
+                value={clientForm.population_type || 'city'}
+                onChange={(e) => setClientForm({ ...clientForm, population_type: e.target.value })}
+              >
+                <option value="city">Городское население</option>
+                <option value="rural">Сельское население</option>
+              </select>
 
               <label>Телефон *</label>
               <PhoneInput

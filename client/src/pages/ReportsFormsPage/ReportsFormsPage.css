@@ -1,0 +1,937 @@
+/* ============================
+   ReportsFormsPage — Формы 037/у и 039/у
+   ============================ */
+
+.reports-forms-page {
+  padding: 0;
+}
+
+/* Фильтры */
+.reports-filters {
+  display: flex;
+  gap: 20px;
+  padding: 16px 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 180px;
+}
+
+.filter-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #fff;
+}
+
+/* Вкладки */
+.reports-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.tab-btn {
+  padding: 12px 24px;
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #777;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  color: #333;
+  background: #f5f5f5;
+}
+
+.tab-btn.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+.tab-content {
+  padding: 20px 0;
+}
+
+/* ============================
+   Форма 037/у — Листок учёта
+   ============================ */
+
+.form-037-container {
+  background: #fff;
+}
+
+.form-037-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.form-header-info h3 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.form-subtitle {
+  margin: 0 0 10px;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.form-doctor-info {
+  display: flex;
+  gap: 20px;
+  font-size: 0.9rem;
+  color: #555;
+  flex-wrap: wrap;
+}
+
+/* Таблица 037/у */
+.form-037-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+.form-037-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 1000px;
+}
+
+.form-037-table thead {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.form-037-table thead th {
+  padding: 10px 8px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.form-037-table tbody tr {
+  border-bottom: 1px solid #eee;
+  transition: background 0.15s;
+}
+
+.form-037-table tbody tr:hover {
+  background: #f8f9ff;
+}
+
+.form-037-table tbody td {
+  padding: 8px;
+  vertical-align: top;
+}
+
+.col-num { width: 40px; text-align: center; }
+.col-date { width: 90px; }
+.col-name { min-width: 150px; font-weight: 500; }
+.col-address { min-width: 130px; }
+.col-age { width: 45px; text-align: center; }
+.col-visit { width: 100px; }
+.col-preventive { width: 110px; }
+.col-diagnosis { min-width: 120px; }
+.col-diagcode { width: 60px; text-align: center; }
+.col-stage { width: 60px; text-align: center; }
+.col-treatment { min-width: 120px; }
+.col-actions { width: 80px; text-align: center; white-space: nowrap; }
+
+.time-small {
+  font-size: 0.8rem;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.citizenship-small {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+}
+
+.code-badge {
+  display: inline-block;
+  background: #e8efff;
+  color: #667eea;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.desc-small {
+  font-size: 0.78rem;
+  color: #666;
+  line-height: 1.3;
+}
+
+/* ============================
+   Форма 039/у — Дневник учёта
+   ============================ */
+
+.form-039-container {
+  background: #fff;
+}
+
+.form-039-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.form-039-header h3 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+/* Обёртка таблицы 039/у (горизонтальная прокрутка) */
+.form-039-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+/* Сводная таблица 039/у */
+.form-039-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  table-layout: fixed;
+}
+
+.form-039-table thead {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.form-039-table thead th {
+  padding: 6px 2px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.form-039-table th,
+.form-039-table td {
+  border: 1px solid #ddd;
+  padding: 3px 2px;
+  text-align: center;
+}
+
+/* Колонка наименования */
+.form-039-table .col-039-label {
+  width: 300px;
+  min-width: 260px;
+  text-align: left;
+  padding-left: 8px;
+  white-space: normal;
+}
+
+.form-039-table .col-039-code {
+  width: 50px;
+  min-width: 40px;
+}
+
+.form-039-table .row-label {
+  text-align: left;
+  padding-left: 8px;
+  white-space: normal;
+  word-wrap: break-word;
+  font-weight: 500;
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.form-039-table .row-label.indent-1 {
+  padding-left: 20px;
+  font-weight: 400;
+}
+
+.form-039-table .row-label.indent-2 {
+  padding-left: 34px;
+  font-weight: 400;
+  font-size: 0.74rem;
+}
+
+.form-039-table .row-code {
+  font-weight: 600;
+  color: #667eea;
+  width: 50px;
+  text-align: center;
+}
+
+.form-039-table .day-col {
+  width: 26px;
+  min-width: 22px;
+  font-size: 0.72rem;
+}
+
+.form-039-table .day-col.has-value {
+  background: #e8f5e9;
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.form-039-table .total-col {
+  width: 48px;
+  min-width: 40px;
+  font-weight: 700;
+  background: #fff3e0;
+}
+
+.form-039-table .total-value {
+  color: #e65100;
+  font-size: 0.82rem;
+}
+
+/* Строка-заголовок раздела */
+.row-039-section .section-label {
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  background: #f0f4ff;
+  color: #333;
+  border-bottom: 2px solid #667eea;
+}
+
+/* Строка данных — hover */
+.row-039-data {
+  transition: background 0.15s;
+}
+
+.row-039-data:hover {
+  background: #f8f9ff;
+}
+
+.form-039-footer {
+  margin-top: 20px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+/* На экране скрываем подписи и сноски 039/у */
+.form-039-footer .print-signatures,
+.form-039-footer .print-footnote-line,
+.form-039-footer .print-footnote {
+  display: none;
+}
+
+/* ============================
+   Модалка — широкая форма
+   ============================ */
+
+.modal-wide {
+  max-width: 900px !important;
+  width: 95%;
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.form-col {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-col-wide {
+  flex: 2;
+}
+
+.form-col label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 4px;
+}
+
+.form-col input,
+.form-col select,
+.form-col textarea {
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.form-col textarea {
+  resize: vertical;
+}
+
+/* ============================
+   Пустое состояние
+   ============================ */
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state p {
+  font-size: 1rem;
+  margin-bottom: 16px;
+}
+
+/* ============================
+   Адаптив
+   ============================ */
+
+@media (max-width: 768px) {
+  .reports-filters {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .filter-group {
+    min-width: 100%;
+  }
+
+  .reports-tabs {
+    overflow-x: auto;
+  }
+
+  .tab-btn {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .form-037-header {
+    flex-direction: column;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .form-col, .form-col-wide {
+    min-width: 100%;
+  }
+
+  .form-doctor-info {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* ============================
+   Кнопка печати
+   ============================ */
+
+.form-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.btn-print {
+  background: linear-gradient(135deg, #43a047, #2e7d32) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.btn-print:hover {
+  opacity: 0.9;
+}
+
+/* Скрыть на экране элементы, предназначенные только для печати */
+.print-only {
+  display: none !important;
+}
+
+/* Скрыть столбец гражданства на экране (объединён с адресом) */
+.no-screen {
+  display: none;
+}
+
+/* Нумерация столбцов — скрыта на экране */
+.col-numbers-row {
+  display: none;
+}
+
+/* ====================================================================
+   @media print — ОФИЦИАЛЬНЫЙ ФОРМАТ ФОРМ 037/у и 039/у
+   ==================================================================== */
+
+@media print {
+  /* Скрыть всё ненужное */
+  .no-print,
+  .app-header,
+  .header-content,
+  .navigation-cards,
+  .section-header,
+  .reports-filters,
+  .reports-tabs,
+  .modal-overlay,
+  .col-actions,
+  .form-header-actions,
+  .empty-state {
+    display: none !important;
+  }
+
+  /* Показать элементы только для печати */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Показать столбец гражданства при печати */
+  .no-screen {
+    display: table-cell !important;
+  }
+
+  .col-numbers-row {
+    display: table-row !important;
+  }
+
+  /* Убираем поля страницы */
+  body, html {
+    margin: 0;
+    padding: 0;
+  }
+
+  .App, .main-content, .reports-forms-page, .tab-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Альбомная ориентация для 037/у */
+  @page {
+    size: landscape;
+    margin: 10mm 8mm;
+  }
+
+  /* ============================
+     Печатная шапка 037/у
+     ============================ */
+
+  .print-header-037 {
+    text-align: center;
+    margin-bottom: 14px;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .print-form-number {
+    text-align: right;
+    font-size: 10pt;
+    margin-bottom: 8px;
+  }
+
+  .print-org-name {
+    font-size: 11pt;
+    border-bottom: 1px solid #000;
+    display: inline-block;
+    min-width: 400px;
+    padding-bottom: 2px;
+    margin-bottom: 2px;
+  }
+
+  .print-org-label {
+    font-size: 8pt;
+    color: #555;
+    margin-bottom: 12px;
+  }
+
+  .print-title {
+    font-size: 13pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin: 10px 0;
+    line-height: 1.4;
+  }
+
+  .print-info-row {
+    text-align: left;
+    font-size: 10pt;
+    margin: 4px 0;
+    line-height: 1.6;
+  }
+
+  .print-info-row u {
+    text-decoration: none;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1px;
+  }
+
+  /* ============================
+     Таблица 037/у при печати
+     ============================ */
+
+  .form-037-table-wrapper {
+    border: none;
+    overflow: visible;
+  }
+
+  .form-037-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 8pt;
+    min-width: unset;
+  }
+
+  .form-037-table thead {
+    background: none !important;
+    color: #000 !important;
+  }
+
+  .form-037-table th,
+  .form-037-table td {
+    border: 1px solid #000 !important;
+    padding: 3px 4px !important;
+    color: #000 !important;
+    vertical-align: top;
+    font-size: 8pt;
+    line-height: 1.2;
+  }
+
+  .form-037-table thead th {
+    font-weight: bold;
+    text-align: center;
+    font-size: 7.5pt;
+    padding: 4px 2px !important;
+    white-space: normal;
+  }
+
+  .col-numbers-row th {
+    font-size: 7pt;
+    padding: 2px !important;
+    text-align: center;
+    font-weight: normal;
+    font-style: italic;
+  }
+
+  .form-037-table tbody tr {
+    border-bottom: none;
+  }
+
+  .form-037-table tbody tr:hover {
+    background: none !important;
+  }
+
+  /* Убираем декоративные стили для печати */
+  .code-badge {
+    background: none !important;
+    color: #000 !important;
+    padding: 0 !important;
+    font-size: 8pt;
+  }
+
+  .time-small {
+    color: #000 !important;
+    font-size: 7.5pt;
+  }
+
+  .desc-small {
+    font-size: 7.5pt;
+    color: #000 !important;
+  }
+
+  .citizenship-small {
+    color: #000 !important;
+    font-style: normal;
+  }
+
+  /* Ширины столбцов при печати */
+  .print-col-num { width: 3%; }
+  .print-col-date { width: 7%; }
+  .print-col-name { width: 14%; }
+  .print-col-address { width: 12%; }
+  .print-col-citizenship { width: 8%; }
+  .print-col-age { width: 4%; }
+  .print-col-visit { width: 7%; }
+  .print-col-preventive { width: 8%; }
+  .print-col-diag { width: 14%; }
+  .print-col-diagcode { width: 4%; text-align: center; }
+  .print-col-stage { width: 4%; text-align: center; }
+  .print-col-tcode { width: 5%; }
+  .print-col-treat { width: 14%; }
+
+  /* ============================
+     Печатный подвал 037/у
+     ============================ */
+
+  /* Подвал 037/у */
+  .print-footer-037 {
+    margin-top: 16px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 9pt;
+  }
+
+  /* Подвал 039/у */
+  .print-footer-039 {
+    margin-top: 16px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 10pt;
+  }
+
+  .print-footnote-line {
+    margin-top: 12px;
+    font-size: 10pt;
+    color: #000;
+    line-height: 1;
+  }
+
+  .print-footnote {
+    font-size: 8pt;
+    font-style: italic;
+    margin: 2px 0 0 0;
+  }
+
+  /* Строка "Отработано рабочих дней ... Норма ..." для 039/у */
+  .print-workdays-row {
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 10pt;
+    margin-bottom: 24px;
+  }
+
+  .print-workdays-row u {
+    text-decoration: none;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1px;
+    min-width: 60px;
+    display: inline-block;
+    text-align: center;
+  }
+
+  /* Подписи 039/у */
+  .print-signatures {
+    margin-top: 20px;
+  }
+
+  .print-signature-block {
+    margin-bottom: 16px;
+  }
+
+  .print-signature-row {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  .print-sign-role {
+    flex: 0 0 auto;
+    min-width: 380px;
+    font-size: 10pt;
+  }
+
+  .print-sign-underline {
+    font-size: 10pt;
+  }
+
+  .print-sign-labels {
+    margin-top: 0;
+  }
+
+  .print-sign-labels .print-sign-label {
+    text-align: center;
+  }
+
+  .print-sign-label {
+    font-size: 7pt;
+    color: #555;
+    font-style: italic;
+  }
+
+  /* ============================
+     Печатная шапка 039/у
+     ============================ */
+
+  .print-header-039 {
+    text-align: center;
+    margin-bottom: 14px;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .print-info-row-inline {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 10pt;
+    margin-top: 10px;
+  }
+
+  .print-info-row-inline u {
+    text-decoration: none;
+    border-bottom: 1px solid #000;
+    padding-bottom: 1px;
+  }
+
+  .print-field-label {
+    font-size: 7pt;
+    color: #555;
+    font-style: italic;
+  }
+
+  /* ============================
+     Таблица 039/у при печати
+     ============================ */
+
+  .form-039-table-wrapper {
+    border: none;
+    overflow: visible;
+  }
+
+  .form-039-table {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 6.5pt;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .form-039-table thead {
+    background: none !important;
+    color: #000 !important;
+  }
+
+  .form-039-table thead th {
+    font-size: 6pt;
+    font-weight: bold;
+    padding: 2px 1px !important;
+    color: #000 !important;
+    white-space: nowrap;
+  }
+
+  .form-039-table th,
+  .form-039-table td {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    padding: 1px 1px !important;
+    font-size: 6.5pt;
+    line-height: 1.15;
+  }
+
+  .form-039-table .col-039-label {
+    width: 220px;
+    min-width: 180px;
+  }
+
+  .form-039-table .col-039-code {
+    width: 30px;
+    min-width: 25px;
+  }
+
+  .form-039-table .row-label {
+    text-align: left;
+    font-size: 6.5pt;
+    padding-left: 3px !important;
+    white-space: normal;
+    word-wrap: break-word;
+  }
+
+  .form-039-table .row-label.indent-1 {
+    padding-left: 10px !important;
+  }
+
+  .form-039-table .row-label.indent-2 {
+    padding-left: 18px !important;
+  }
+
+  .form-039-table .row-code {
+    color: #000 !important;
+    font-size: 6.5pt;
+  }
+
+  .form-039-table .day-col {
+    width: 16px;
+    min-width: 14px;
+    font-size: 6pt;
+  }
+
+  .form-039-table .day-col.has-value {
+    background: none !important;
+    color: #000 !important;
+  }
+
+  .form-039-table .total-col {
+    width: 30px;
+    min-width: 25px;
+    background: none !important;
+    color: #000 !important;
+  }
+
+  .form-039-table .total-value {
+    color: #000 !important;
+  }
+
+  /* Заголовки разделов при печати */
+  .row-039-section .section-label {
+    background: none !important;
+    border-bottom: 1px solid #000 !important;
+    font-size: 7pt;
+    font-weight: bold;
+    padding: 3px 3px !important;
+  }
+
+  .row-039-data:hover {
+    background: none !important;
+  }
+
+  .form-039-footer {
+    background: none !important;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 10pt;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Показать подписи и сноски при печати */
+  .form-039-footer .print-signatures,
+  .form-039-footer .print-footnote-line,
+  .form-039-footer .print-footnote {
+    display: block !important;
+  }
+
+  /* Не разрывать таблицу между страницами */
+  .form-037-table tr,
+  .form-039-table tr {
+    page-break-inside: avoid;
+  }
+}

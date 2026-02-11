@@ -69,6 +69,26 @@
   font-weight: 600;
 }
 
+.nav-card-badge {
+  background: #ff1744;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 10px;
+  padding: 0 5px;
+  box-shadow: 0 2px 6px rgba(255, 23, 68, 0.5);
+  animation: badge-pulse 2s infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
 @media (max-width: 768px) {
   .navigation-cards {
     grid-template-columns: repeat(2, 1fr);

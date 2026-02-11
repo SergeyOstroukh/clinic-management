@@ -359,6 +359,173 @@
   font-size: 1.1rem !important;
 }
 
+/* === Вкладка Отложенные формы === */
+.tab-deferred-badge {
+  background: #ff5722;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 8px;
+  min-width: 20px;
+  text-align: center;
+  display: inline-block;
+  line-height: 1.4;
+}
+
+.deferred-tab h3 {
+  margin: 0 0 10px 0;
+  color: #333;
+}
+
+.deferred-hint {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.deferred-empty {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f1f8f4;
+  border-radius: 12px;
+  border: 2px dashed #4caf50;
+}
+
+.deferred-empty-icon {
+  font-size: 3rem;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.deferred-empty p {
+  color: #2e7d32;
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.deferred-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deferred-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-left: 4px solid #ff9800;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.deferred-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.deferred-card-editing {
+  border-left-color: #2196F3;
+  box-shadow: 0 2px 12px rgba(33, 150, 243, 0.15);
+}
+
+.deferred-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  gap: 12px;
+}
+
+.deferred-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.deferred-card-patient {
+  font-weight: 600;
+  color: #333;
+  font-size: 15px;
+}
+
+.deferred-card-date {
+  font-size: 13px;
+  color: #666;
+}
+
+.deferred-card-diagnosis {
+  font-size: 13px;
+  color: #888;
+  font-style: italic;
+}
+
+.deferred-form {
+  padding: 16px;
+  background: #fafbff;
+  border-top: 1px solid #e0e0e0;
+}
+
+.deferred-form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.deferred-form-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.deferred-form-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 4px;
+}
+
+.deferred-form-select,
+.deferred-form-input,
+.deferred-form-textarea {
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.deferred-form-select:focus,
+.deferred-form-input:focus,
+.deferred-form-textarea:focus {
+  border-color: #2196F3;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.15);
+}
+
+.deferred-form-input {
+  margin-top: 4px;
+}
+
+.deferred-form-textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.deferred-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px dashed #e0e0e0;
+  margin-top: 4px;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
   .dashboard-header {
@@ -398,6 +565,16 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .deferred-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .deferred-form-row {
+    flex-direction: column;
+    gap: 10px;
   }
 }
 
