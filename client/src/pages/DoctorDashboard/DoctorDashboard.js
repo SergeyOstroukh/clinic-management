@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import axios from 'axios';
 import DoctorCalendar from '../../components/DoctorCalendar/DoctorCalendar';
 import './DoctorDashboard.css';
@@ -31,29 +32,43 @@ const PREVENTIVE_CODES = [
 
 const DIAGNOSIS_CODES_039 = [
   { code: '10',  label: 'Зубные отложения (К03.6)' },
-  { code: '20',  label: 'Некариозные поражения постоянных зубов' },
+  { code: '20',  label: 'Некариозные поражения постоянных зубов (К00.3-К00.5, К03.1, К03.2)' },
   { code: '21',  label: 'Некариозные поражения временных зубов' },
   { code: '30',  label: 'Кариес постоянных зубов (К02)' },
   { code: '31',  label: 'Кариес временных зубов' },
   { code: '40',  label: 'Пульпит постоянных зубов (К04.0-К04.3)' },
   { code: '41',  label: 'Пульпит временных зубов' },
-  { code: '50',  label: 'Апикальный периодонтит постоянных зубов' },
+  { code: '50',  label: 'Апикальный периодонтит постоянных зубов (К04.4-К04.7, К04.9)' },
   { code: '51',  label: 'Апикальный периодонтит временных зубов' },
   { code: '60',  label: 'Болезни пародонта (К05)' },
-  { code: '61',  label: 'Другие изменения десны (К06)' },
-  { code: '70',  label: 'Заболевания слизистой рта (К12-К14)' },
+  { code: '61',  label: 'Другие изменения десны и беззубого альвеолярного края (К06)' },
+  { code: '62',  label: 'Атрофия беззубого альвеолярного отростка (К08.2)' },
+  { code: '70',  label: 'Заболевания слизистой оболочки рта (К12-К12.1, К13, К14)' },
   { code: '80',  label: 'Кисты корневые (К04.8)' },
-  { code: '90',  label: 'Воспалительные заболевания кожи (L)' },
-  { code: '91',  label: 'Воспалительные заболевания челюстей' },
-  { code: '100', label: 'Поражения нервов (G50, G51, S04)' },
-  { code: '101', label: 'Болезни ВНЧС (K07.6)' },
-  { code: '103', label: 'Травмы костей, перелом зуба (S02)' },
-  { code: '106', label: 'Новообразования (C00-C06, D00)' },
-  { code: '108', label: 'Нарушение развития зубов (К00, К01)' },
-  { code: '109', label: 'Частичная адентия' },
-  { code: '110', label: 'Полная адентия' },
+  { code: '81',  label: 'Кисты полости рта (К09)' },
+  { code: '90',  label: 'Воспалительные заболевания кожи и подкожной клетчатки (L)' },
+  { code: '91',  label: 'Воспалительные заболевания челюстей (К10.2, К10.3, К10.9)' },
+  { code: '92',  label: 'Флегмона и абсцессы (К12.2)' },
+  { code: '100', label: 'Поражения тройничного и лицевого нервов (G50, G51, S04)' },
+  { code: '101', label: 'Болезни височно-нижнечелюстного сустава (K07.6)' },
+  { code: '102', label: 'Болезни слюнных желез (К11)' },
+  { code: '103', label: 'Травмы лицевых костей, челюстей, перелом зуба (S02)' },
+  { code: '104', label: 'Травмы головы (S00.5, S01.4, S01.5, S03.0, S03.2, S03.4)' },
+  { code: '105', label: 'Другие уточненные болезни челюсти, экзостозы (К10.8)' },
+  { code: '106', label: 'Новообразования (C00-C06, D00, D10.0-D10.3, D37)' },
+  { code: '107', label: 'Челюстно-лицевые и врожденные аномалии (К07.1-К07.5, К10.0, Q35-Q38)' },
+  { code: '108', label: 'Нарушение развития и прорезывания зубов (К00.1-К00.2, К00.6-К01)' },
+  { code: '109', label: 'Частичная адентия (К00.00, К08.1)' },
+  { code: '110', label: 'Полная адентия (К00.01, К08.1)' },
   { code: '111', label: 'Оставшийся корень зуба (К08.3)' },
+  { code: '112', label: 'Повышенное стирание зубов (К03.0)' },
+  { code: '113', label: 'Патологическая резорбция зубов (К03.3)' },
+  { code: '114', label: 'Другие болезни твердых тканей зубов (К03.7, К03.80)' },
+  { code: '115', label: 'Другие уточненные болезни твердых тканей зубов (К03.88)' },
+  { code: '116', label: 'Верхнечелюстной синусит (J01.0, J01.8, J32.0)' },
   { code: '117', label: 'Стоматологическое обследование (Z01.2)' },
+  { code: '118', label: 'Наличие имплантатов зубов и челюсти (Z96.5)' },
+  { code: '119', label: 'Наличие зубного протезного устройства (Z97.2)' },
   { code: '120', label: 'Прочие заболевания' },
 ];
 
@@ -63,34 +78,228 @@ const TREATMENT_STAGES = [
   { value: 'Л3', label: 'Л3 — Третий этап лечения' },
 ];
 
+// Коды лечения формы 039/у (графа 11) — полный список из приложения 2 (Постановление МЗ РБ №203 от 16.12.2025)
+// Коды лечения формы 039/у — ПОЛНЫЙ список из приложения 2 (Постановление МЗ РБ №203 от 16.12.2025), стр. 4-9
 const TREATMENT_CODES_039 = [
+  // Консультации
+  { code: '200', label: 'Проведено консультаций (с выдачей заключения)' },
+  // Профилактические мероприятия
   { code: '210', label: 'Беседа, мотивация, обучение гигиене' },
+  { code: '220', label: 'Контроль гигиены' },
   { code: '230', label: 'Применение фторпрепаратов местно' },
-  { code: '240', label: 'Герметизация фиссур' },
+  { code: '231', label: 'Профилактические мероприятия, связанные с лечением начального кариеса' },
+  { code: '240', label: 'Проведено герметизаций фиссур (всего)' },
+  { code: '241', label: 'Герметизация фиссур инвазивным методом' },
+  // Терапевтическое лечение
   { code: '300', label: 'Удаление зубных отложений' },
+  { code: '301', label: 'Удаление зубных отложений аппаратными методами' },
   { code: '310', label: 'Шинирование зубов' },
-  { code: '320', label: 'Другое лечение пародонта' },
-  { code: '330', label: 'Запломбировано постоянных зубов' },
-  { code: '340', label: 'Запломбировано временных зубов' },
+  { code: '320', label: 'Другое лечение заболеваний пародонта' },
+  { code: '321', label: 'Лечение пародонта с применением лазерных технологий' },
+  { code: '330', label: 'Запломбировано постоянных зубов (всего зубов)' },
+  { code: '331', label: 'Запломбировано постоянных зубов — дети (0-17 лет)' },
+  { code: '340', label: 'Запломбировано временных зубов (всего зубов)' },
   { code: '350', label: 'Наложено пломб (всего)' },
-  { code: '360', label: 'Эндодонтическое лечение постоянных зубов' },
-  { code: '370', label: 'Эндодонтическое лечение временных зубов' },
-  { code: '375', label: 'Закончено терапевтическое лечение' },
-  { code: '380', label: 'Закончено пародонтологическое лечение' },
+  { code: '351', label: 'Наложено пломб — дети (0-17 лет)' },
+  { code: '360', label: 'Законченное эндодонтическое лечение постоянных зубов (всего)' },
+  { code: '361', label: 'Эндодонтическое лечение по ортопедическим показаниям' },
+  { code: '362', label: 'Повторное эндодонтическое лечение' },
+  { code: '363', label: 'Эндодонтическое лечение постоянных зубов — дети (0-17 лет)' },
+  { code: '370', label: 'Законченное эндодонтическое лечение временных зубов (всего)' },
+  { code: '375', label: 'Число лиц, закончивших терапевтическое лечение' },
+  { code: '376', label: 'Закончили терапевтическое лечение — дети (0-17 лет)' },
+  { code: '380', label: 'Число лиц, закончивших пародонтологическое лечение' },
+  { code: '381', label: 'Закончили пародонтологическое лечение — дети (0-17 лет)' },
+  { code: '390', label: 'Число лиц, закончивших лечение заболеваний слизистой оболочки рта' },
+  { code: '391', label: 'Закончили лечение слизистой оболочки рта — дети (0-17 лет)' },
   { code: '395', label: 'Отбеливание зубов' },
-  { code: '400', label: 'Удалено постоянных зубов' },
-  { code: '410', label: 'Удалено временных зубов' },
-  { code: '420', label: 'Амбулаторно-хирургическая операция' },
+  // Амбулаторно-хирургическое лечение
+  { code: '400', label: 'Удалено постоянных зубов (всего)' },
+  { code: '401', label: 'Удалено постоянных зубов — дети (0-17 лет)' },
+  { code: '402', label: 'Удаление по ортодонтическим показаниям' },
+  { code: '403', label: 'Удаление по ортодонтическим показаниям — дети (0-17 лет)' },
+  { code: '404', label: 'Удалено дентальных имплантатов (всего)' },
+  { code: '410', label: 'Удалено временных зубов (всего)' },
+  { code: '411', label: 'Удаление временных зубов по физиологической смене' },
+  { code: '420', label: 'Число амбулаторно-хирургических операций (всего)' },
+  { code: '421', label: 'Амбулаторно-хирургические операции — дети (0-17 лет)' },
+  { code: '430', label: 'Операция в плановом порядке' },
+  { code: '431', label: 'Операция в плановом порядке — дети (0-17 лет)' },
+  { code: '432', label: 'Операция на мягких тканях' },
+  { code: '433', label: 'Операция на мягких тканях — дети (0-17 лет)' },
+  { code: '434', label: 'Операция на костях лицевого скелета' },
+  { code: '435', label: 'Костная аугментация' },
   { code: '436', label: 'Операция дентальной имплантации' },
-  { code: '460', label: 'Закончено хирургическое лечение' },
-  { code: '510', label: 'Изготовлено ортодонтических аппаратов' },
-  { code: '610', label: 'Одиночная коронка' },
-  { code: '620', label: 'Мостовидный протез' },
-  { code: '650', label: 'Съемный протез' },
-  { code: '660', label: 'Закончено ортопедическое лечение' },
+  { code: '437', label: 'Синус-лифтинг' },
+  { code: '438', label: 'Другие операции (экзостозы, органосохраняющие и др.)' },
+  { code: '439', label: 'Операции на костях лицевого скелета — дети (0-17 лет)' },
+  { code: '440', label: 'Операция по экстренным показаниям' },
+  { code: '441', label: 'Операция по экстренным показаниям — дети (0-17 лет)' },
+  { code: '442', label: 'Операция по поводу травм' },
+  { code: '443', label: 'Операция по поводу травм — дети (0-17 лет)' },
+  { code: '444', label: 'Операция по поводу воспалительных заболеваний' },
+  { code: '445', label: 'Операция по поводу воспалительных заболеваний — дети (0-17 лет)' },
+  { code: '446', label: 'Другие экстренные операции' },
+  { code: '447', label: 'Другие экстренные операции — дети (0-17 лет)' },
+  { code: '450', label: 'Местное лечение открытых ран (перевязки, снятие шин и иное)' },
+  { code: '451', label: 'Местное лечение открытых ран — дети (0-17 лет)' },
+  { code: '460', label: 'Число лиц, закончивших хирургическое лечение' },
+  { code: '461', label: 'Закончили хирургическое лечение — дети (0-17 лет)' },
+  // Ортодонтическое лечение
+  { code: '500', label: 'Число лиц, взятых на ортодонтическое лечение (всего)' },
+  { code: '501', label: 'Взяты на ортодонтическое лечение — дети (0-17 лет)' },
+  { code: '510', label: 'Изготовлено ортодонтических аппаратов и местосохраняющих конструкций (всего)' },
+  { code: '511', label: 'Механический съемный аппарат' },
+  { code: '512', label: 'Механический несъемный аппарат' },
+  { code: '513', label: 'Функциональный аппарат' },
+  { code: '514', label: 'Функционально-направляющий аппарат' },
+  { code: '515', label: 'Сочетанный аппарат' },
+  { code: '516', label: 'Съемный местосохраняющий' },
+  { code: '517', label: 'Несъемный местосохраняющий' },
+  { code: '520', label: 'Число лиц, закончивших ортодонтическое лечение (всего)' },
+  { code: '521', label: 'Закончили ортодонтическое лечение — дети (0-17 лет)' },
+  { code: '522', label: 'С аномалиями отдельных зубов' },
+  { code: '523', label: 'С аномалиями зубных рядов' },
+  { code: '524', label: 'С аномалиями прикуса' },
+  { code: '525', label: 'С нарушением развития и прорезывания зубов' },
+  { code: '526', label: 'С частичной адентией' },
+  { code: '527', label: 'С полной адентией' },
+  // Ортопедическое лечение
+  { code: '600', label: 'Число посещений на льготном зубопротезировании' },
+  { code: '601', label: 'Починка протеза' },
+  { code: '602', label: 'Виниры' },
+  { code: '603', label: 'Штифтовые, штифтово-культевые вкладки' },
+  { code: '604', label: 'Вкладки' },
+  { code: '610', label: 'Одиночные коронки (всего)' },
+  { code: '611', label: 'Коронка штампованная, комбинированная штампованная' },
+  { code: '612', label: 'Коронка пластмассовая' },
+  { code: '613', label: 'Коронка литая' },
+  { code: '614', label: 'Коронка металлокерамическая' },
+  { code: '615', label: 'Коронка прессованная' },
+  { code: '616', label: 'Коронка CAD/CAM' },
+  { code: '617', label: 'Коронка иная' },
+  { code: '620', label: 'Мостовидные протезы (всего)' },
+  { code: '621', label: 'Мостовидный протез штампованно-паяный' },
+  { code: '622', label: 'Мостовидный протез пластмассовый' },
+  { code: '623', label: 'Мостовидный протез литой' },
+  { code: '624', label: 'Мостовидный протез металлокерамический' },
+  { code: '625', label: 'Мостовидный протез прессованный' },
+  { code: '626', label: 'Мостовидный протез CAD/CAM' },
+  { code: '627', label: 'Мостовидный протез иной' },
+  { code: '630', label: 'В мостовидных протезах коронок (всего)' },
+  { code: '631', label: 'Коронка в мостовидном — штампованная' },
+  { code: '632', label: 'Коронка в мостовидном — пластмассовая' },
+  { code: '633', label: 'Коронка в мостовидном — литая' },
+  { code: '634', label: 'Коронка в мостовидном — металлокерамическая' },
+  { code: '635', label: 'Коронка в мостовидном — прессованная' },
+  { code: '636', label: 'Коронка в мостовидном — CAD/CAM' },
+  { code: '637', label: 'Коронка в мостовидном — иная' },
+  { code: '640', label: 'Провизорная коронка прямым методом' },
+  { code: '650', label: 'Съемные протезы (всего)' },
+  { code: '651', label: 'Частичный пластиночный протез' },
+  { code: '652', label: 'Полный пластиночный протез' },
+  { code: '653', label: 'Бюгельный протез' },
+  { code: '654', label: 'Прочие съемные протезы' },
+  { code: '655', label: 'Изготовлено капп (всего)' },
+  { code: '656', label: 'Каппы от апноэ' },
+  { code: '660', label: 'Число лиц, закончивших ортопедическое лечение (всего)' },
+  { code: '661', label: 'В том числе граждан льготных категорий' },
+  // Обезболивание
   { code: '700', label: 'Обезболивание общее' },
   { code: '710', label: 'Обезболивание местное' },
 ];
+
+// Компонент мультиселекта кодов — модальное окно с поиском и чекбоксами
+const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const selected = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  const toggle = (code) => {
+    if (disabled) return;
+    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
+    onChange(next.join(','));
+  };
+
+  const remove = (code) => {
+    if (disabled) return;
+    onChange(selected.filter(c => c !== code).join(','));
+  };
+
+  const filtered = codes.filter(c =>
+    !search || c.code.includes(search) || c.label.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <>
+      <div className="multi-code-trigger" onClick={() => !disabled && setOpen(true)}>
+        {selected.length === 0 ? (
+          <span className="multi-code-placeholder">{placeholder || '— Выберите —'}</span>
+        ) : (
+          <div className="multi-code-tags">
+            {selected.map(code => {
+              const item = codes.find(c => c.code === code);
+              return (
+                <span key={code} className="multi-code-tag">
+                  {code}{item ? ` — ${item.label.substring(0, 30)}${item.label.length > 30 ? '…' : ''}` : ''}
+                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(code); }}>×</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <span className="multi-code-arrow">▼</span>
+      </div>
+
+      {open && ReactDOM.createPortal(
+        <div className="mcs-overlay" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div className="mcs-modal">
+            <div className="mcs-header">
+              <h3>Выбор кодов</h3>
+              <span className="mcs-count">Выбрано: {selected.length}</span>
+              <button className="mcs-close" onClick={() => setOpen(false)}>✕</button>
+            </div>
+            <div className="mcs-search-wrap">
+              <input className="mcs-search" type="text" placeholder="Поиск по коду или названию..." value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+            </div>
+            {selected.length > 0 && (
+              <div className="mcs-selected-bar">
+                {selected.map(code => {
+                  const item = codes.find(c => c.code === code);
+                  return (
+                    <span key={code} className="multi-code-tag">
+                      {code}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
+                      <span className="multi-code-tag-x" onClick={() => remove(code)}>×</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mcs-list">
+              {filtered.length === 0 ? (
+                <div className="mcs-empty">Ничего не найдено</div>
+              ) : filtered.map(c => {
+                const isSelected = selected.includes(c.code);
+                return (
+                  <label key={c.code} className={`mcs-item ${isSelected ? 'mcs-item-selected' : ''}`}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggle(c.code)} />
+                    <span className="mcs-item-code">{c.code}</span>
+                    <span className="mcs-item-label">{c.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mcs-footer">
+              <button className="btn btn-primary" onClick={() => setOpen(false)}>Готово ({selected.length})</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
 
 const DoctorDashboard = ({ currentUser, onNavigate }) => {
   const [activeTab, setActiveTab] = useState('schedule');
@@ -396,22 +605,11 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
                           <div className="deferred-form-row">
                             <div className="deferred-form-col">
                               <label className="deferred-form-label">Код диагноза (графа 9)</label>
-                              <select
+                              <MultiCodeSelect
+                                codes={DIAGNOSIS_CODES_039}
                                 value={formData.diagnosis_code}
-                                onChange={(e) => handleFormChange('diagnosis_code', e.target.value)}
-                                className="deferred-form-select"
-                              >
-                                <option value="">— Выберите —</option>
-                                {DIAGNOSIS_CODES_039.map(d => (
-                                  <option key={d.code} value={d.code}>{d.code} — {d.label}</option>
-                                ))}
-                              </select>
-                              <input
-                                type="text"
-                                placeholder="Или введите код вручную"
-                                value={formData.diagnosis_code}
-                                onChange={(e) => handleFormChange('diagnosis_code', e.target.value)}
-                                className="deferred-form-input"
+                                onChange={(val) => handleFormChange('diagnosis_code', val)}
+                                placeholder="— Выберите коды —"
                               />
                             </div>
                             <div className="deferred-form-col">
@@ -432,22 +630,11 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
                           <div className="deferred-form-row">
                             <div className="deferred-form-col">
                               <label className="deferred-form-label">Код лечения (графа 11)</label>
-                              <select
+                              <MultiCodeSelect
+                                codes={TREATMENT_CODES_039}
                                 value={formData.treatment_code}
-                                onChange={(e) => handleFormChange('treatment_code', e.target.value)}
-                                className="deferred-form-select"
-                              >
-                                <option value="">— Выберите —</option>
-                                {TREATMENT_CODES_039.map(c => (
-                                  <option key={c.code} value={c.code}>{c.code} — {c.label}</option>
-                                ))}
-                              </select>
-                              <input
-                                type="text"
-                                placeholder="Или введите код вручную"
-                                value={formData.treatment_code}
-                                onChange={(e) => handleFormChange('treatment_code', e.target.value)}
-                                className="deferred-form-input"
+                                onChange={(val) => handleFormChange('treatment_code', val)}
+                                placeholder="— Выберите коды —"
                               />
                             </div>
                             <div className="deferred-form-col">
