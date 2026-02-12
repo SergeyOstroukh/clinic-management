@@ -983,13 +983,31 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
           '461': '460', '501': '500', '521': '520',
         };
 
+        // Обратный маппинг: родительский код → все дочерние подкоды
+        const PARENT_TO_CHILDREN = {};
+        Object.entries(CHILD_SUBCODES).forEach(([child, parent]) => {
+          if (!PARENT_TO_CHILDREN[parent]) PARENT_TO_CHILDREN[parent] = [];
+          PARENT_TO_CHILDREN[parent].push(child);
+        });
+
         if (CHILD_SUBCODES[code]) {
-          // Авто-расчёт: считаем записи с родительским кодом лечения у пациентов до 18 лет
+          // Это дочерний подкод (напр. 401 «дети»).
+          // Считаем: записи с родительским кодом (400) + ребёнок < 18,
+          //          ИЛИ записи где напрямую выбран этот дочерний код (401)
           const parentCode = CHILD_SUBCODES[code];
-          count = countByFilter(r => fieldHasCode(r.treatment_code, parentCode) && isChild(r));
+          count = countByFilter(r =>
+            (fieldHasCode(r.treatment_code, parentCode) && isChild(r)) ||
+            fieldHasCode(r.treatment_code, code)
+          );
         } else {
-          // Проверка: содержит ли treatment_code данный код (с учётом мультивыбора через запятую)
-          count = countByFilter(r => fieldHasCode(r.treatment_code, code));
+          // Это обычный/родительский код (напр. 400 «всего»).
+          // Считаем: записи с этим кодом напрямую,
+          //          ИЛИ записи где выбран дочерний подкод (401)
+          const childCodes = PARENT_TO_CHILDREN[code] || [];
+          count = countByFilter(r =>
+            fieldHasCode(r.treatment_code, code) ||
+            childCodes.some(cc => fieldHasCode(r.treatment_code, cc))
+          );
         }
       }
       else return '';
