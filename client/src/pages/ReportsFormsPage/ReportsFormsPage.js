@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import axios from 'axios';
 import FORM_039_ROWS from './form039rows';
 import './ReportsFormsPage.css';
@@ -80,6 +81,216 @@ const TREATMENT_STAGES = [
   { value: 'Л3', label: 'Л3 — Третий этап лечения' },
 ];
 
+// Коды лечения формы 039/у — полный список из приложения 2 (Постановление МЗ РБ №203 от 16.12.2025)
+const TREATMENT_CODES_039 = [
+  { code: '200', label: 'Проведено консультаций (с выдачей заключения)' },
+  { code: '210', label: 'Беседа, мотивация, обучение гигиене' },
+  { code: '220', label: 'Контроль гигиены' },
+  { code: '230', label: 'Применение фторпрепаратов местно' },
+  { code: '231', label: 'Профилактические мероприятия, связанные с лечением начального кариеса' },
+  { code: '240', label: 'Проведено герметизаций фиссур (всего)' },
+  { code: '241', label: 'Герметизация фиссур инвазивным методом' },
+  { code: '300', label: 'Удаление зубных отложений' },
+  { code: '301', label: 'Удаление зубных отложений аппаратными методами' },
+  { code: '310', label: 'Шинирование зубов' },
+  { code: '320', label: 'Другое лечение заболеваний пародонта' },
+  { code: '321', label: 'Лечение пародонта с применением лазерных технологий' },
+  { code: '330', label: 'Запломбировано постоянных зубов (всего зубов)' },
+  { code: '340', label: 'Запломбировано временных зубов (всего зубов)' },
+  { code: '350', label: 'Наложено пломб (всего)' },
+  { code: '360', label: 'Законченное эндодонтическое лечение постоянных зубов (всего)' },
+  { code: '361', label: 'Эндодонтическое лечение по ортопедическим показаниям' },
+  { code: '362', label: 'Повторное эндодонтическое лечение' },
+  { code: '370', label: 'Законченное эндодонтическое лечение временных зубов (всего)' },
+  { code: '375', label: 'Число лиц, закончивших терапевтическое лечение' },
+  { code: '380', label: 'Число лиц, закончивших пародонтологическое лечение' },
+  { code: '390', label: 'Число лиц, закончивших лечение заболеваний слизистой оболочки рта' },
+  { code: '395', label: 'Отбеливание зубов' },
+  { code: '400', label: 'Удалено постоянных зубов (всего)' },
+  { code: '402', label: 'Удаление по ортодонтическим показаниям' },
+  { code: '404', label: 'Удалено дентальных имплантатов (всего)' },
+  { code: '410', label: 'Удалено временных зубов (всего)' },
+  { code: '411', label: 'Удаление временных зубов по физиологической смене' },
+  { code: '420', label: 'Число амбулаторно-хирургических операций (всего)' },
+  { code: '430', label: 'Операция в плановом порядке' },
+  { code: '432', label: 'Операция на мягких тканях' },
+  { code: '434', label: 'Операция на костях лицевого скелета' },
+  { code: '435', label: 'Костная аугментация' },
+  { code: '436', label: 'Операция дентальной имплантации' },
+  { code: '437', label: 'Синус-лифтинг' },
+  { code: '438', label: 'Другие операции (экзостозы, органосохраняющие и др.)' },
+  { code: '440', label: 'Операция по экстренным показаниям' },
+  { code: '442', label: 'Операция по поводу травм' },
+  { code: '444', label: 'Операция по поводу воспалительных заболеваний' },
+  { code: '446', label: 'Другие экстренные операции' },
+  { code: '450', label: 'Местное лечение открытых ран (перевязки, снятие шин и иное)' },
+  { code: '460', label: 'Число лиц, закончивших хирургическое лечение' },
+  { code: '500', label: 'Число лиц, взятых на ортодонтическое лечение (всего)' },
+  { code: '510', label: 'Изготовлено ортодонтических аппаратов и местосохраняющих конструкций (всего)' },
+  { code: '511', label: 'Механический съемный аппарат' },
+  { code: '512', label: 'Механический несъемный аппарат' },
+  { code: '513', label: 'Функциональный аппарат' },
+  { code: '514', label: 'Функционально-направляющий аппарат' },
+  { code: '515', label: 'Сочетанный аппарат' },
+  { code: '516', label: 'Съемный местосохраняющий' },
+  { code: '517', label: 'Несъемный местосохраняющий' },
+  { code: '520', label: 'Число лиц, закончивших ортодонтическое лечение (всего)' },
+  { code: '522', label: 'С аномалиями отдельных зубов' },
+  { code: '523', label: 'С аномалиями зубных рядов' },
+  { code: '524', label: 'С аномалиями прикуса' },
+  { code: '525', label: 'С нарушением развития и прорезывания зубов' },
+  { code: '526', label: 'С частичной адентией' },
+  { code: '527', label: 'С полной адентией' },
+  { code: '600', label: 'Число посещений на льготном зубопротезировании' },
+  { code: '601', label: 'Починка протеза' },
+  { code: '602', label: 'Виниры' },
+  { code: '603', label: 'Штифтовые, штифтово-культевые вкладки' },
+  { code: '604', label: 'Вкладки' },
+  { code: '610', label: 'Одиночные коронки (всего)' },
+  { code: '611', label: 'Коронка штампованная, комбинированная штампованная' },
+  { code: '612', label: 'Коронка пластмассовая' },
+  { code: '613', label: 'Коронка литая' },
+  { code: '614', label: 'Коронка металлокерамическая' },
+  { code: '615', label: 'Коронка прессованная' },
+  { code: '616', label: 'Коронка CAD/CAM' },
+  { code: '617', label: 'Коронка иная' },
+  { code: '620', label: 'Мостовидные протезы (всего)' },
+  { code: '621', label: 'Мостовидный протез штампованно-паяный' },
+  { code: '622', label: 'Мостовидный протез пластмассовый' },
+  { code: '623', label: 'Мостовидный протез литой' },
+  { code: '624', label: 'Мостовидный протез металлокерамический' },
+  { code: '625', label: 'Мостовидный протез прессованный' },
+  { code: '626', label: 'Мостовидный протез CAD/CAM' },
+  { code: '627', label: 'Мостовидный протез иной' },
+  { code: '630', label: 'В мостовидных протезах коронок (всего)' },
+  { code: '640', label: 'Провизорная коронка прямым методом' },
+  { code: '650', label: 'Съемные протезы (всего)' },
+  { code: '651', label: 'Частичный пластиночный протез' },
+  { code: '652', label: 'Полный пластиночный протез' },
+  { code: '653', label: 'Бюгельный протез' },
+  { code: '654', label: 'Прочие съемные протезы' },
+  { code: '655', label: 'Изготовлено капп (всего)' },
+  { code: '656', label: 'Каппы от апноэ' },
+  { code: '660', label: 'Число лиц, закончивших ортопедическое лечение (всего)' },
+  { code: '661', label: 'В том числе граждан льготных категорий' },
+  { code: '700', label: 'Обезболивание общее' },
+  { code: '710', label: 'Обезболивание местное' },
+];
+
+// Компонент мультиселекта кодов — модальное окно с поиском и чекбоксами
+const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const selected = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  const toggle = (code) => {
+    if (disabled) return;
+    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
+    onChange(next.join(','));
+  };
+
+  const remove = (code) => {
+    if (disabled) return;
+    onChange(selected.filter(c => c !== code).join(','));
+  };
+
+  const filtered = codes.filter(c =>
+    !search || c.code.includes(search) || c.label.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <>
+      <div
+        className="multi-code-trigger"
+        onClick={() => !disabled && setOpen(true)}
+      >
+        {selected.length === 0 ? (
+          <span className="multi-code-placeholder">{placeholder || '— Выберите —'}</span>
+        ) : (
+          <div className="multi-code-tags">
+            {selected.map(code => {
+              const item = codes.find(c => c.code === code);
+              return (
+                <span key={code} className="multi-code-tag">
+                  {code}{item ? ` — ${item.label.substring(0, 30)}${item.label.length > 30 ? '…' : ''}` : ''}
+                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(code); }}>×</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <span className="multi-code-arrow">▼</span>
+      </div>
+
+      {open && ReactDOM.createPortal(
+        <div className="mcs-overlay" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div className="mcs-modal">
+            <div className="mcs-header">
+              <h3>Выбор кодов</h3>
+              <span className="mcs-count">Выбрано: {selected.length}</span>
+              <button className="mcs-close" onClick={() => setOpen(false)}>✕</button>
+            </div>
+
+            <div className="mcs-search-wrap">
+              <input
+                className="mcs-search"
+                type="text"
+                placeholder="Поиск по коду или названию..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {selected.length > 0 && (
+              <div className="mcs-selected-bar">
+                {selected.map(code => {
+                  const item = codes.find(c => c.code === code);
+                  return (
+                    <span key={code} className="multi-code-tag">
+                      {code}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
+                      <span className="multi-code-tag-x" onClick={() => remove(code)}>×</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="mcs-list">
+              {filtered.length === 0 ? (
+                <div className="mcs-empty">Ничего не найдено</div>
+              ) : (
+                filtered.map(c => {
+                  const isSelected = selected.includes(c.code);
+                  return (
+                    <label key={c.code} className={`mcs-item ${isSelected ? 'mcs-item-selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggle(c.code)}
+                      />
+                      <span className="mcs-item-code">{c.code}</span>
+                      <span className="mcs-item-label">{c.label}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mcs-footer">
+              <button className="btn btn-primary" onClick={() => setOpen(false)}>
+                Готово ({selected.length})
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
+
 const ReportsFormsPage = ({ onNavigate, currentUser }) => {
   const [activeTab, setActiveTab] = useState('037');
   const [doctors, setDoctors] = useState([]);
@@ -116,10 +327,32 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
     treatment_code: '',
     treatment_description: '',
     treatment_stage: '',
+    population_type: 'city',
   });
   
   // Данные отчёта 039/у
   const [report039, setReport039] = useState(null);
+
+  // Форма администратора для заполнения данных 037/039
+  const [showAdminFormModal, setShowAdminFormModal] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [clientSearch, setClientSearch] = useState('');
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const clientDropdownRef = useRef(null);
+  const [adminForm, setAdminForm] = useState({
+    doctor_id: '',
+    record_date: new Date().toISOString().split('T')[0],
+    record_time: '',
+    visit_type: '',
+    preventive_work: '',
+    diagnosis_code: '',
+    diagnosis_description: '',
+    treatment_code: '',
+    treatment_description: '',
+    treatment_stage: '',
+  });
+  const [adminFormSubmitting, setAdminFormSubmitting] = useState(false);
 
   // Загрузка врачей
   const loadDoctors = useCallback(async () => {
@@ -135,6 +368,16 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       console.error('Ошибка загрузки врачей:', error);
     }
   }, [currentUser]);
+
+  // Загрузка клиентов (для формы администратора)
+  const loadClients = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/clients`);
+      setClients(response.data);
+    } catch (error) {
+      console.error('Ошибка загрузки клиентов:', error);
+    }
+  }, []);
 
   // Загрузка записей 037/у
   const loadRecords = useCallback(async () => {
@@ -184,7 +427,8 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
 
   useEffect(() => {
     loadDoctors();
-  }, [loadDoctors]);
+    loadClients();
+  }, [loadDoctors, loadClients]);
 
   useEffect(() => {
     if (activeTab === '037') {
@@ -246,6 +490,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       treatment_code: record.treatment_code || '',
       treatment_description: record.treatment_description || '',
       treatment_stage: record.treatment_stage || '',
+      population_type: record.population_type || 'city',
     });
     setShowRecordModal(true);
   };
@@ -278,6 +523,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       treatment_code: '',
       treatment_description: '',
       treatment_stage: '',
+      population_type: 'city',
     });
   };
 
@@ -332,6 +578,131 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
   const getSelectedDoctor = () => {
     return doctors.find(d => d.id === parseInt(selectedDoctorId)) || null;
   };
+
+  // === ЛОГИКА ФОРМЫ АДМИНИСТРАТОРА ===
+
+  // Вычисление возраста по дате рождения
+  const calculateAge = (dateOfBirth) => {
+    if (!dateOfBirth) return '';
+    const birth = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age >= 0 ? age : '';
+  };
+
+  // Фильтрация клиентов по поиску
+  const filteredClients = clients.filter(c => {
+    if (!clientSearch) return false; // не показывать всех при пустом поиске
+    const search = clientSearch.toLowerCase();
+    const fullName = `${c.lastName || ''} ${c.firstName || ''} ${c.middleName || ''}`.toLowerCase();
+    const phone = (c.phone || '').toLowerCase();
+    return fullName.includes(search) || phone.includes(search);
+  });
+
+  // Выбор клиента
+  const handleSelectClient = (client) => {
+    setSelectedClient(client);
+    setClientSearch(`${client.lastName || ''} ${client.firstName || ''} ${client.middleName || ''}`.trim());
+    setShowClientDropdown(false);
+  };
+
+  // Сброс выбора клиента
+  const handleClearClient = () => {
+    setSelectedClient(null);
+    setClientSearch('');
+  };
+
+  // Открыть форму администратора
+  const handleOpenAdminForm = () => {
+    setSelectedClient(null);
+    setClientSearch('');
+    setAdminForm({
+      doctor_id: selectedDoctorId || '',
+      record_date: new Date().toISOString().split('T')[0],
+      record_time: '',
+      visit_type: '',
+      preventive_work: '',
+      diagnosis_code: '',
+      diagnosis_description: '',
+      treatment_code: '',
+      treatment_description: '',
+      treatment_stage: '',
+    });
+    setShowAdminFormModal(true);
+  };
+
+  // Отправка формы администратора
+  const handleAdminFormSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!selectedClient) {
+      alert('Выберите пациента из списка');
+      return;
+    }
+    if (!adminForm.doctor_id) {
+      alert('Выберите врача');
+      return;
+    }
+    if (!adminForm.record_date) {
+      alert('Укажите дату приёма');
+      return;
+    }
+
+    const patientName = `${selectedClient.lastName || ''} ${selectedClient.firstName || ''} ${selectedClient.middleName || ''}`.trim();
+    const patientAge = calculateAge(selectedClient.date_of_birth);
+    const populationType = selectedClient.population_type || 'city';
+
+    setAdminFormSubmitting(true);
+    try {
+      await axios.post(`${API_URL}/doctor-work-records`, {
+        doctor_id: adminForm.doctor_id,
+        record_date: adminForm.record_date,
+        record_time: adminForm.record_time || null,
+        patient_name: patientName,
+        patient_address: selectedClient.address || null,
+        citizenship_data: selectedClient.citizenship_data || null,
+        patient_age: patientAge || null,
+        visit_type: adminForm.visit_type || null,
+        preventive_work: adminForm.preventive_work || null,
+        diagnosis_code: adminForm.diagnosis_code || null,
+        diagnosis_description: adminForm.diagnosis_description || null,
+        treatment_code: adminForm.treatment_code || null,
+        treatment_description: adminForm.treatment_description || null,
+        treatment_stage: adminForm.treatment_stage || null,
+        population_type: populationType,
+      });
+
+      setShowAdminFormModal(false);
+      alert('Данные для форм 037/039 успешно сохранены!');
+      // Обновляем данные таблиц если выбран тот же врач
+      if (String(adminForm.doctor_id) === String(selectedDoctorId)) {
+        loadRecords();
+        loadReport039();
+      }
+    } catch (error) {
+      console.error('Ошибка сохранения данных формы:', error);
+      alert('Ошибка сохранения: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setAdminFormSubmitting(false);
+    }
+  };
+
+  // Закрытие дропдауна клиентов при клике вне
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(e.target)) {
+        setShowClientDropdown(false);
+      }
+    };
+    if (showClientDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showClientDropdown]);
 
   // === РЕНДЕР ФОРМЫ 037/у ===
   const renderForm037 = () => {
@@ -779,7 +1150,14 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       {/* Заголовок */}
       <div className="section-header">
         <h2>📋 Отчёты / Формы</h2>
-        <button className="btn" onClick={() => onNavigate('home')}>← Назад</button>
+        <div className="section-header-actions">
+          {currentUser?.role !== 'doctor' && (
+            <button className="btn btn-primary" onClick={handleOpenAdminForm}>
+              📝 Заполнить данные для форм 037/039
+            </button>
+          )}
+          <button className="btn" onClick={() => onNavigate('home')}>← Назад</button>
+        </div>
       </div>
 
       {/* Фильтры */}
@@ -904,6 +1282,235 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         </div>
       )}
 
+      {/* Модалка формы администратора — заполнение данных для форм 037/039 */}
+      {showAdminFormModal && (
+        <div className="modal-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) setShowAdminFormModal(false);
+        }}>
+          <div className="modal modal-wide admin-form-modal">
+            <h2>📝 Заполнить данные для форм 037/039</h2>
+            <p className="admin-form-hint">
+              Заполните данные приёма от имени врача. Запись автоматически попадёт в формы 037/у и 039/у.
+            </p>
+
+            <form onSubmit={handleAdminFormSubmit}>
+              {/* Блок 1: Пациент, Дата, Врач */}
+              <div className="admin-form-section">
+                <h4 className="admin-form-section-title">Основная информация</h4>
+
+                <div className="form-row">
+                  <div className="form-col form-col-wide" ref={clientDropdownRef}>
+                    <label>Пациент *</label>
+                    <div className="client-search-container">
+                      <input
+                        type="text"
+                        placeholder="Начните вводить ФИО или телефон пациента..."
+                        value={clientSearch}
+                        onChange={(e) => {
+                          setClientSearch(e.target.value);
+                          setShowClientDropdown(true);
+                          if (selectedClient) setSelectedClient(null);
+                        }}
+                        onFocus={() => clientSearch && setShowClientDropdown(true)}
+                        className={selectedClient ? 'client-search-selected' : ''}
+                      />
+                      {selectedClient && (
+                        <button
+                          type="button"
+                          className="client-clear-btn"
+                          onClick={handleClearClient}
+                          title="Сбросить выбор"
+                        >×</button>
+                      )}
+                      {showClientDropdown && filteredClients.length > 0 && !selectedClient && (
+                        <div className="client-dropdown">
+                          {filteredClients.slice(0, 15).map(client => (
+                            <div
+                              key={client.id}
+                              className="client-dropdown-item"
+                              onClick={() => handleSelectClient(client)}
+                            >
+                              <div className="client-dropdown-name">
+                                {client.lastName} {client.firstName} {client.middleName || ''}
+                              </div>
+                              <div className="client-dropdown-info">
+                                {client.phone && <span>{client.phone}</span>}
+                                {client.date_of_birth && (
+                                  <span>Возраст: {calculateAge(client.date_of_birth)} лет</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {filteredClients.length > 15 && (
+                            <div className="client-dropdown-more">
+                              ...ещё {filteredClients.length - 15} пациентов. Уточните запрос.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Карточка выбранного пациента */}
+                    {selectedClient && (
+                      <div className="selected-client-card">
+                        <div className="selected-client-row">
+                          <span><strong>ФИО:</strong> {selectedClient.lastName} {selectedClient.firstName} {selectedClient.middleName || ''}</span>
+                          {selectedClient.date_of_birth && (
+                            <span><strong>Возраст:</strong> {calculateAge(selectedClient.date_of_birth)} лет</span>
+                          )}
+                        </div>
+                        <div className="selected-client-row">
+                          {selectedClient.address && <span><strong>Адрес:</strong> {selectedClient.address}</span>}
+                          {selectedClient.phone && <span><strong>Тел:</strong> {selectedClient.phone}</span>}
+                        </div>
+                        {selectedClient.citizenship_data && (
+                          <div className="selected-client-row">
+                            <span><strong>Гражданство:</strong> {selectedClient.citizenship_data}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-col">
+                    <label>Врач *</label>
+                    <select
+                      value={adminForm.doctor_id}
+                      onChange={(e) => setAdminForm({ ...adminForm, doctor_id: e.target.value })}
+                      required
+                    >
+                      <option value="">Выберите врача</option>
+                      {doctors.map(doctor => (
+                        <option key={doctor.id} value={doctor.id}>
+                          {doctor.lastName} {doctor.firstName} {doctor.middleName || ''} — {doctor.specialization || ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-col">
+                    <label>Дата приёма *</label>
+                    <input
+                      type="date"
+                      value={adminForm.record_date}
+                      onChange={(e) => setAdminForm({ ...adminForm, record_date: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-col">
+                    <label>Время приёма</label>
+                    <input
+                      type="time"
+                      value={adminForm.record_time}
+                      onChange={(e) => setAdminForm({ ...adminForm, record_time: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Блок 2: Данные для форм 037/039 — как у врача */}
+              <div className="admin-form-section">
+                <h4 className="admin-form-section-title">Данные для формы 037/у</h4>
+
+                <div className="form-row">
+                  <div className="form-col">
+                    <label>Вид посещения</label>
+                    <select
+                      value={adminForm.visit_type}
+                      onChange={(e) => setAdminForm({ ...adminForm, visit_type: e.target.value })}
+                    >
+                      <option value="">— Не указано —</option>
+                      {VISIT_TYPES.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-col">
+                    <label>Лечебно-проф. работа (коды 3-8)</label>
+                    <select
+                      value={adminForm.preventive_work}
+                      onChange={(e) => setAdminForm({ ...adminForm, preventive_work: e.target.value })}
+                    >
+                      <option value="">— Не указано —</option>
+                      {PREVENTIVE_CODES.map(c => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-col">
+                    <label>Код диагноза (графа 9, форма 039)</label>
+                    <MultiCodeSelect
+                      codes={DIAGNOSIS_CODES_039}
+                      value={adminForm.diagnosis_code}
+                      onChange={(val) => setAdminForm({ ...adminForm, diagnosis_code: val })}
+                      placeholder="— Выберите коды диагноза —"
+                    />
+                  </div>
+                  <div className="form-col">
+                    <label>Этап лечения (графа 10)</label>
+                    <select
+                      value={adminForm.treatment_stage}
+                      onChange={(e) => setAdminForm({ ...adminForm, treatment_stage: e.target.value })}
+                    >
+                      <option value="">— Не указано —</option>
+                      {TREATMENT_STAGES.map(s => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-col">
+                    <label>Код лечения (графа 11, форма 039)</label>
+                    <MultiCodeSelect
+                      codes={TREATMENT_CODES_039}
+                      value={adminForm.treatment_code}
+                      onChange={(val) => setAdminForm({ ...adminForm, treatment_code: val })}
+                      placeholder="— Выберите коды лечения —"
+                    />
+                  </div>
+                  <div className="form-col">
+                    <label>Описание диагноза</label>
+                    <textarea
+                      placeholder="Описание диагноза"
+                      value={adminForm.diagnosis_description}
+                      onChange={(e) => setAdminForm({ ...adminForm, diagnosis_description: e.target.value })}
+                      rows={2}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-col form-col-wide">
+                    <label>Описание лечения</label>
+                    <textarea
+                      placeholder="Что было сделано (пломба, удаление, эндодонтия и т.д.)"
+                      value={adminForm.treatment_description}
+                      onChange={(e) => setAdminForm({ ...adminForm, treatment_description: e.target.value })}
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="btn" onClick={() => setShowAdminFormModal(false)}>
+                  Отмена
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={adminFormSubmitting}>
+                  {adminFormSubmitting ? '⏳ Сохранение...' : '✅ Сохранить данные'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Модалка создания/редактирования записи 037/у */}
       {showRecordModal && (
         <div className="modal-overlay" onMouseDown={(e) => {
@@ -1024,22 +1631,12 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
 
               <div className="form-row">
                 <div className="form-col">
-                  <label>Диагноз — код строки формы 039/у</label>
-                  <select
+                  <label>Код диагноза (графа 9, форма 039)</label>
+                  <MultiCodeSelect
+                    codes={DIAGNOSIS_CODES_039}
                     value={recordForm.diagnosis_code}
-                    onChange={(e) => setRecordForm({ ...recordForm, diagnosis_code: e.target.value })}
-                  >
-                    <option value="">— Выберите или введите вручную —</option>
-                    {DIAGNOSIS_CODES_039.map(d => (
-                      <option key={d.code} value={d.code}>{d.code} — {d.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Или введите код вручную"
-                    value={recordForm.diagnosis_code}
-                    onChange={(e) => setRecordForm({ ...recordForm, diagnosis_code: e.target.value })}
-                    style={{ marginTop: '5px' }}
+                    onChange={(val) => setRecordForm({ ...recordForm, diagnosis_code: val })}
+                    placeholder="— Выберите коды диагноза —"
                   />
                 </div>
                 <div className="form-col">
@@ -1067,12 +1664,12 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
                   </select>
                 </div>
                 <div className="form-col">
-                  <label>Код лечения (строки формы 039/у)</label>
-                  <input
-                    type="text"
-                    placeholder="Код лечения (напр. 300, 350, 400)"
+                  <label>Код лечения (графа 11, форма 039)</label>
+                  <MultiCodeSelect
+                    codes={TREATMENT_CODES_039}
                     value={recordForm.treatment_code}
-                    onChange={(e) => setRecordForm({ ...recordForm, treatment_code: e.target.value })}
+                    onChange={(val) => setRecordForm({ ...recordForm, treatment_code: val })}
+                    placeholder="— Выберите коды лечения —"
                   />
                 </div>
               </div>
