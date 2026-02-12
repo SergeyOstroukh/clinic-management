@@ -4423,6 +4423,7 @@ app.post('/api/doctor-work-records', async (req, res) => {
       patient_address, citizenship_data, patient_age,
       visit_type, preventive_work, diagnosis_code,
       diagnosis_description, treatment_code, treatment_description,
+      treatment_stage, population_type,
       appointment_id
     } = req.body;
     
@@ -4434,14 +4435,16 @@ app.post('/api/doctor-work-records', async (req, res) => {
       INSERT INTO doctor_work_records 
         (doctor_id, record_date, record_time, patient_name, patient_address, 
          citizenship_data, patient_age, visit_type, preventive_work,
-         diagnosis_code, diagnosis_description, treatment_code, treatment_description, appointment_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         diagnosis_code, diagnosis_description, treatment_code, treatment_description,
+         treatment_stage, population_type, appointment_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING id
     `, [
       doctor_id, record_date, record_time || null, patient_name,
       patient_address || null, citizenship_data || null, patient_age || null,
       visit_type || null, preventive_work || null, diagnosis_code || null,
       diagnosis_description || null, treatment_code || null, treatment_description || null,
+      treatment_stage || null, population_type || 'city',
       appointment_id || null
     ]);
     
@@ -4460,7 +4463,8 @@ app.put('/api/doctor-work-records/:id', async (req, res) => {
       doctor_id, record_date, record_time, patient_name,
       patient_address, citizenship_data, patient_age,
       visit_type, preventive_work, diagnosis_code,
-      diagnosis_description, treatment_code, treatment_description
+      diagnosis_description, treatment_code, treatment_description,
+      treatment_stage, population_type
     } = req.body;
     
     await db.run(`
@@ -4469,13 +4473,15 @@ app.put('/api/doctor-work-records/:id', async (req, res) => {
         patient_address = $5, citizenship_data = $6, patient_age = $7,
         visit_type = $8, preventive_work = $9, diagnosis_code = $10,
         diagnosis_description = $11, treatment_code = $12, treatment_description = $13,
+        treatment_stage = $14, population_type = $15,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $14
+      WHERE id = $16
     `, [
       doctor_id, record_date, record_time || null, patient_name,
       patient_address || null, citizenship_data || null, patient_age || null,
       visit_type || null, preventive_work || null, diagnosis_code || null,
       diagnosis_description || null, treatment_code || null, treatment_description || null,
+      treatment_stage || null, population_type || 'city',
       req.params.id
     ]);
     
