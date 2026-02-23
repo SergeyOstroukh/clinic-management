@@ -193,22 +193,41 @@ const TREATMENT_CODES_039 = [
   { code: '710', label: 'Обезболивание местное' },
 ];
 
-// Компонент мультиселекта кодов — модальное окно с поиском и чекбоксами
+// Компонент мультиселекта кодов с количеством — модальное окно с поиском, чекбоксами и полем кол-ва
 const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const selected = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+  // Формат value: "330:3,350:2,710:1" (code:qty через запятую, qty по умолчанию 1)
+  const selected = value
+    ? value.split(',').map(s => s.trim()).filter(Boolean).map(entry => {
+        const [code, qtyStr] = entry.split(':');
+        return { code, qty: parseInt(qtyStr) || 1 };
+      })
+    : [];
+  const selectedCodes = selected.map(s => s.code);
+
+  const serialize = (items) => items.map(i => `${i.code}:${i.qty}`).join(',');
 
   const toggle = (code) => {
     if (disabled) return;
-    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
-    onChange(next.join(','));
+    if (selectedCodes.includes(code)) {
+      onChange(serialize(selected.filter(s => s.code !== code)));
+    } else {
+      onChange(serialize([...selected, { code, qty: 1 }]));
+    }
   };
 
   const remove = (code) => {
     if (disabled) return;
-    onChange(selected.filter(c => c !== code).join(','));
+    onChange(serialize(selected.filter(s => s.code !== code)));
+  };
+
+  const updateQty = (code, qty) => {
+    if (disabled) return;
+    const v = parseInt(qty) || 1;
+    if (v < 1) return;
+    onChange(serialize(selected.map(s => s.code === code ? { ...s, qty: v } : s)));
   };
 
   const filtered = codes.filter(c =>
@@ -225,12 +244,12 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
           <span className="multi-code-placeholder">{placeholder || '— Выберите —'}</span>
         ) : (
           <div className="multi-code-tags">
-            {selected.map(code => {
-              const item = codes.find(c => c.code === code);
+            {selected.map(s => {
+              const item = codes.find(c => c.code === s.code);
               return (
-                <span key={code} className="multi-code-tag">
-                  {code}{item ? ` — ${item.label.substring(0, 30)}${item.label.length > 30 ? '…' : ''}` : ''}
-                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(code); }}>×</span>
+                <span key={s.code} className="multi-code-tag">
+                  {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 25)}${item.label.length > 25 ? '…' : ''}` : ''}
+                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(s.code); }}>×</span>
                 </span>
               );
             })}
@@ -259,15 +278,14 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
               />
             </div>
 
-            {/* Выбранные теги */}
             {selected.length > 0 && (
               <div className="mcs-selected-bar">
-                {selected.map(code => {
-                  const item = codes.find(c => c.code === code);
+                {selected.map(s => {
+                  const item = codes.find(c => c.code === s.code);
                   return (
-                    <span key={code} className="multi-code-tag">
-                      {code}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
-                      <span className="multi-code-tag-x" onClick={() => remove(code)}>×</span>
+                    <span key={s.code} className="multi-code-tag">
+                      {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
+                      <span className="multi-code-tag-x" onClick={() => remove(s.code)}>×</span>
                     </span>
                   );
                 })}
@@ -279,7 +297,8 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
                 <div className="mcs-empty">Ничего не найдено</div>
               ) : (
                 filtered.map(c => {
-                  const isSelected = selected.includes(c.code);
+                  const isSelected = selectedCodes.includes(c.code);
+                  const selectedItem = selected.find(s => s.code === c.code);
                   return (
                     <label key={c.code} className={`mcs-item ${isSelected ? 'mcs-item-selected' : ''}`}>
                       <input
@@ -289,6 +308,18 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
                       />
                       <span className="mcs-item-code">{c.code}</span>
                       <span className="mcs-item-label">{c.label}</span>
+                      {isSelected && (
+                        <input
+                          type="number"
+                          min="1"
+                          className="mcs-qty-input"
+                          value={selectedItem?.qty || 1}
+                          onChange={(e) => { e.stopPropagation(); updateQty(c.code, e.target.value); }}
+                          onClick={(e) => e.stopPropagation()}
+                          onFocus={(e) => e.target.select()}
+                          title="Количество"
+                        />
+                      )}
                     </label>
                   );
                 })

@@ -4356,14 +4356,24 @@ app.get('/api/doctor-work-records', async (req, res) => {
   try {
     const { doctor_id, date_from, date_to, month, year } = req.query;
     
+    // JOIN с appointments → clients для подтягивания актуальных данных пациента
     let query = `
       SELECT dwr.*, 
              d."lastName" as doctor_last_name, 
              d."firstName" as doctor_first_name, 
              d."middleName" as doctor_middle_name,
-             d.specialization as doctor_specialization
+             d.specialization as doctor_specialization,
+             COALESCE(NULLIF(dwr.patient_address, ''), c.address) as patient_address,
+             COALESCE(NULLIF(dwr.citizenship_data, ''), c.citizenship_data) as citizenship_data,
+             COALESCE(dwr.patient_age, 
+               CASE WHEN c.date_of_birth IS NOT NULL 
+                    THEN EXTRACT(YEAR FROM AGE(c.date_of_birth))::INTEGER 
+                    ELSE NULL END
+             ) as patient_age
       FROM doctor_work_records dwr
       LEFT JOIN doctors d ON dwr.doctor_id = d.id
+      LEFT JOIN appointments a ON dwr.appointment_id = a.id
+      LEFT JOIN clients c ON a.client_id = c.id
       WHERE 1=1
     `;
     const params = [];
@@ -4522,13 +4532,23 @@ app.get('/api/report-039', async (req, res) => {
       return res.status(404).json({ error: 'Врач не найден' });
     }
     
-    // Получаем все записи за месяц
+    // Получаем все записи за месяц (с актуальными данными пациента из карточки)
     const records = await db.all(`
-      SELECT * FROM doctor_work_records 
-      WHERE doctor_id = $1 
-        AND EXTRACT(MONTH FROM record_date) = $2 
-        AND EXTRACT(YEAR FROM record_date) = $3
-      ORDER BY record_date, record_time
+      SELECT dwr.*,
+             COALESCE(NULLIF(dwr.patient_address, ''), c.address) as patient_address,
+             COALESCE(NULLIF(dwr.citizenship_data, ''), c.citizenship_data) as citizenship_data,
+             COALESCE(dwr.patient_age, 
+               CASE WHEN c.date_of_birth IS NOT NULL 
+                    THEN EXTRACT(YEAR FROM AGE(c.date_of_birth))::INTEGER 
+                    ELSE NULL END
+             ) as patient_age
+      FROM doctor_work_records dwr
+      LEFT JOIN appointments a ON dwr.appointment_id = a.id
+      LEFT JOIN clients c ON a.client_id = c.id
+      WHERE dwr.doctor_id = $1 
+        AND EXTRACT(MONTH FROM dwr.record_date) = $2 
+        AND EXTRACT(YEAR FROM dwr.record_date) = $3
+      ORDER BY dwr.record_date, dwr.record_time
     `, [doctor_id, month, year]);
     
     // Количество рабочих дней
@@ -4574,22 +4594,26 @@ app.get('/api/report-039', async (req, res) => {
       dailyData
     };
     
-    // Группировка диагнозов по кодам (поддержка мультивыбора через запятую)
+    // Группировка диагнозов по кодам (поддержка формата "code:qty" и мультивыбора через запятую)
     for (const record of records) {
       if (record.diagnosis_code) {
-        const codes = record.diagnosis_code.split(',').map(s => s.trim()).filter(Boolean);
-        for (const code of codes) {
-          summary.diagnosisCounts[code] = (summary.diagnosisCounts[code] || 0) + 1;
+        const entries = record.diagnosis_code.split(',').map(s => s.trim()).filter(Boolean);
+        for (const entry of entries) {
+          const [code, qtyStr] = entry.split(':');
+          const qty = parseInt(qtyStr) || 1;
+          summary.diagnosisCounts[code] = (summary.diagnosisCounts[code] || 0) + qty;
         }
       }
     }
     
-    // Группировка лечения по кодам (поддержка мультивыбора через запятую)
+    // Группировка лечения по кодам (поддержка формата "code:qty" и мультивыбора через запятую)
     for (const record of records) {
       if (record.treatment_code) {
-        const codes = record.treatment_code.split(',').map(s => s.trim()).filter(Boolean);
-        for (const code of codes) {
-          summary.treatmentCounts[code] = (summary.treatmentCounts[code] || 0) + 1;
+        const entries = record.treatment_code.split(',').map(s => s.trim()).filter(Boolean);
+        for (const entry of entries) {
+          const [code, qtyStr] = entry.split(':');
+          const qty = parseInt(qtyStr) || 1;
+          summary.treatmentCounts[code] = (summary.treatmentCounts[code] || 0) + qty;
         }
       }
     }
