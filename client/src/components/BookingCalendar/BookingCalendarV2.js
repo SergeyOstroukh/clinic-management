@@ -18,7 +18,7 @@ const MONTHS = [
   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
 ];
 
-const DAYS_OF_WEEK = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const DAYS_OF_WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 // Утилиты для работы с датами БЕЗ timezone проблем
 const formatDate = (year, month, day) => {
@@ -1554,11 +1554,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   const renderCalendar = () => {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const firstDayOfWeek = new Date(currentYear, currentMonth - 1, 1).getDay();
+    const firstDayOfWeek = (new Date(currentYear, currentMonth - 1, 1).getDay() + 6) % 7;
     
     const days = [];
     
-    // Пустые ячейки до первого дня
+    // Пустые ячейки до первого дня (неделя начинается с понедельника)
     for (let i = 0; i < firstDayOfWeek; i++) {
       days.push(<div key={`empty-${i}`} className="calendar-day-booking empty" />);
     }
