@@ -926,11 +926,6 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
     const isRural = (r) => r.population_type === 'rural';
     const isChild = (r) => r.patient_age !== null && r.patient_age !== undefined && r.patient_age < 18;
     const isAdult = (r) => r.patient_age === null || r.patient_age === undefined || r.patient_age >= 18;
-    // Проверка: содержит ли поле конкретный код (поддержка формата "code:qty")
-    const fieldHasCode = (fieldValue, code) => {
-      if (!fieldValue) return false;
-      return fieldValue.split(',').map(s => s.trim().split(':')[0]).includes(code);
-    };
     // Получить количество для конкретного кода из строки "330:3,350:2,710"
     const fieldGetCodeQty = (fieldValue, code) => {
       if (!fieldValue) return 0;
