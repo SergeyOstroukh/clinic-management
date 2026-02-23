@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import axios from 'axios';
 import DoctorCalendar from '../../components/DoctorCalendar/DoctorCalendar';
@@ -189,22 +189,40 @@ const TREATMENT_CODES_039 = [
   { code: '710', label: 'Обезболивание местное' },
 ];
 
-// Компонент мультиселекта кодов — модальное окно с поиском и чекбоксами
+// Компонент мультиселекта кодов с количеством — модальное окно с поиском, чекбоксами и полем кол-ва
 const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const selected = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const selected = value
+    ? value.split(',').map(s => s.trim()).filter(Boolean).map(entry => {
+        const [code, qtyStr] = entry.split(':');
+        return { code, qty: parseInt(qtyStr) || 1 };
+      })
+    : [];
+  const selectedCodes = selected.map(s => s.code);
+
+  const serialize = (items) => items.map(i => `${i.code}:${i.qty}`).join(',');
 
   const toggle = (code) => {
     if (disabled) return;
-    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
-    onChange(next.join(','));
+    if (selectedCodes.includes(code)) {
+      onChange(serialize(selected.filter(s => s.code !== code)));
+    } else {
+      onChange(serialize([...selected, { code, qty: 1 }]));
+    }
   };
 
   const remove = (code) => {
     if (disabled) return;
-    onChange(selected.filter(c => c !== code).join(','));
+    onChange(serialize(selected.filter(s => s.code !== code)));
+  };
+
+  const updateQty = (code, qty) => {
+    if (disabled) return;
+    const v = parseInt(qty) || 1;
+    if (v < 1) return;
+    onChange(serialize(selected.map(s => s.code === code ? { ...s, qty: v } : s)));
   };
 
   const filtered = codes.filter(c =>
@@ -218,12 +236,12 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
           <span className="multi-code-placeholder">{placeholder || '— Выберите —'}</span>
         ) : (
           <div className="multi-code-tags">
-            {selected.map(code => {
-              const item = codes.find(c => c.code === code);
+            {selected.map(s => {
+              const item = codes.find(c => c.code === s.code);
               return (
-                <span key={code} className="multi-code-tag">
-                  {code}{item ? ` — ${item.label.substring(0, 30)}${item.label.length > 30 ? '…' : ''}` : ''}
-                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(code); }}>×</span>
+                <span key={s.code} className="multi-code-tag">
+                  {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 25)}${item.label.length > 25 ? '…' : ''}` : ''}
+                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(s.code); }}>×</span>
                 </span>
               );
             })}
@@ -245,12 +263,12 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
             </div>
             {selected.length > 0 && (
               <div className="mcs-selected-bar">
-                {selected.map(code => {
-                  const item = codes.find(c => c.code === code);
+                {selected.map(s => {
+                  const item = codes.find(c => c.code === s.code);
                   return (
-                    <span key={code} className="multi-code-tag">
-                      {code}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
-                      <span className="multi-code-tag-x" onClick={() => remove(code)}>×</span>
+                    <span key={s.code} className="multi-code-tag">
+                      {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
+                      <span className="multi-code-tag-x" onClick={() => remove(s.code)}>×</span>
                     </span>
                   );
                 })}
@@ -260,12 +278,25 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
               {filtered.length === 0 ? (
                 <div className="mcs-empty">Ничего не найдено</div>
               ) : filtered.map(c => {
-                const isSelected = selected.includes(c.code);
+                const isSelected = selectedCodes.includes(c.code);
+                const selectedItem = selected.find(s => s.code === c.code);
                 return (
                   <label key={c.code} className={`mcs-item ${isSelected ? 'mcs-item-selected' : ''}`}>
                     <input type="checkbox" checked={isSelected} onChange={() => toggle(c.code)} />
                     <span className="mcs-item-code">{c.code}</span>
                     <span className="mcs-item-label">{c.label}</span>
+                    {isSelected && (
+                      <input
+                        type="number"
+                        min="1"
+                        className="mcs-qty-input"
+                        value={selectedItem?.qty || 1}
+                        onChange={(e) => { e.stopPropagation(); updateQty(c.code, e.target.value); }}
+                        onClick={(e) => e.stopPropagation()}
+                        onFocus={(e) => e.target.select()}
+                        title="Количество"
+                      />
+                    )}
                   </label>
                 );
               })}
@@ -289,18 +320,22 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
   // Состояние для вкладки «Отложенные»
   const [deferredList, setDeferredList] = useState([]);
   const [deferredLoading, setDeferredLoading] = useState(false);
-  const [editingId, setEditingId] = useState(null); // какой прием сейчас редактируем
+  const [deferredInitialized, setDeferredInitialized] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
     visit_type: '', preventive_work: '', diagnosis_code: '',
     treatment_stage: '', treatment_code: '', treatment_description: '',
   });
   const [submittingForm, setSubmittingForm] = useState(false);
   const [deferredCount, setDeferredCount] = useState(0);
+  const deferredLoadingRef = useRef(false);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     if (currentUser?.doctor_id) {
       loadDoctorData();
-      loadDeferredCount();
+      loadDeferred();
     } else {
       console.error('doctor_id не найден в currentUser:', currentUser);
       setLoading(false);
@@ -328,22 +363,11 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
     }
   };
 
-  // Загрузка количества отложенных (для бейджа на вкладке)
-  const loadDeferredCount = useCallback(async () => {
+  // Единая загрузка отложенных (и для бейджа, и для списка). Защита от параллельных вызовов.
+  const loadDeferred = useCallback(async () => {
     if (!currentUser?.doctor_id) return;
-    try {
-      const res = await axios.get(`${API_URL}/appointments/deferred-forms`, {
-        params: { doctor_id: currentUser.doctor_id }
-      });
-      setDeferredCount(res.data.length);
-    } catch (err) {
-      console.error('Ошибка загрузки количества отложенных:', err);
-    }
-  }, [currentUser?.doctor_id]);
-
-  // Загрузка полного списка отложенных
-  const loadDeferredList = useCallback(async () => {
-    if (!currentUser?.doctor_id) return;
+    if (deferredLoadingRef.current) return;
+    deferredLoadingRef.current = true;
     setDeferredLoading(true);
     try {
       const res = await axios.get(`${API_URL}/appointments/deferred-forms`, {
@@ -351,29 +375,28 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
       });
       setDeferredList(res.data);
       setDeferredCount(res.data.length);
+      setDeferredInitialized(true);
     } catch (err) {
       console.error('Ошибка загрузки отложенных форм:', err);
     } finally {
       setDeferredLoading(false);
+      deferredLoadingRef.current = false;
     }
   }, [currentUser?.doctor_id]);
 
   // Подгружаем при переключении на вкладку
   useEffect(() => {
     if (activeTab === 'deferred') {
-      loadDeferredList();
+      loadDeferred();
     }
-  }, [activeTab, loadDeferredList]);
+  }, [activeTab, loadDeferred]);
 
-  // Слушаем real-time обновления (при завершении приема с «заполнить позже»)
+  // Слушаем real-time обновления
   useEffect(() => {
-    const handler = () => {
-      loadDeferredCount();
-      if (activeTab === 'deferred') loadDeferredList();
-    };
+    const handler = () => loadDeferred();
     window.addEventListener('appointmentUpdated', handler);
     return () => window.removeEventListener('appointmentUpdated', handler);
-  }, [activeTab, loadDeferredCount, loadDeferredList]);
+  }, [loadDeferred]);
 
   const startEditing = (item) => {
     setEditingId(item.id);
@@ -412,7 +435,7 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
         treatment_stage: '', treatment_code: '', treatment_description: '',
       });
       // Обновляем список — заполненная запись пропадёт
-      await loadDeferredList();
+      await loadDeferred();
       window.dispatchEvent(new Event('appointmentUpdated'));
     } catch (error) {
       console.error('Ошибка сохранения формы:', error);
@@ -522,7 +545,7 @@ const DoctorDashboard = ({ currentUser, onNavigate }) => {
               Заполните данные — и запись автоматически исчезнет из этого списка.
             </p>
 
-            {deferredLoading ? (
+            {(deferredLoading || !deferredInitialized) ? (
               <div className="loading">Загрузка...</div>
             ) : deferredList.length === 0 ? (
               <div className="deferred-empty">

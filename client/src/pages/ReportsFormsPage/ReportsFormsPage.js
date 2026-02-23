@@ -177,22 +177,40 @@ const TREATMENT_CODES_039 = [
   { code: '710', label: 'Обезболивание местное' },
 ];
 
-// Компонент мультиселекта кодов — модальное окно с поиском и чекбоксами
+// Компонент мультиселекта кодов с количеством — модальное окно с поиском, чекбоксами и полем кол-ва
 const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const selected = value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const selected = value
+    ? value.split(',').map(s => s.trim()).filter(Boolean).map(entry => {
+        const [code, qtyStr] = entry.split(':');
+        return { code, qty: parseInt(qtyStr) || 1 };
+      })
+    : [];
+  const selectedCodes = selected.map(s => s.code);
+
+  const serialize = (items) => items.map(i => `${i.code}:${i.qty}`).join(',');
 
   const toggle = (code) => {
     if (disabled) return;
-    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
-    onChange(next.join(','));
+    if (selectedCodes.includes(code)) {
+      onChange(serialize(selected.filter(s => s.code !== code)));
+    } else {
+      onChange(serialize([...selected, { code, qty: 1 }]));
+    }
   };
 
   const remove = (code) => {
     if (disabled) return;
-    onChange(selected.filter(c => c !== code).join(','));
+    onChange(serialize(selected.filter(s => s.code !== code)));
+  };
+
+  const updateQty = (code, qty) => {
+    if (disabled) return;
+    const v = parseInt(qty) || 1;
+    if (v < 1) return;
+    onChange(serialize(selected.map(s => s.code === code ? { ...s, qty: v } : s)));
   };
 
   const filtered = codes.filter(c =>
@@ -209,12 +227,12 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
           <span className="multi-code-placeholder">{placeholder || '— Выберите —'}</span>
         ) : (
           <div className="multi-code-tags">
-            {selected.map(code => {
-              const item = codes.find(c => c.code === code);
+            {selected.map(s => {
+              const item = codes.find(c => c.code === s.code);
               return (
-                <span key={code} className="multi-code-tag">
-                  {code}{item ? ` — ${item.label.substring(0, 30)}${item.label.length > 30 ? '…' : ''}` : ''}
-                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(code); }}>×</span>
+                <span key={s.code} className="multi-code-tag">
+                  {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 25)}${item.label.length > 25 ? '…' : ''}` : ''}
+                  <span className="multi-code-tag-x" onClick={(e) => { e.stopPropagation(); remove(s.code); }}>×</span>
                 </span>
               );
             })}
@@ -245,12 +263,12 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
 
             {selected.length > 0 && (
               <div className="mcs-selected-bar">
-                {selected.map(code => {
-                  const item = codes.find(c => c.code === code);
+                {selected.map(s => {
+                  const item = codes.find(c => c.code === s.code);
                   return (
-                    <span key={code} className="multi-code-tag">
-                      {code}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
-                      <span className="multi-code-tag-x" onClick={() => remove(code)}>×</span>
+                    <span key={s.code} className="multi-code-tag">
+                      {s.code}{s.qty > 1 ? ` ×${s.qty}` : ''}{item ? ` — ${item.label.substring(0, 20)}${item.label.length > 20 ? '…' : ''}` : ''}
+                      <span className="multi-code-tag-x" onClick={() => remove(s.code)}>×</span>
                     </span>
                   );
                 })}
@@ -262,7 +280,8 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
                 <div className="mcs-empty">Ничего не найдено</div>
               ) : (
                 filtered.map(c => {
-                  const isSelected = selected.includes(c.code);
+                  const isSelected = selectedCodes.includes(c.code);
+                  const selectedItem = selected.find(s => s.code === c.code);
                   return (
                     <label key={c.code} className={`mcs-item ${isSelected ? 'mcs-item-selected' : ''}`}>
                       <input
@@ -272,6 +291,18 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
                       />
                       <span className="mcs-item-code">{c.code}</span>
                       <span className="mcs-item-label">{c.label}</span>
+                      {isSelected && (
+                        <input
+                          type="number"
+                          min="1"
+                          className="mcs-qty-input"
+                          value={selectedItem?.qty || 1}
+                          onChange={(e) => { e.stopPropagation(); updateQty(c.code, e.target.value); }}
+                          onClick={(e) => e.stopPropagation()}
+                          onFocus={(e) => e.target.select()}
+                          title="Количество"
+                        />
+                      )}
                     </label>
                   );
                 })
@@ -291,6 +322,16 @@ const MultiCodeSelect = ({ codes, value, onChange, placeholder, disabled }) => {
   );
 };
 
+// Форматирует строку кодов с количеством для отображения: "330:3,350:2,710:1" → "330(×3), 350(×2), 710"
+const formatCodeDisplay = (codeStr) => {
+  if (!codeStr) return '';
+  return codeStr.split(',').map(s => {
+    const [code, qty] = s.trim().split(':');
+    if (qty && parseInt(qty) > 1) return `${code}(×${qty})`;
+    return code;
+  }).join(', ');
+};
+
 const ReportsFormsPage = ({ onNavigate, currentUser }) => {
   const [activeTab, setActiveTab] = useState('037');
   const [doctors, setDoctors] = useState([]);
@@ -301,6 +342,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [filterDay, setFilterDay] = useState(''); // '' = весь месяц, число = конкретный день
   
   // Настройки печати
   const [orgName, setOrgName] = useState(localStorage.getItem('clinic_org_name') || '');
@@ -708,6 +750,14 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
   const renderForm037 = () => {
     const doctor = getSelectedDoctor();
 
+    // Фильтрация по дню (если выбран)
+    const filteredRecords = filterDay
+      ? records.filter(r => {
+          if (!r.record_date) return false;
+          return new Date(r.record_date).getDate() === parseInt(filterDay);
+        })
+      : records;
+
     return (
     <div className="form-037-container">
       {/* Шапка — только на экране */}
@@ -719,12 +769,12 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
             <div className="form-doctor-info">
               <span><strong>Врач:</strong> {getSelectedDoctorName()}</span>
               <span><strong>Период:</strong> {monthNames[filterMonth - 1]} {filterYear}</span>
-              <span><strong>Записей:</strong> {records.length}</span>
+              <span><strong>Записей:</strong> {filteredRecords.length}{filterDay ? ` (за ${filterDay} число)` : ''}</span>
             </div>
           )}
         </div>
         <div className="form-header-actions">
-          {selectedDoctorId && records.length > 0 && (
+          {selectedDoctorId && filteredRecords.length > 0 && (
             <>
               <button className="btn" onClick={() => setShowPrintSettings(true)} title="Настройки печати">
                 ⚙️ Настройки печати
@@ -741,7 +791,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       </div>
 
       {/* === ПЕЧАТНАЯ ШАПКА (видна только при печати) === */}
-      {selectedDoctorId && records.length > 0 && (
+      {selectedDoctorId && filteredRecords.length > 0 && (
         <div className="print-only print-header-037">
           <div className="print-form-number">Форма № 037/у</div>
           <div className="print-org-name">{orgName || '_______________________________________________'}</div>
@@ -757,7 +807,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
           </div>
           <div className="print-info-row">
             <span>Ставка: <u>{doctorRate || '________'}</u></span>
-            <span style={{ marginLeft: '40px' }}>Период: <u>{monthNames[filterMonth - 1]} {filterYear} г.</u></span>
+            <span style={{ marginLeft: '40px' }}>Период: <u>{filterDay ? `${filterDay} ${monthNames[filterMonth - 1].toLowerCase()}` : monthNames[filterMonth - 1]} {filterYear} г.</u></span>
           </div>
         </div>
       )}
@@ -768,10 +818,10 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         </div>
       ) : loading ? (
         <div className="empty-state no-print"><p>Загрузка...</p></div>
-      ) : records.length === 0 ? (
+      ) : filteredRecords.length === 0 ? (
         <div className="empty-state no-print">
-          <p>Нет записей за выбранный период</p>
-          <button className="btn btn-primary" onClick={handleNewRecord}>+ Добавить первую запись</button>
+          <p>{filterDay ? `Нет записей за ${filterDay} ${monthNames[filterMonth - 1].toLowerCase()} ${filterYear}` : 'Нет записей за выбранный период'}</p>
+          {!filterDay && <button className="btn btn-primary" onClick={handleNewRecord}>+ Добавить первую запись</button>}
         </div>
       ) : (
         <div className="form-037-table-wrapper">
@@ -800,7 +850,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
               </tr>
             </thead>
             <tbody>
-              {records.map((record, index) => (
+              {filteredRecords.map((record, index) => (
                 <tr key={record.id}>
                   <td className="col-num">{index + 1}</td>
                   <td className="col-date">
@@ -820,10 +870,10 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
                   <td className="col-diagnosis">
                     {record.diagnosis_description || ''}
                   </td>
-                  <td className="col-diagcode">{record.diagnosis_code || ''}</td>
+                  <td className="col-diagcode">{formatCodeDisplay(record.diagnosis_code)}</td>
                   <td className="col-stage">{record.treatment_stage || ''}</td>
                   <td className="col-treatment">
-                    {record.treatment_code && <span>{record.treatment_code} </span>}
+                    {record.treatment_code && <span>{formatCodeDisplay(record.treatment_code)} </span>}
                     {record.treatment_description || ''}
                   </td>
                   <td className="col-actions no-print">
@@ -842,7 +892,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       )}
 
       {/* Печатный подвал 037/у — точно как в PDF (Приложение 1) */}
-      {selectedDoctorId && records.length > 0 && (
+      {selectedDoctorId && filteredRecords.length > 0 && (
         <div className="print-only print-footer-037">
           <div className="print-footnote-line">______________________________</div>
           <p className="print-footnote">* Международная классификация стоматологических болезней на основе Международной классификации болезней и проблем, связанных со здоровьем, десятого пересмотра.</p>
@@ -876,10 +926,29 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
     const isRural = (r) => r.population_type === 'rural';
     const isChild = (r) => r.patient_age !== null && r.patient_age !== undefined && r.patient_age < 18;
     const isAdult = (r) => r.patient_age === null || r.patient_age === undefined || r.patient_age >= 18;
-    // Проверка: содержит ли поле (возможно через запятую) конкретный код
+    // Проверка: содержит ли поле конкретный код (поддержка формата "code:qty")
     const fieldHasCode = (fieldValue, code) => {
       if (!fieldValue) return false;
-      return fieldValue.split(',').map(s => s.trim()).includes(code);
+      return fieldValue.split(',').map(s => s.trim().split(':')[0]).includes(code);
+    };
+    // Получить количество для конкретного кода из строки "330:3,350:2,710"
+    const fieldGetCodeQty = (fieldValue, code) => {
+      if (!fieldValue) return 0;
+      for (const entry of fieldValue.split(',').map(s => s.trim()).filter(Boolean)) {
+        const [c, q] = entry.split(':');
+        if (c === code) return parseInt(q) || 1;
+      }
+      return 0;
+    };
+    // Суммирует qty конкретного кода по массиву записей (с опциональным фильтром)
+    const sumCodeFromRecords = (recs, field, targetCode, extraFilter) => {
+      let sum = 0;
+      recs.forEach(r => {
+        if (!extraFilter || extraFilter(r)) {
+          sum += fieldGetCodeQty(r[field], targetCode);
+        }
+      });
+      return sum;
     };
 
     // Вычислить значение ячейки для конкретной строки и дня (или итого)
@@ -887,6 +956,17 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       if (!summary || !summary.dailyData) return '';
 
       const dayRecords = day === 'total' ? null : (summary.dailyData[day] || []);
+
+      const sumCodeQty = (field, targetCode, extraFilter) => {
+        if (day === 'total') {
+          let total = 0;
+          Object.values(summary.dailyData).forEach(recs => {
+            total += sumCodeFromRecords(recs, field, targetCode, extraFilter);
+          });
+          return total;
+        }
+        return sumCodeFromRecords(dayRecords || [], field, targetCode, extraFilter);
+      };
       
       // Функция фильтрации записей по условию
       const countByFilter = (filterFn) => {
@@ -962,17 +1042,16 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
       else if (code === '8') count = countByFilter(r => r.preventive_work === '8');
       else if (code === '8.1') count = countByFilter(r => r.preventive_work === '8' && isChild(r));
 
-      // === ДИАГНОЗЫ (коды 10–199) ===
+      // === ДИАГНОЗЫ (коды 10–199) — суммируем количество ===
       else if (/^\d+$/.test(code) && parseInt(code) >= 10 && parseInt(code) < 200) {
-        count = countByFilter(r => fieldHasCode(r.diagnosis_code, code));
+        count = sumCodeQty('diagnosis_code', code);
       }
       // 200 — Проведено консультаций
       else if (code === '200') {
         count = countByFilter(r => r.visit_type === 'consultation');
       }
-      // === ЛЕЧЕБНЫЕ / ПРОЦЕДУРНЫЕ КОДЫ (210+) ===
+      // === ЛЕЧЕБНЫЕ / ПРОЦЕДУРНЫЕ КОДЫ (210+) — суммируем количество ===
       else if (/^\d+$/.test(code) && parseInt(code) >= 210) {
-        // Маппинг подкодов «в том числе у детей» → родительский код
         const CHILD_SUBCODES = {
           '331': '330', '351': '350', '363': '360',
           '376': '375', '381': '380', '391': '390',
@@ -983,7 +1062,6 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
           '461': '460', '501': '500', '521': '520',
         };
 
-        // Обратный маппинг: родительский код → все дочерние подкоды
         const PARENT_TO_CHILDREN = {};
         Object.entries(CHILD_SUBCODES).forEach(([child, parent]) => {
           if (!PARENT_TO_CHILDREN[parent]) PARENT_TO_CHILDREN[parent] = [];
@@ -991,23 +1069,15 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         });
 
         if (CHILD_SUBCODES[code]) {
-          // Это дочерний подкод (напр. 401 «дети»).
-          // Считаем: записи с родительским кодом (400) + ребёнок < 18,
-          //          ИЛИ записи где напрямую выбран этот дочерний код (401)
+          // Дочерний подкод (напр. 401 «дети»): qty родительского кода для детей + qty этого кода
           const parentCode = CHILD_SUBCODES[code];
-          count = countByFilter(r =>
-            (fieldHasCode(r.treatment_code, parentCode) && isChild(r)) ||
-            fieldHasCode(r.treatment_code, code)
-          );
+          count = sumCodeQty('treatment_code', parentCode, r => isChild(r))
+                + sumCodeQty('treatment_code', code);
         } else {
-          // Это обычный/родительский код (напр. 400 «всего»).
-          // Считаем: записи с этим кодом напрямую,
-          //          ИЛИ записи где выбран дочерний подкод (401)
+          // Родительский/обычный код (напр. 400 «всего»): qty этого кода + qty всех дочерних
           const childCodes = PARENT_TO_CHILDREN[code] || [];
-          count = countByFilter(r =>
-            fieldHasCode(r.treatment_code, code) ||
-            childCodes.some(cc => fieldHasCode(r.treatment_code, cc))
-          );
+          count = sumCodeQty('treatment_code', code);
+          childCodes.forEach(cc => { count += sumCodeQty('treatment_code', cc); });
         }
       }
       else return '';
@@ -1208,7 +1278,7 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         )}
         <div className="filter-group">
           <label>Месяц</label>
-          <select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+          <select value={filterMonth} onChange={(e) => { setFilterMonth(parseInt(e.target.value)); setFilterDay(''); }}>
             {monthNames.map((name, i) => (
               <option key={i} value={i + 1}>{name}</option>
             ))}
@@ -1216,12 +1286,23 @@ const ReportsFormsPage = ({ onNavigate, currentUser }) => {
         </div>
         <div className="filter-group">
           <label>Год</label>
-          <select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+          <select value={filterYear} onChange={(e) => { setFilterYear(parseInt(e.target.value)); setFilterDay(''); }}>
             {[2024, 2025, 2026, 2027].map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
         </div>
+        {activeTab === '037' && (
+          <div className="filter-group">
+            <label>День</label>
+            <select value={filterDay} onChange={(e) => setFilterDay(e.target.value)}>
+              <option value="">Весь месяц</option>
+              {Array.from({ length: new Date(filterYear, filterMonth, 0).getDate() }, (_, i) => (
+                <option key={i + 1} value={i + 1}>{i + 1}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Вкладки */}
