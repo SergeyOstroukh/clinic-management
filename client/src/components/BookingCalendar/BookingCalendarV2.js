@@ -137,6 +137,61 @@ const minutesToTime = (totalMinutes) => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
+const normalizeClockTime = (timeStr) => {
+  if (!timeStr) return '00:00';
+  const [hours = '0', minutes = '0'] = String(timeStr).split(':');
+  return `${String(parseInt(hours, 10) || 0).padStart(2, '0')}:${String(parseInt(minutes, 10) || 0).padStart(2, '0')}`;
+};
+
+const getShiftLabelsFromRanges = (ranges = []) => {
+  const shiftSet = new Set();
+
+  ranges.forEach((range) => {
+    const startTime = normalizeClockTime(range?.start_time || range?.startTime);
+    const endTime = normalizeClockTime(range?.end_time || range?.endTime);
+    const startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
+
+    if (endMinutes <= startMinutes) return;
+
+    // 1 смена: 09:00–15:00, 2 смена: 15:00–21:00
+    if (startMinutes < 15 * 60 && endMinutes > 9 * 60) {
+      shiftSet.add('1 смена');
+    }
+    if (startMinutes < 21 * 60 && endMinutes > 15 * 60) {
+      shiftSet.add('2 смена');
+    }
+  });
+
+  return ['1 смена', '2 смена'].filter((label) => shiftSet.has(label));
+};
+
+const getShiftDoctorsFromSlots = (slots = []) => {
+  const shiftDoctors = {
+    '1 смена': new Map(),
+    '2 смена': new Map()
+  };
+
+  slots.forEach((slot) => {
+    if (!slot?.doctor) return;
+    const ranges = [{
+      start_time: slot.scheduleStart,
+      end_time: slot.scheduleEnd
+    }];
+    const labels = getShiftLabelsFromRanges(ranges);
+    labels.forEach((label) => {
+      shiftDoctors[label].set(slot.doctor.id, slot.doctor.lastName);
+    });
+  });
+
+  return ['1 смена', '2 смена']
+    .map((label) => ({
+      label,
+      doctors: Array.from(shiftDoctors[label].values())
+    }))
+    .filter((item) => item.doctors.length > 0);
+};
+
 // Проверка, занят ли слот с учетом duration записей
 const isSlotBlockedByAppointment = (slotTimeStr, appointments) => {
   const slotMinutes = timeToMinutes(slotTimeStr);
@@ -1574,19 +1629,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       const checkDate = new Date(currentYear, currentMonth - 1, day);
       checkDate.setHours(0, 0, 0, 0);
       const isPast = checkDate < today;
+      let dayShiftLabels = [];
+      let shiftDoctorsByDay = [];
       
       // Получаем список врачей для этого дня (в режиме всех врачей)
-      let dayDoctors = [];
       if (showAllDoctorsMode && status !== 'no-schedule' && status !== 'past-today') {
         const dateStr = formatDate(currentYear, currentMonth, day);
         const slots = allDoctorsSlots[dateStr] || [];
-        const uniqueDoctors = new Map();
-        slots.forEach(slot => {
-          if (!uniqueDoctors.has(slot.doctor.id)) {
-            uniqueDoctors.set(slot.doctor.id, slot.doctor);
-          }
-        });
-        dayDoctors = Array.from(uniqueDoctors.values());
+        const uniqueRanges = Array.from(
+          new Map(
+            slots
+              .filter(slot => slot.scheduleStart && slot.scheduleEnd)
+              .map(slot => [`${slot.scheduleStart}-${slot.scheduleEnd}`, { start_time: slot.scheduleStart, end_time: slot.scheduleEnd }])
+          ).values()
+        );
+        dayShiftLabels = getShiftLabelsFromRanges(uniqueRanges);
+        shiftDoctorsByDay = getShiftDoctorsFromSlots(slots);
+      } else if (!showAllDoctorsMode && status !== 'no-schedule') {
+        dayShiftLabels = getShiftLabelsFromRanges(getDaySchedule(currentYear, currentMonth, day));
       }
       
       days.push(
@@ -1596,22 +1656,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           onClick={() => status !== 'no-schedule' && status !== 'past-today' && handleDayClick(currentYear, currentMonth, day)}
         >
           <div className="day-number">{day}</div>
+          {!showAllDoctorsMode && dayShiftLabels.length > 0 && (
+            <div className="shift-badge">
+              {dayShiftLabels.join(', ')}
+            </div>
+          )}
+          {showAllDoctorsMode && shiftDoctorsByDay.length > 0 && (
+            <div className="shift-doctors-list">
+              {shiftDoctorsByDay.map((item) => (
+                <div key={item.label} className="shift-doctors-row">
+                  <span className="shift-label">{item.label}:</span> {item.doctors.join(', ')}
+                </div>
+              ))}
+            </div>
+          )}
           {status === 'past-today' && <div className="availability-badge">Запись невозможна</div>}
           {status === 'available' && <div className="availability-badge">Свободно</div>}
           {status === 'partially-booked' && <div className="availability-badge partial">Есть места</div>}
           {status === 'fully-booked' && <div className="availability-badge full">Занято</div>}
-          {showAllDoctorsMode && dayDoctors.length > 0 && (
-            <div style={{ 
-              fontSize: '0.7rem', 
-              color: '#667eea', 
-              marginTop: '4px',
-              fontWeight: '600',
-              textAlign: 'center',
-              lineHeight: '1.2'
-            }}>
-              {dayDoctors.map(d => d.lastName).join(', ')}
-            </div>
-          )}
         </div>
       );
     }
