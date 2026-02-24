@@ -186,6 +186,39 @@
   margin-bottom: 8px;
 }
 
+.shift-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #0b5ed7;
+  background: rgba(11, 94, 215, 0.12);
+  border: 1px solid rgba(11, 94, 215, 0.25);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 6px;
+}
+
+.shift-doctors-list {
+  font-size: 0.68rem;
+  color: #0b5ed7;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+
+.shift-doctors-row {
+  margin-bottom: 2px;
+}
+
+.shift-doctors-row:last-child {
+  margin-bottom: 0;
+}
+
+.shift-label {
+  font-weight: 700;
+}
+
 .availability-badge {
   background: #28a745;
   color: white;
