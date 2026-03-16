@@ -37,6 +37,9 @@ async function initializeDatabase() {
     
     await migrateAppointmentDuration();
     console.log('✅ Миграция duration в appointments проверена');
+
+    await migrateAppointmentUnitPrices();
+    console.log('✅ Миграция unit_price в appointment_services/materials проверена');
     
     await migrateDoctorWorkRecords();
     console.log('✅ Миграция doctor_work_records проверена');
@@ -137,6 +140,7 @@ async function initializePostgreSQL() {
       appointment_id INTEGER NOT NULL,
       service_id INTEGER NOT NULL,
       quantity INTEGER DEFAULT 1,
+      unit_price REAL,
       FOREIGN KEY (appointment_id) REFERENCES appointments(id),
       FOREIGN KEY (service_id) REFERENCES services(id)
     )
@@ -162,6 +166,7 @@ async function initializePostgreSQL() {
       appointment_id INTEGER NOT NULL,
       material_id INTEGER NOT NULL,
       quantity REAL DEFAULT 1,
+      unit_price REAL,
       FOREIGN KEY (appointment_id) REFERENCES appointments(id),
       FOREIGN KEY (material_id) REFERENCES materials(id)
     )
@@ -932,6 +937,83 @@ async function migrateAppointmentDuration() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции duration:', error.message);
+  }
+}
+
+// Миграция: фиксация цены в момент назначения услуги/материала
+async function migrateAppointmentUnitPrices() {
+  try {
+    const { usePostgres } = require('./database');
+
+    if (usePostgres) {
+      const serviceUnitPriceExists = await db.all(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'appointment_services' AND column_name = $1
+      `, ['unit_price']);
+
+      if (serviceUnitPriceExists.length === 0) {
+        console.log('   🔄 Добавление поля unit_price в appointment_services...');
+        await db.run(`ALTER TABLE appointment_services ADD COLUMN unit_price REAL`);
+        console.log('   ✅ Поле unit_price добавлено в appointment_services');
+      } else {
+        console.log('   ✅ Поле unit_price в appointment_services уже существует');
+      }
+
+      const materialUnitPriceExists = await db.all(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'appointment_materials' AND column_name = $1
+      `, ['unit_price']);
+
+      if (materialUnitPriceExists.length === 0) {
+        console.log('   🔄 Добавление поля unit_price в appointment_materials...');
+        await db.run(`ALTER TABLE appointment_materials ADD COLUMN unit_price REAL`);
+        console.log('   ✅ Поле unit_price добавлено в appointment_materials');
+      } else {
+        console.log('   ✅ Поле unit_price в appointment_materials уже существует');
+      }
+
+      // Backfill существующих данных (только где unit_price еще не задан)
+      await db.run(`
+        UPDATE appointment_services aps
+        SET unit_price = s.price
+        FROM services s
+        WHERE aps.service_id = s.id
+          AND aps.unit_price IS NULL
+      `);
+
+      await db.run(`
+        UPDATE appointment_materials apm
+        SET unit_price = m.price
+        FROM materials m
+        WHERE apm.material_id = m.id
+          AND apm.unit_price IS NULL
+      `);
+    } else {
+      // SQLite fallback
+      const serviceTable = await db.all(`PRAGMA table_info(appointment_services)`);
+      const hasServiceUnitPrice = serviceTable.some(col => col.name === 'unit_price');
+      if (!hasServiceUnitPrice) {
+        console.log('   🔄 Добавление поля unit_price в appointment_services...');
+        await db.run(`ALTER TABLE appointment_services ADD COLUMN unit_price REAL`);
+        console.log('   ✅ Поле unit_price добавлено в appointment_services');
+      } else {
+        console.log('   ✅ Поле unit_price в appointment_services уже существует');
+      }
+
+      const materialTable = await db.all(`PRAGMA table_info(appointment_materials)`);
+      const hasMaterialUnitPrice = materialTable.some(col => col.name === 'unit_price');
+      if (!hasMaterialUnitPrice) {
+        console.log('   🔄 Добавление поля unit_price в appointment_materials...');
+        await db.run(`ALTER TABLE appointment_materials ADD COLUMN unit_price REAL`);
+        console.log('   ✅ Поле unit_price добавлено в appointment_materials');
+      } else {
+        console.log('   ✅ Поле unit_price в appointment_materials уже существует');
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции unit_price:', error.message);
   }
 }
 

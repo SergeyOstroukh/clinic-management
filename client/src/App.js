@@ -34,6 +34,40 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
+// Разбор "YYYY-MM-DD HH:MM:SS" без UTC-сдвигов браузера
+const parseLocalDateTime = (dateTimeStr) => {
+  if (!dateTimeStr) return null;
+  const str = String(dateTimeStr).trim();
+
+  // Основной формат из API
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    const [, y, mo, d, h, mi, s = '00'] = m;
+    return new Date(
+      parseInt(y, 10),
+      parseInt(mo, 10) - 1,
+      parseInt(d, 10),
+      parseInt(h, 10),
+      parseInt(mi, 10),
+      parseInt(s, 10),
+      0
+    );
+  }
+
+  // Fallback для старых форматов
+  const parsed = new Date(str);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getLocalDateKey = (dateTimeStr) => {
+  const d = parseLocalDateTime(dateTimeStr);
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 function App() {
   // Toast уведомления
   const toast = useToast();
@@ -361,13 +395,13 @@ function App() {
   const getAppointmentsByDate = () => {
     return appointments
       .filter(apt => {
-        const aptDate = new Date(apt.appointment_date).toISOString().split('T')[0];
+        const aptDate = getLocalDateKey(apt.appointment_date);
         return aptDate === selectedDate;
       })
       .sort((a, b) => {
-        // Сортировка по времени (от меньшего к большему)
-        const timeA = new Date(a.appointment_date).getTime();
-        const timeB = new Date(b.appointment_date).getTime();
+        // Сортировка по времени без UTC-сдвигов
+        const timeA = parseLocalDateTime(a.appointment_date)?.getTime() || 0;
+        const timeB = parseLocalDateTime(b.appointment_date)?.getTime() || 0;
         return timeA - timeB;
       });
   };
@@ -496,16 +530,26 @@ function App() {
     // Считаем услуги
     if (servicesList && servicesList.length > 0) {
       total += servicesList.reduce((sum, s) => {
+        // В приоритете цена из самой записи (снимок на момент выполнения услуг),
+        // затем fallback к текущему справочнику услуг.
+        const inlinePrice = Number(s.price);
+        if (Number.isFinite(inlinePrice)) {
+          return sum + inlinePrice * (s.quantity || 0);
+        }
         const service = services.find(serv => serv.id === s.service_id);
-        return sum + (service ? service.price * s.quantity : 0);
+        return sum + (service ? service.price * (s.quantity || 0) : 0);
       }, 0);
     }
     
     // Считаем материалы
     if (materialsList && materialsList.length > 0) {
       total += materialsList.reduce((sum, m) => {
+        const inlinePrice = Number(m.price);
+        if (Number.isFinite(inlinePrice)) {
+          return sum + inlinePrice * (m.quantity || 0);
+        }
         const material = materials.find(mat => mat.id === m.material_id);
-        return sum + (material ? material.price * m.quantity : 0);
+        return sum + (material ? material.price * (m.quantity || 0) : 0);
       }, 0);
     }
     
