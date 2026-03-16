@@ -2543,15 +2543,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   });
                   
                   const doctorsList = Array.from(slotsByDoctor.values());
+                  const doctorColumnMinWidth = 220;
+                  const doctorColumnGap = 20;
+                  const totalDoctorsMinWidth =
+                    (doctorsList.length * doctorColumnMinWidth) +
+                    (Math.max(doctorsList.length - 1, 0) * doctorColumnGap);
+                  const modalContentWidth =
+                    (typeof window !== 'undefined'
+                      ? Math.min(window.innerWidth * 0.9, 900)
+                      : 900) - 60;
+                  const shouldUseHorizontalScroll = totalDoctorsMinWidth > modalContentWidth;
                   
                   return (
-                    <div style={{ marginTop: '15px', overflowX: 'auto' }}>
+                    <div style={{ marginTop: '15px', overflowX: shouldUseHorizontalScroll ? 'auto' : 'visible' }}>
                       <div style={{ 
                         display: 'grid',
                         gridTemplateColumns: `repeat(${doctorsList.length}, minmax(220px, 1fr))`,
                         gap: '20px',
-                        minWidth: '100%',
-                        width: 'max-content'
+                        width: shouldUseHorizontalScroll ? `${totalDoctorsMinWidth}px` : '100%'
                       }}>
                       {doctorsList.map((doctorGroup, doctorIdx) => (
                         <div key={doctorGroup.doctor.id} style={{
