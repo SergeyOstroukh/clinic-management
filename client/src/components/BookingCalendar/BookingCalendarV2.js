@@ -126,6 +126,13 @@ const parseTime = (dateTimeStr) => {
   };
 };
 
+// Короткое отображение специализации (если перечислено несколько — показываем первую)
+const getShortSpecialization = (specialization) => {
+  if (!specialization) return 'Специализация не указана';
+  const first = String(specialization).split(/[,;/]/)[0]?.trim();
+  return first || 'Специализация не указана';
+};
+
 // Преобразование времени HH:MM в минуты от начала дня
 const timeToMinutes = (timeStr) => {
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -2013,6 +2020,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                     </div>
                     <div style={{ fontSize: '1.2rem' }}>👨‍⚕️</div>
                   </div>
+                  <div style={{ fontSize: '0.75rem', color: '#2e7d32', opacity: 0.85, marginBottom: '6px' }}>
+                    {getShortSpecialization(slot.doctor.specialization)}
+                  </div>
                   <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '5px' }}>
                     {dayName}, {slot.day} {monthName}
                   </div>
@@ -2525,6 +2535,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                               color: selectedSlotDoctor?.id === doctorGroup.doctor.id ? 'rgba(255,255,255,0.9)' : '#666' 
                             }}>
                               {doctorGroup.doctor.firstName}
+                            </div>
+                            <div style={{
+                              fontSize: '0.72rem',
+                              color: selectedSlotDoctor?.id === doctorGroup.doctor.id ? 'rgba(255,255,255,0.85)' : '#4a4a4a',
+                              marginTop: '3px'
+                            }}>
+                              {getShortSpecialization(doctorGroup.doctor.specialization)}
                             </div>
                             {selectedSlotDoctor?.id === doctorGroup.doctor.id && (
                               <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', marginTop: '4px' }}>
