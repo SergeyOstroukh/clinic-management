@@ -2175,7 +2175,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
               resetForm();
           }
         }}>
-          <div className="modal" style={{ maxWidth: selectedSlot.allDoctorsMode && selectedSlot.doctorsCount > 1 ? '900px' : '600px' }}>
+          <div
+            className="modal"
+            style={
+              selectedSlot.allDoctorsMode && selectedSlot.doctorsCount > 1
+                ? { width: '96vw', maxWidth: '1400px' }
+                : { maxWidth: '600px' }
+            }
+          >
             <h2>📅 Запись на {selectedSlot.day} {MONTHS[selectedSlot.month - 1]}</h2>
             {selectedSlot.allDoctorsMode ? (
               (selectedSlot.singleDoctorMode && selectedDoctor) ? (
@@ -2488,8 +2495,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                     (Math.max(doctorsList.length - 1, 0) * doctorColumnGap);
                   const modalContentWidth =
                     (typeof window !== 'undefined'
-                      ? Math.min(window.innerWidth * 0.9, 900)
-                      : 900) - 60;
+                      ? Math.min(window.innerWidth * 0.96, 1400)
+                      : 1400) - 60;
                   const shouldUseHorizontalScroll = totalDoctorsMinWidth > modalContentWidth;
                   
                   return (
