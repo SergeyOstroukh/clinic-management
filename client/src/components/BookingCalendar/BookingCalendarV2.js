@@ -45,9 +45,10 @@ const normalizeDateString = (dateStr) => {
     try {
       // Пытаемся восстановить полную строку и распарсить
       // "ue Dec 09 2025 19:" -> "Dec 09 2025 19:00"
-      const match = str.match(/([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{0,2})/);
+      // ВАЖНО: минуты должны быть обязательны (иначе "09:30:00" могло матчиться как "09:")
+      const match = str.match(/([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
       if (match) {
-        const [, monthName, day, year, hours, minutes = '00'] = match;
+        const [, monthName, day, year, hours, minutes = '00', seconds = '00'] = match;
         const monthMap = {
           'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
           'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
@@ -57,7 +58,8 @@ const normalizeDateString = (dateStr) => {
         const dayPadded = String(day).padStart(2, '0');
         const hoursPadded = String(hours).padStart(2, '0');
         const minutesPadded = String(minutes).padStart(2, '0');
-        str = `${year}-${month}-${dayPadded} ${hoursPadded}:${minutesPadded}:00`;
+        const secondsPadded = String(seconds).padStart(2, '0');
+        str = `${year}-${month}-${dayPadded} ${hoursPadded}:${minutesPadded}:${secondsPadded}`;
       }
     } catch (e) {
       console.error('Ошибка парсинга обрезанного формата даты:', e, dateStr);
