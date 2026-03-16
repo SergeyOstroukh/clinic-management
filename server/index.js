@@ -1,6 +1,10 @@
 // .env в корне проекта (при запуске из server/ dotenv по умолчанию его не находит)
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-require('dotenv').config(); // fallback: server/.env
+try {
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+  require('dotenv').config(); // fallback: server/.env
+} catch (e) {
+  console.warn('dotenv не установлен, продолжаем без загрузки .env');
+}
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
