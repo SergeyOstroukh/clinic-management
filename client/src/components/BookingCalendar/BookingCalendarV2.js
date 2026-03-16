@@ -2179,7 +2179,21 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             className="modal"
             style={
               selectedSlot.allDoctorsMode && selectedSlot.doctorsCount > 1
-                ? { width: '96vw', maxWidth: '1400px' }
+                ? (() => {
+                    const doctorColumnWidth = 260;
+                    const doctorColumnGap = 20;
+                    const columns = selectedSlot.doctorsCount || 1;
+                    const contentWidth =
+                      columns * doctorColumnWidth +
+                      Math.max(columns - 1, 0) * doctorColumnGap +
+                      60; // внутренние отступы модалки
+                    const viewportWidth =
+                      typeof window !== 'undefined'
+                        ? window.innerWidth * 0.96
+                        : contentWidth;
+                    const finalWidth = Math.min(contentWidth, viewportWidth);
+                    return { width: `${finalWidth}px`, maxWidth: '96vw' };
+                  })()
                 : { maxWidth: '600px' }
             }
           >
@@ -2488,24 +2502,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   });
                   
                   const doctorsList = Array.from(slotsByDoctor.values());
-                  const doctorColumnMinWidth = 220;
-                  const doctorColumnGap = 20;
-                  const totalDoctorsMinWidth =
-                    (doctorsList.length * doctorColumnMinWidth) +
-                    (Math.max(doctorsList.length - 1, 0) * doctorColumnGap);
-                  const modalContentWidth =
-                    (typeof window !== 'undefined'
-                      ? Math.min(window.innerWidth * 0.96, 1400)
-                      : 1400) - 60;
-                  const shouldUseHorizontalScroll = totalDoctorsMinWidth > modalContentWidth;
+                  const doctorColumnWidth = 260; // фиксированная ширина колонки врача
                   
                   return (
-                    <div style={{ marginTop: '15px', overflowX: shouldUseHorizontalScroll ? 'auto' : 'visible' }}>
+                    <div style={{ marginTop: '15px', overflowX: 'auto' }}>
                       <div style={{ 
                         display: 'grid',
-                        gridTemplateColumns: `repeat(${doctorsList.length}, minmax(220px, 1fr))`,
-                        gap: '20px',
-                        width: shouldUseHorizontalScroll ? `${totalDoctorsMinWidth}px` : '100%'
+                        gridTemplateColumns: `repeat(${doctorsList.length}, ${doctorColumnWidth}px)`,
+                        gap: '20px'
                       }}>
                       {doctorsList.map((doctorGroup, doctorIdx) => (
                         <div key={doctorGroup.doctor.id} style={{
