@@ -10,7 +10,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 // Импорт модуля базы данных
-const { db, usePostgres } = require('./database');
+const { db, pool, usePostgres } = require('./database');
 const { initializeDatabase } = require('./init-db');
 
 const app = express();
@@ -58,12 +58,33 @@ function param(index) {
   return usePostgres ? `$${index}` : '?';
 }
 
-// Нормализация формата даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
+const APPOINTMENT_DATETIME_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+const formatLocalDateTime = (dateObj) => {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const mi = String(dateObj.getMinutes()).padStart(2, '0');
+  const s = String(dateObj.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${mi}:${s}`;
+};
+
+// Нормализация формата даты: YYYY-MM-DD HH:MM:SS (локальное время)
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
   
-  // Преобразуем в строку
-  let normalized = String(dateString);
+  // Преобразуем в строку и убираем лишние кавычки/пробелы
+  let normalized = String(dateString).trim().replace(/^["'\s]+|["'\s]+$/g, '');
+  if (!normalized) return normalized;
+
+  // ISO с timezone (Z или +HH:MM): корректно приводим к локальному времени
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(normalized)) {
+    const parsed = new Date(normalized);
+    if (!isNaN(parsed.getTime())) {
+      return formatLocalDateTime(parsed);
+    }
+  }
   
   // Убираем 'T' и заменяем на пробел
   normalized = normalized.replace('T', ' ').trim();
@@ -90,9 +111,12 @@ function normalizeAppointmentDate(dateString) {
     normalized = normalized.substring(0, 19);
   }
   
-  // Проверяем, что формат правильный
-  const timeMatch = normalized.match(/^\d{4}-\d{2}-\d{2} (\d{2}):(\d{2}):(\d{2})$/);
-  if (!timeMatch) {
+  // Fallback: пробуем распарсить как Date (например, нестандартные строки из старых данных)
+  if (!APPOINTMENT_DATETIME_RE.test(normalized)) {
+    const parsed = new Date(normalized);
+    if (!isNaN(parsed.getTime())) {
+      return formatLocalDateTime(parsed);
+    }
     console.error('⚠️ Предупреждение: неправильный формат даты после нормализации:', normalized, 'исходная:', dateString);
   }
   
@@ -1491,6 +1515,9 @@ app.post('/api/appointments', async (req, res) => {
   try {
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
+    if (!APPOINTMENT_DATETIME_RE.test(String(dateToSave || ''))) {
+      return res.status(400).json({ error: 'Неверный формат даты записи. Ожидается YYYY-MM-DD HH:MM:SS' });
+    }
     
     // Проверяем конфликты с учетом duration
     // Новая запись: [dateToSave, dateToSave + duration]
@@ -1536,23 +1563,30 @@ app.post('/api/appointments', async (req, res) => {
     let appointmentId;
     
     if (usePostgres) {
-      const result = await db.query(
-        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, appointment_date',
-        [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
-      );
-      appointmentId = result[0].id;
-      
-      // ВАЖНО: Преобразуем в строку для возврата клиенту
-      let dateForResponse = String(result[0].appointment_date);
-      if (dateForResponse instanceof Date || dateForResponse.match(/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}/)) {
-        // Если это объект Date или формат toString(), получаем из БД заново
-        const dbCheck = await db.get(
-          `SELECT TO_CHAR(appointment_date::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as appointment_date FROM appointments WHERE id = $1`,
-          [appointmentId]
+      // Атомарное сохранение: appointment + appointment_services
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query(
+          'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+          [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
         );
-        if (dbCheck && dbCheck.appointment_date) {
-          dateForResponse = String(dbCheck.appointment_date);
+        appointmentId = result.rows[0].id;
+        
+        if (services && services.length > 0) {
+          for (const service of services) {
+            await client.query(
+              'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)',
+              [appointmentId, service.service_id, service.quantity || 1]
+            );
+          }
         }
+        await client.query('COMMIT');
+      } catch (txError) {
+        await client.query('ROLLBACK');
+        throw txError;
+      } finally {
+        client.release();
       }
     } else {
       const result = await db.run(
@@ -1560,17 +1594,14 @@ app.post('/api/appointments', async (req, res) => {
         [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
       );
       appointmentId = result.lastID;
-    }
-    
-    // Добавляем услуги
-    if (services && services.length > 0) {
-      for (const service of services) {
-        await db.run(
-          usePostgres
-            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)'
-            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
-          [appointmentId, service.service_id, service.quantity || 1]
-        );
+      // Добавляем услуги (SQLite путь)
+      if (services && services.length > 0) {
+        for (const service of services) {
+          await db.run(
+            'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
+            [appointmentId, service.service_id, service.quantity || 1]
+          );
+        }
       }
     }
     
@@ -1615,6 +1646,9 @@ app.put('/api/appointments/:id', async (req, res) => {
   try {
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
+    if (!APPOINTMENT_DATETIME_RE.test(String(dateToSave || ''))) {
+      return res.status(400).json({ error: 'Неверный формат даты записи. Ожидается YYYY-MM-DD HH:MM:SS' });
+    }
     
     // Проверяем конфликты с учетом duration (исключая текущую запись)
     const conflictingAppointment = await db.get(

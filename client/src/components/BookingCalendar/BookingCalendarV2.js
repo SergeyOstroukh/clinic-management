@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import ConfirmModal from '../ConfirmModal/ConfirmModal';
 import { useConfirmModal } from '../../hooks/useConfirmModal';
@@ -205,6 +205,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [manualEndTime, setManualEndTime] = useState('');
   const [selectedSlotDoctor, setSelectedSlotDoctor] = useState(null); // Врач выбранного слота в режиме нескольких врачей
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
+  const [bookingResultModal, setBookingResultModal] = useState({
+    open: false,
+    success: false,
+    title: '',
+    message: ''
+  });
   const [newClientForm, setNewClientForm] = useState({
     lastName: '',
     firstName: '',
@@ -215,6 +221,10 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     citizenship_data: '',
     population_type: 'city'
   });
+
+  // Защита от гонок: применяем только самый свежий ответ загрузки
+  const appointmentsRequestIdRef = useRef(0);
+  const allDoctorsRequestIdRef = useRef(0);
 
   useEffect(() => {
     loadDoctors();
@@ -486,6 +496,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   // Загрузка данных всех врачей для режима "Все записи"
   const loadAllDoctorsData = async () => {
     try {
+      const requestId = ++allDoctorsRequestIdRef.current;
       const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
       const slotsByDate = {};
 
@@ -599,6 +610,10 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         }
       }
 
+      // Если в процессе прилетел более новый запрос — игнорируем устаревший результат
+      if (requestId !== allDoctorsRequestIdRef.current) {
+        return slotsByDate;
+      }
       setAllDoctorsSlots(slotsByDate);
       return slotsByDate;
     } catch (error) {
@@ -622,9 +637,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   const loadAppointments = async () => {
     try {
+      const requestId = ++appointmentsRequestIdRef.current;
       const response = await axios.get(
         `${API_URL}/doctors/${selectedDoctor.id}/monthly-appointments?month=${currentMonth}&year=${currentYear}`
       );
+      // Если в процессе прилетел более новый запрос — игнорируем устаревший результат
+      if (requestId !== appointmentsRequestIdRef.current) {
+        return;
+      }
       // Создаем новый массив чтобы React увидел изменения
       // Используем JSON.parse(JSON.stringify()) для глубокого копирования и гарантии нового объекта
       setAppointments(JSON.parse(JSON.stringify(response.data)));
@@ -1198,6 +1218,10 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       if (toast) toast.warning('Сначала выберите клиента');
       return;
     }
+    if (!selectedSlot) {
+      if (toast) toast.warning('Не выбран день для записи');
+      return;
+    }
     
     // Определяем время начала (из слота или ручного ввода)
     let startTime = selectedTime;
@@ -1358,6 +1382,47 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     }
   };
 
+  const showBookingResultModal = (success, title, message) => {
+    setBookingResultModal({
+      open: true,
+      success,
+      title,
+      message
+    });
+  };
+
+  const verifyAppointmentCreated = async ({ appointmentId, expectedDateTime, doctorId, clientId }) => {
+    try {
+      if (!appointmentId || !expectedDateTime || !doctorId || !clientId) {
+        return { ok: false, reason: 'Недостаточно данных для проверки сохранения записи' };
+      }
+      const response = await axios.get(`${API_URL}/appointments/${appointmentId}`);
+      const appointment = response.data;
+      if (!appointment || !appointment.id) {
+        return { ok: false, reason: 'Запись не найдена в базе данных' };
+      }
+
+      const expectedNormalized = normalizeDateString(expectedDateTime);
+      const actualNormalized = normalizeDateString(appointment.appointment_date);
+
+      if (!actualNormalized || actualNormalized.substring(0, 19) !== expectedNormalized.substring(0, 19)) {
+        return {
+          ok: false,
+          reason: `Время/дата не совпадают. Ожидалось ${expectedNormalized}, сохранено ${actualNormalized || 'пусто'}`
+        };
+      }
+      if (String(appointment.doctor_id) !== String(doctorId)) {
+        return { ok: false, reason: 'ID врача не совпадает с выбранным' };
+      }
+      if (String(appointment.client_id) !== String(clientId)) {
+        return { ok: false, reason: 'ID клиента не совпадает с выбранным' };
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error.response?.data?.error || error.message };
+    }
+  };
+
   const createAppointment = async (dateTime, appointmentDuration = 30) => {
     // Защита от двойного вызова
     if (creating) {
@@ -1366,6 +1431,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     
     setCreating(true);
     try {
+      let createdAppointmentMeta = null;
       // Если редактируем существующую запись
       if (editingAppointmentId) {
         await axios.put(`${API_URL}/appointments/${editingAppointmentId}`, {
@@ -1378,7 +1444,15 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         });
       } else {
         // Определяем врача для записи
-        const doctorForAppointment = selectedSlotDoctor || selectedDoctor;
+        const doctorForAppointment = selectedSlotDoctor || selectedSlot?.singleDoctor || selectedDoctor;
+        if (!doctorForAppointment?.id) {
+          if (toast) toast.error('Не удалось определить врача для записи. Выберите врача и попробуйте снова.');
+          return;
+        }
+        if (!selectedClient?.id) {
+          if (toast) toast.error('Не удалось определить клиента для записи. Выберите клиента и попробуйте снова.');
+          return;
+        }
         
         // Создаем новую запись
         const newAppointment = await axios.post(`${API_URL}/appointments`, {
@@ -1389,6 +1463,12 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           notes: notes,
           duration: appointmentDuration
         });
+        createdAppointmentMeta = {
+          appointmentId: newAppointment.data?.id,
+          expectedDateTime: dateTime,
+          doctorId: doctorForAppointment.id,
+          clientId: selectedClient.id
+        };
         
         // Немедленно помечаем слот как занятый в selectedSlot (для режима всех врачей)
         if (showAllDoctorsMode && selectedSlot && selectedSlot.slots) {
@@ -1447,6 +1527,17 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         }
         if (toast) toast.success('✅ Запись успешно обновлена!');
       } else {
+        const verification = await verifyAppointmentCreated(createdAppointmentMeta || {});
+        if (!verification.ok) {
+          showBookingResultModal(
+            false,
+            '⚠️ Запись не подтверждена',
+            `Запись не подтверждена в базе. Повторите попытку.\n\nПричина: ${verification.reason}`
+          );
+          if (toast) toast.error('Запись не подтверждена в базе. Повторите попытку.');
+          return;
+        }
+
         // Сбрасываем только выбранное время и форму, но НЕ закрываем модалку
         // Это позволяет сразу записать еще одного клиента
         setSelectedTime(null);
@@ -1461,6 +1552,11 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         setSelectedServices([]);
         setNotes('');
         if (toast) toast.success('✅ Запись успешно создана!');
+        showBookingResultModal(
+          true,
+          '✅ Запись создана',
+          'Запись успешно сохранена и подтверждена в базе данных на выбранные дату и время.'
+        );
         
         // Обновляем модалку для перерисовки слотов после обновления данных
         if (selectedSlot) {
@@ -1530,6 +1626,13 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       }
     } catch (error) {
       console.error('Ошибка создания/обновления записи:', error);
+      if (!editingAppointmentId) {
+        showBookingResultModal(
+          false,
+          '⚠️ Запись не создана',
+          `Запись не создана. Повторите попытку.\n\nПричина: ${error.response?.data?.error || error.message}`
+        );
+      }
       if (toast) toast.error(`${error.response?.data?.error || error.message}`);
     } finally {
       setCreating(false);
@@ -3332,6 +3435,34 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                 }}
               >
                 Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка результата создания записи */}
+      {bookingResultModal.open && (
+        <div className="modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setBookingResultModal(prev => ({ ...prev, open: false }));
+          }
+        }}>
+          <div className="modal" style={{ maxWidth: '520px' }}>
+            <h2>{bookingResultModal.title}</h2>
+            <p style={{ whiteSpace: 'pre-line', color: '#444', marginTop: '10px' }}>
+              {bookingResultModal.message}
+            </p>
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => setBookingResultModal(prev => ({ ...prev, open: false }))}
+                style={{
+                  background: bookingResultModal.success ? '#2e7d32' : '#d32f2f',
+                  borderColor: bookingResultModal.success ? '#2e7d32' : '#d32f2f'
+                }}
+              >
+                Понятно
               </button>
             </div>
           </div>
