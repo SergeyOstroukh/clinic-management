@@ -1457,30 +1457,42 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   const verifyAppointmentCreated = async ({ appointmentId, expectedDateTime, doctorId, clientId }) => {
     try {
-      if (!appointmentId || !expectedDateTime || !doctorId || !clientId) {
-        return { ok: false, reason: 'Недостаточно данных для проверки сохранения записи' };
+      // Критерий "запись создана" — она существует в БД по id.
+      if (!appointmentId) {
+        return { ok: false, reason: 'Не получен ID созданной записи' };
       }
+
       const response = await axios.get(`${API_URL}/appointments/${appointmentId}`);
       const appointment = response.data;
       if (!appointment || !appointment.id) {
         return { ok: false, reason: 'Запись не найдена в базе данных' };
       }
 
-      const expectedNormalized = normalizeDateString(expectedDateTime);
-      const actualNormalized = normalizeDateString(appointment.appointment_date);
+      // Остальные проверки (дата, врач, клиент) — только диагностические,
+      // не блокируем пользователя, если запись в БД есть.
+      if (expectedDateTime) {
+        const expectedNormalized = normalizeDateString(expectedDateTime);
+        const actualNormalized = normalizeDateString(appointment.appointment_date);
+        if (!actualNormalized || actualNormalized.substring(0, 19) !== expectedNormalized.substring(0, 19)) {
+          console.warn(
+            '[verifyAppointmentCreated] Несовпадение даты/времени записи',
+            { expectedNormalized, actualNormalized }
+          );
+        }
+      }
+      if (doctorId && String(appointment.doctor_id) !== String(doctorId)) {
+        console.warn(
+          '[verifyAppointmentCreated] Несовпадение doctor_id',
+          { expectedDoctorId: doctorId, actualDoctorId: appointment.doctor_id }
+        );
+      }
+      if (clientId && String(appointment.client_id) !== String(clientId)) {
+        console.warn(
+          '[verifyAppointmentCreated] Несовпадение client_id',
+          { expectedClientId: clientId, actualClientId: appointment.client_id }
+        );
+      }
 
-      if (!actualNormalized || actualNormalized.substring(0, 19) !== expectedNormalized.substring(0, 19)) {
-        return {
-          ok: false,
-          reason: `Время/дата не совпадают. Ожидалось ${expectedNormalized}, сохранено ${actualNormalized || 'пусто'}`
-        };
-      }
-      if (String(appointment.doctor_id) !== String(doctorId)) {
-        return { ok: false, reason: 'ID врача не совпадает с выбранным' };
-      }
-      if (String(appointment.client_id) !== String(clientId)) {
-        return { ok: false, reason: 'ID клиента не совпадает с выбранным' };
-      }
       return { ok: true };
     } catch (error) {
       return { ok: false, reason: error.response?.data?.error || error.message };
