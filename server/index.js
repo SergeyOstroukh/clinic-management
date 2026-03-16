@@ -1261,11 +1261,11 @@ app.get('/api/appointments', async (req, res) => {
       // Получаем услуги
       const services = await db.all(
         usePostgres
-          ? `SELECT aps.service_id, aps.quantity, s.name, s.price 
+          ? `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price 
              FROM appointment_services aps
              JOIN services s ON aps.service_id = s.id
              WHERE aps.appointment_id = $1`
-          : `SELECT aps.service_id, aps.quantity, s.name, s.price 
+          : `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price 
              FROM appointment_services aps
              JOIN services s ON aps.service_id = s.id
              WHERE aps.appointment_id = ?`,
@@ -1275,11 +1275,11 @@ app.get('/api/appointments', async (req, res) => {
       // Получаем материалы
       const materials = await db.all(
         usePostgres
-          ? `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit
+          ? `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit
              FROM appointment_materials apm
              JOIN materials m ON apm.material_id = m.id
              WHERE apm.appointment_id = $1`
-          : `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit
+          : `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit
              FROM appointment_materials apm
              JOIN materials m ON apm.material_id = m.id
              WHERE apm.appointment_id = ?`,
@@ -1417,11 +1417,11 @@ app.get('/api/appointments/:id', async (req, res) => {
     // Получаем все услуги
     const servicesFlat = await db.all(
       usePostgres
-        ? `SELECT aps.service_id, aps.quantity, s.name, s.price
+        ? `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price
            FROM appointment_services aps
            JOIN services s ON aps.service_id = s.id
            WHERE aps.appointment_id = $1`
-        : `SELECT aps.service_id, aps.quantity, s.name, s.price
+        : `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price
            FROM appointment_services aps
            JOIN services s ON aps.service_id = s.id
            WHERE aps.appointment_id = ?`,
@@ -1455,11 +1455,11 @@ app.get('/api/appointments/:id', async (req, res) => {
     // Получаем материалы
     const materials = await db.all(
       usePostgres
-        ? `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit       
+        ? `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit       
            FROM appointment_materials apm
            JOIN materials m ON apm.material_id = m.id
            WHERE apm.appointment_id = $1`
-        : `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit       
+        : `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit       
            FROM appointment_materials apm
            JOIN materials m ON apm.material_id = m.id
            WHERE apm.appointment_id = ?`,
@@ -1513,6 +1513,18 @@ app.post('/api/appointments', async (req, res) => {
   const { client_id, appointment_date, doctor_id, services, notes, duration = 30 } = req.body;
   
   try {
+    // Строгая валидация входных данных — без этого запись может "теряться" из списков
+    if (!client_id || Number.isNaN(parseInt(client_id, 10))) {
+      return res.status(400).json({ error: 'Не выбран клиент для записи' });
+    }
+    if (!doctor_id || Number.isNaN(parseInt(doctor_id, 10))) {
+      return res.status(400).json({ error: 'Не выбран врач для записи' });
+    }
+    const normalizedDuration = parseInt(duration, 10);
+    if (!normalizedDuration || normalizedDuration <= 0) {
+      return res.status(400).json({ error: 'Некорректная длительность записи' });
+    }
+
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
     if (!APPOINTMENT_DATETIME_RE.test(String(dateToSave || ''))) {
@@ -1549,8 +1561,8 @@ app.post('/api/appointments', async (req, res) => {
              AND datetime(?, '+' || ? || ' minutes') <= datetime(appointment_date, '+' || COALESCE(duration, 30) || ' minutes')
            )`,
       usePostgres 
-        ? [doctor_id, 'cancelled', dateToSave, duration]
-        : [doctor_id, 'cancelled', dateToSave, dateToSave, dateToSave, duration, dateToSave, duration]
+        ? [doctor_id, 'cancelled', dateToSave, normalizedDuration]
+        : [doctor_id, 'cancelled', dateToSave, dateToSave, dateToSave, normalizedDuration, dateToSave, normalizedDuration]
     );
     
     if (conflictingAppointment) {
@@ -1569,15 +1581,28 @@ app.post('/api/appointments', async (req, res) => {
         await client.query('BEGIN');
         const result = await client.query(
           'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-          [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
+          [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration]
         );
         appointmentId = result.rows[0].id;
         
         if (services && services.length > 0) {
+          const uniqueServiceIds = [...new Set(services.map(s => parseInt(s.service_id, 10)).filter(id => !Number.isNaN(id)))];
+          let servicePriceMap = new Map();
+          if (uniqueServiceIds.length > 0) {
+            const placeholders = uniqueServiceIds.map((_, i) => `$${i + 1}`).join(',');
+            const serviceRows = await client.query(
+              `SELECT id, price FROM services WHERE id IN (${placeholders})`,
+              uniqueServiceIds
+            );
+            servicePriceMap = new Map(serviceRows.rows.map(r => [parseInt(r.id, 10), Number(r.price)]));
+          }
           for (const service of services) {
+            const serviceId = parseInt(service.service_id, 10);
+            if (Number.isNaN(serviceId)) continue;
+            const unitPrice = servicePriceMap.get(serviceId);
             await client.query(
-              'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)',
-              [appointmentId, service.service_id, service.quantity || 1]
+              'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES ($1, $2, $3, $4)',
+              [appointmentId, serviceId, service.quantity || 1, Number.isFinite(unitPrice) ? unitPrice : null]
             );
           }
         }
@@ -1591,15 +1616,22 @@ app.post('/api/appointments', async (req, res) => {
     } else {
       const result = await db.run(
         'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES (?, ?, ?, ?, ?, ?)',
-        [client_id, dateToSave, doctor_id, notes, 'scheduled', duration]
+        [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration]
       );
       appointmentId = result.lastID;
       // Добавляем услуги (SQLite путь)
       if (services && services.length > 0) {
         for (const service of services) {
+          const serviceId = parseInt(service.service_id, 10);
+          if (Number.isNaN(serviceId)) continue;
+          const serviceData = await db.get(
+            usePostgres ? 'SELECT price FROM services WHERE id = $1' : 'SELECT price FROM services WHERE id = ?',
+            [serviceId]
+          );
+          const unitPrice = serviceData?.price ?? null;
           await db.run(
-            'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
-            [appointmentId, service.service_id, service.quantity || 1]
+            'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+            [appointmentId, serviceId, service.quantity || 1, unitPrice]
           );
         }
       }
@@ -1632,7 +1664,7 @@ app.post('/api/appointments', async (req, res) => {
       doctor_id,
       services,
       notes,
-      duration
+      duration: normalizedDuration
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1644,6 +1676,11 @@ app.put('/api/appointments/:id', async (req, res) => {
   const { appointment_date, doctor_id, services, notes, duration = 30 } = req.body;
   
   try {
+    const normalizedDuration = parseInt(duration, 10);
+    if (!normalizedDuration || normalizedDuration <= 0) {
+      return res.status(400).json({ error: 'Некорректная длительность записи' });
+    }
+
     // Нормализуем формат даты: YYYY-MM-DD HH:MM:SS (без T и timezone)
     const dateToSave = normalizeAppointmentDate(appointment_date);
     if (!APPOINTMENT_DATETIME_RE.test(String(dateToSave || ''))) {
@@ -1676,7 +1713,7 @@ app.put('/api/appointments/:id', async (req, res) => {
              AND datetime(?) < datetime(appointment_date, '+' || COALESCE(duration, 30) || ' minutes')
            )`,
       usePostgres 
-        ? [doctor_id, 'cancelled', dateToSave, duration, req.params.id]
+        ? [doctor_id, 'cancelled', dateToSave, normalizedDuration, req.params.id]
         : [doctor_id, 'cancelled', req.params.id, dateToSave, dateToSave]
     );
     
@@ -1691,7 +1728,7 @@ app.put('/api/appointments/:id', async (req, res) => {
       usePostgres
         ? 'UPDATE appointments SET appointment_date = $1, doctor_id = $2, notes = $3, duration = $4 WHERE id = $5'
         : 'UPDATE appointments SET appointment_date = ?, doctor_id = ?, notes = ?, duration = ? WHERE id = ?',
-      [dateToSave, doctor_id, notes || '', duration, req.params.id]
+      [dateToSave, doctor_id, notes || '', normalizedDuration, req.params.id]
     );
     
     // Удаляем старые услуги
@@ -1704,13 +1741,30 @@ app.put('/api/appointments/:id', async (req, res) => {
     
     // Добавляем новые услуги
     if (services && services.length > 0) {
+      const uniqueServiceIds = [...new Set(services.map(s => parseInt(s.service_id, 10)).filter(id => !Number.isNaN(id)))];
+      let servicePriceMap = new Map();
+      if (uniqueServiceIds.length > 0) {
+        const placeholders = usePostgres
+          ? uniqueServiceIds.map((_, i) => `$${i + 1}`).join(',')
+          : uniqueServiceIds.map(() => '?').join(',');
+        const serviceRows = await db.all(
+          usePostgres
+            ? `SELECT id, price FROM services WHERE id IN (${placeholders})`
+            : `SELECT id, price FROM services WHERE id IN (${placeholders})`,
+          uniqueServiceIds
+        );
+        servicePriceMap = new Map(serviceRows.map(r => [parseInt(r.id, 10), Number(r.price)]));
+      }
+
       for (const service of services) {
-        console.log('Добавление услуги:', service);
+        const serviceId = parseInt(service.service_id, 10);
+        if (Number.isNaN(serviceId)) continue;
+        const unitPrice = servicePriceMap.get(serviceId);
         await db.run(
           usePostgres
-            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)'
-            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
-          [req.params.id, service.service_id, service.quantity || 1]
+            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES ($1, $2, $3, $4)'
+            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+          [req.params.id, serviceId, service.quantity || 1, Number.isFinite(unitPrice) ? unitPrice : null]
         );
       }
     }
@@ -1731,7 +1785,7 @@ app.put('/api/appointments/:id', async (req, res) => {
       doctor_id,
       services,
       notes,
-      duration
+      duration: normalizedDuration
     });
   } catch (error) {
     console.error('❌ Ошибка обновления записи:', error);
@@ -1894,14 +1948,37 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       [req.params.id]
     );
     
+    // Подготавливаем карту цен услуг (snapshot на момент завершения)
+    const servicePriceMap = new Map();
+    if (services && services.length > 0) {
+      const uniqueServiceIds = [...new Set(services.map(s => parseInt(s.service_id, 10)).filter(id => !Number.isNaN(id)))];
+      if (uniqueServiceIds.length > 0) {
+        const placeholders = usePostgres
+          ? uniqueServiceIds.map((_, i) => `$${i + 1}`).join(',')
+          : uniqueServiceIds.map(() => '?').join(',');
+        const serviceRows = await db.all(
+          usePostgres
+            ? `SELECT id, price FROM services WHERE id IN (${placeholders})`
+            : `SELECT id, price FROM services WHERE id IN (${placeholders})`,
+          uniqueServiceIds
+        );
+        serviceRows.forEach(row => {
+          servicePriceMap.set(parseInt(row.id, 10), Number(row.price));
+        });
+      }
+    }
+
     // Добавляем новые услуги
     if (services && services.length > 0) {
       for (const service of services) {
+        const serviceId = parseInt(service.service_id, 10);
+        if (Number.isNaN(serviceId)) continue;
+        const unitPrice = servicePriceMap.get(serviceId);
         await db.run(
           usePostgres
-            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES ($1, $2, $3)'
-            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity) VALUES (?, ?, ?)',
-          [req.params.id, service.service_id, service.quantity || 1]
+            ? 'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES ($1, $2, $3, $4)'
+            : 'INSERT INTO appointment_services (appointment_id, service_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+          [req.params.id, serviceId, service.quantity || 1, Number.isFinite(unitPrice) ? unitPrice : null]
         );
       }
     }
@@ -1914,23 +1991,46 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
       [req.params.id]
     );
     
+    // Подготавливаем карту цен материалов (snapshot на момент завершения)
+    const materialPriceMap = new Map();
+    if (materials && materials.length > 0) {
+      const uniqueMaterialIds = [...new Set(materials.map(m => parseInt(m.material_id, 10)).filter(id => !Number.isNaN(id)))];
+      if (uniqueMaterialIds.length > 0) {
+        const placeholders = usePostgres
+          ? uniqueMaterialIds.map((_, i) => `$${i + 1}`).join(',')
+          : uniqueMaterialIds.map(() => '?').join(',');
+        const materialRows = await db.all(
+          usePostgres
+            ? `SELECT id, price FROM materials WHERE id IN (${placeholders})`
+            : `SELECT id, price FROM materials WHERE id IN (${placeholders})`,
+          uniqueMaterialIds
+        );
+        materialRows.forEach(row => {
+          materialPriceMap.set(parseInt(row.id, 10), Number(row.price));
+        });
+      }
+    }
+
     // Добавляем новые материалы и автоматически списываем их
     if (materials && materials.length > 0) {
       for (const material of materials) {
+        const materialId = parseInt(material.material_id, 10);
+        if (Number.isNaN(materialId)) continue;
         const materialQuantity = material.quantity || 1;
+        const unitPrice = materialPriceMap.get(materialId);
         
         // Добавляем материал к записи
         await db.run(
           usePostgres
-            ? 'INSERT INTO appointment_materials (appointment_id, material_id, quantity) VALUES ($1, $2, $3)'
-            : 'INSERT INTO appointment_materials (appointment_id, material_id, quantity) VALUES (?, ?, ?)',
-          [req.params.id, material.material_id, materialQuantity]
+            ? 'INSERT INTO appointment_materials (appointment_id, material_id, quantity, unit_price) VALUES ($1, $2, $3, $4)'
+            : 'INSERT INTO appointment_materials (appointment_id, material_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+          [req.params.id, materialId, materialQuantity, Number.isFinite(unitPrice) ? unitPrice : null]
         );
         
         // Получаем информацию о материале для списания
         const materialData = await db.get(
           usePostgres ? 'SELECT * FROM materials WHERE id = $1' : 'SELECT * FROM materials WHERE id = ?',
-          [material.material_id]
+          [materialId]
         );
         
         if (materialData) {
@@ -1946,10 +2046,10 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
               ? 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)'
               : 'INSERT INTO material_transactions (material_id, transaction_type, quantity, price, notes, appointment_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [
-              material.material_id,
+              materialId,
               'writeoff',
               materialQuantity,
-              materialData.price,
+              Number.isFinite(unitPrice) ? unitPrice : materialData.price,
               `Автоматическое списание при завершении приема #${req.params.id}`,
               req.params.id,
               appointmentData?.doctor_id || null
@@ -1962,7 +2062,7 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
             usePostgres
               ? 'UPDATE materials SET stock = $1 WHERE id = $2'
               : 'UPDATE materials SET stock = ? WHERE id = ?',
-            [newStock, material.material_id]
+            [newStock, materialId]
           );
         }
       }
@@ -1971,28 +2071,26 @@ app.patch('/api/appointments/:id/complete-visit', async (req, res) => {
     // Рассчитываем общую стоимость
     let totalPrice = 0;
     
-    // Стоимость услуг
+    // Стоимость услуг (по snapshot-ценам)
     if (services && services.length > 0) {
       for (const service of services) {
-        const serviceData = await db.get(
-          usePostgres ? 'SELECT price FROM services WHERE id = $1' : 'SELECT price FROM services WHERE id = ?',
-          [service.service_id]
-        );
-        if (serviceData) {
-          totalPrice += serviceData.price * (service.quantity || 1);
+        const serviceId = parseInt(service.service_id, 10);
+        if (Number.isNaN(serviceId)) continue;
+        const unitPrice = servicePriceMap.get(serviceId);
+        if (Number.isFinite(unitPrice)) {
+          totalPrice += unitPrice * (service.quantity || 1);
         }
       }
     }
     
-    // Стоимость материалов
+    // Стоимость материалов (по snapshot-ценам)
     if (materials && materials.length > 0) {
       for (const material of materials) {
-        const materialData = await db.get(
-          usePostgres ? 'SELECT price FROM materials WHERE id = $1' : 'SELECT price FROM materials WHERE id = ?',
-          [material.material_id]
-        );
-        if (materialData) {
-          totalPrice += materialData.price * (material.quantity || 1);
+        const materialId = parseInt(material.material_id, 10);
+        if (Number.isNaN(materialId)) continue;
+        const unitPrice = materialPriceMap.get(materialId);
+        if (Number.isFinite(unitPrice)) {
+          totalPrice += unitPrice * (material.quantity || 1);
         }
       }
     }
@@ -2297,11 +2395,11 @@ app.get('/api/clients/:id/appointments', async (req, res) => {
       // Получаем услуги
       const services = await db.all(
         usePostgres
-          ? `SELECT aps.service_id, aps.quantity, s.name, s.price 
+          ? `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price 
              FROM appointment_services aps
              JOIN services s ON aps.service_id = s.id
              WHERE aps.appointment_id = $1`
-          : `SELECT aps.service_id, aps.quantity, s.name, s.price 
+          : `SELECT aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price 
              FROM appointment_services aps
              JOIN services s ON aps.service_id = s.id
              WHERE aps.appointment_id = ?`,
@@ -2311,11 +2409,11 @@ app.get('/api/clients/:id/appointments', async (req, res) => {
       // Получаем материалы
       const materials = await db.all(
         usePostgres
-          ? `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit
+          ? `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit
              FROM appointment_materials apm
              JOIN materials m ON apm.material_id = m.id
              WHERE apm.appointment_id = $1`
-          : `SELECT apm.material_id, apm.quantity, m.name, m.price, m.unit
+          : `SELECT apm.material_id, apm.quantity, m.name, COALESCE(apm.unit_price, m.price) as price, m.unit
              FROM appointment_materials apm
              JOIN materials m ON apm.material_id = m.id
              WHERE apm.appointment_id = ?`,
@@ -4264,11 +4362,11 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
         a.diagnosis,
         a.client_id,
         COALESCE(a.duration, 30) as duration,
-        c."firstName" as client_first_name,
-        c."lastName" as client_last_name,
-        c.phone as client_phone
+        COALESCE(c."firstName", '') as client_first_name,
+        COALESCE(c."lastName", '') as client_last_name,
+        COALESCE(c.phone, '') as client_phone
       FROM appointments a
-      JOIN clients c ON a.client_id = c.id
+      LEFT JOIN clients c ON a.client_id = c.id
       WHERE a.doctor_id = ${usePostgres ? '$1' : '?'}
         AND DATE(a.appointment_date${usePostgres ? '::timestamp' : ''}) >= ${usePostgres ? '$2' : '?'}
         AND DATE(a.appointment_date${usePostgres ? '::timestamp' : ''}) <= ${usePostgres ? '$3' : '?'}
@@ -4301,7 +4399,7 @@ app.get('/api/doctors/:id/monthly-appointments', async (req, res) => {
         : appointmentIds.map(() => '?').join(',');
       
       const allServices = await db.all(
-        `SELECT aps.appointment_id, aps.service_id, aps.quantity, s.name, s.price 
+        `SELECT aps.appointment_id, aps.service_id, aps.quantity, s.name, COALESCE(aps.unit_price, s.price) as price 
          FROM appointment_services aps
          JOIN services s ON aps.service_id = s.id
          WHERE aps.appointment_id IN (${placeholders})`,
@@ -4350,11 +4448,11 @@ app.get('/api/doctors/:id/daily-appointments', async (req, res) => {
         a.notes,
         a.diagnosis,
         COALESCE(a.duration, 30) as duration,
-        c."firstName" as client_first_name,
-        c."lastName" as client_last_name,
-        c.phone as client_phone
+        COALESCE(c."firstName", '') as client_first_name,
+        COALESCE(c."lastName", '') as client_last_name,
+        COALESCE(c.phone, '') as client_phone
       FROM appointments a
-      JOIN clients c ON a.client_id = c.id
+      LEFT JOIN clients c ON a.client_id = c.id
       WHERE a.doctor_id = ${usePostgres ? '$1' : '?'}
         AND DATE(a.appointment_date) = ${usePostgres ? '$2' : '?'}
       ORDER BY a.appointment_date
