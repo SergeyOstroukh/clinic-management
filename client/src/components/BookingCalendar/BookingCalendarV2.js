@@ -2545,12 +2545,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                   const doctorsList = Array.from(slotsByDoctor.values());
                   
                   return (
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: `repeat(${doctorsList.length}, 1fr)`,
-                      gap: '20px', 
-                      marginTop: '15px' 
-                    }}>
+                    <div style={{ marginTop: '15px', overflowX: 'auto' }}>
+                      <div style={{ 
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${doctorsList.length}, minmax(220px, 1fr))`,
+                        gap: '20px',
+                        minWidth: '100%',
+                        width: 'max-content'
+                      }}>
                       {doctorsList.map((doctorGroup, doctorIdx) => (
                         <div key={doctorGroup.doctor.id} style={{
                           display: 'flex',
@@ -2857,6 +2859,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                           })()}
                         </div>
                       ))}
+                      </div>
                     </div>
                   );
                 } else {
