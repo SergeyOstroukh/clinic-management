@@ -20,6 +20,8 @@ const MONTHS = [
 
 const DAYS_OF_WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
+const SLOT_INTERVAL_MINUTES = 15;
+
 // Утилиты для работы с датами БЕЗ timezone проблем
 const formatDate = (year, month, day) => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -27,6 +29,17 @@ const formatDate = (year, month, day) => {
 
 const formatDateTime = (year, month, day, hours, minutes) => {
   return `${formatDate(year, month, day)} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+};
+
+const getLocalDateTimeString = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const mi = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${mi}:${s}`;
 };
 
 // Нормализация формата даты для сравнения
@@ -263,7 +276,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   const [notes, setNotes] = useState('');
   const [selectedTime, setSelectedTime] = useState(null);
   const [selectedEndTime, setSelectedEndTime] = useState(null); // Время окончания для выбора диапазона
-  const [duration, setDuration] = useState(30); // Длительность в минутах (по умолчанию 30)
+  const [duration, setDuration] = useState(SLOT_INTERVAL_MINUTES);
   const [manualTimeMode, setManualTimeMode] = useState(false); // Режим ручного ввода времени
   const [manualStartTime, setManualStartTime] = useState('');
   const [manualEndTime, setManualEndTime] = useState('');
@@ -502,7 +515,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             // Проверяем, какие слоты свободны
             // Нормализуем формат даты для сравнения
             const dayAppointments = doctorAppointments.filter(apt => {
-              if (!apt.appointment_date) return false;
+              if (!apt.appointment_date || apt.status === 'cancelled') return false;
               
               // Нормализуем формат даты записи
               const normalizedDate = normalizeDateString(apt.appointment_date);
@@ -512,11 +525,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
             });
             
             for (const slot of allDaySlots) {
-              const isBooked = dayAppointments.some(apt => {
-                const aptTime = parseTime(apt.appointment_date);
-                const slotTime = slot.time.split(':');
-                return aptTime.hours === parseInt(slotTime[0]) && aptTime.minutes === parseInt(slotTime[1]);
-              });
+              const isBooked = isSlotBlockedByAppointment(slot.time, dayAppointments).blocked;
               
               if (!isBooked) {
                 // Проверяем, что время еще не прошло (для сегодняшнего дня)
@@ -746,7 +755,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
     while (currentH < endH || (currentH === endH && currentM < endM)) {
       slots.push(`${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
-      currentM += 30;
+      currentM += SLOT_INTERVAL_MINUTES;
       if (currentM >= 60) {
         currentM = 0;
         currentH += 1;
@@ -851,11 +860,8 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         const isPastSlot = isToday ? (slotDateTime.getTime() < now.getTime()) : (checkDate < today);
         
         if (!isPastSlot) {
-          // Проверяем, занят ли слот
-          const isBooked = dayAppointments.some(apt => {
-            const aptTime = parseTime(apt.appointment_date);
-            return aptTime.hours === slotHour && aptTime.minutes === slotMinute;
-          });
+          // Проверяем, занят ли слот с учетом duration записи
+          const isBooked = isSlotBlockedByAppointment(time, dayAppointments).blocked;
           
           if (isBooked) {
             bookedSlots.push(time);
@@ -1103,7 +1109,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     setSelectedSlot(daySlots);
     setSelectedTime(null); // Сбрасываем выбранное время при открытии
     setSelectedEndTime(null);
-    setDuration(30);
+    setDuration(SLOT_INTERVAL_MINUTES);
     setManualTimeMode(false);
     setManualStartTime('');
     setManualEndTime('');
@@ -1206,24 +1212,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         if (clickedMinutes > startMinutes) {
           // Клик после начала - это конец диапазона
           setSelectedEndTime(time);
-          const newDuration = clickedMinutes - startMinutes + 30; // +30 чтобы включить конечный слот
+          const newDuration = clickedMinutes - startMinutes + SLOT_INTERVAL_MINUTES;
           setDuration(newDuration);
         } else if (clickedMinutes < startMinutes) {
           // Клик до начала - меняем местами: кликнутое время становится началом
           setSelectedEndTime(selectedTime);
           setSelectedTime(time);
-          const newDuration = startMinutes - clickedMinutes + 30;
+          const newDuration = startMinutes - clickedMinutes + SLOT_INTERVAL_MINUTES;
           setDuration(newDuration);
         } else {
           // Клик на то же время - сбрасываем конец
           setSelectedEndTime(null);
-          setDuration(30);
+          setDuration(SLOT_INTERVAL_MINUTES);
         }
       } else {
         // Первый клик - начало
         setSelectedTime(time);
         setSelectedEndTime(null);
-        setDuration(30);
+        setDuration(SLOT_INTERVAL_MINUTES);
       }
       return;
     }
@@ -1256,24 +1262,24 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       if (clickedMinutes > startMinutes) {
         // Клик после начала - это конец диапазона
         setSelectedEndTime(time);
-        const newDuration = clickedMinutes - startMinutes + 30; // +30 чтобы включить конечный слот
+        const newDuration = clickedMinutes - startMinutes + SLOT_INTERVAL_MINUTES;
         setDuration(newDuration);
       } else if (clickedMinutes < startMinutes) {
         // Клик до начала - меняем местами
         setSelectedEndTime(selectedTime);
         setSelectedTime(time);
-        const newDuration = startMinutes - clickedMinutes + 30;
+        const newDuration = startMinutes - clickedMinutes + SLOT_INTERVAL_MINUTES;
         setDuration(newDuration);
       }
     } else if (selectedTime === time && selectedEndTime) {
       // Клик на начальный слот когда уже выбран диапазон - сбрасываем
       setSelectedEndTime(null);
-      setDuration(30);
+      setDuration(SLOT_INTERVAL_MINUTES);
     } else {
       // Первый клик или клик на новый слот - начало
       setSelectedTime(time);
       setSelectedEndTime(null);
-      setDuration(30);
+      setDuration(SLOT_INTERVAL_MINUTES);
     }
   };
 
@@ -1325,14 +1331,28 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   const cancelAppointment = async (appointmentId) => {
     try {
+      const cancellationReason = window.prompt('Укажите причину отмены записи:');
+      if (cancellationReason === null) {
+        return;
+      }
+      const trimmedReason = cancellationReason.trim();
+      if (!trimmedReason) {
+        if (toast) toast.warning('Причина отмены обязательна');
+        return;
+      }
+
       await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, {
-        status: 'cancelled'
+        status: 'cancelled',
+        cancelled_by_user_id: currentUser?.id || null,
+        cancelled_by_user_name: currentUser?.full_name || currentUser?.username || null,
+        cancellation_reason: trimmedReason,
+        cancelled_at_local: getLocalDateTimeString()
       });
       
       // Сбрасываем выбранное время
       setSelectedTime(null);
       setSelectedEndTime(null);
-      setDuration(30);
+      setDuration(SLOT_INTERVAL_MINUTES);
       setSelectedSlotDoctor(null);
       
       // Загружаем обновленные записи
@@ -1537,7 +1557,10 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           appointment_date: dateTime,
           services: selectedServices,
           notes: notes,
-          duration: appointmentDuration
+          duration: appointmentDuration,
+          created_by_user_id: currentUser?.id || null,
+          created_by_user_name: currentUser?.full_name || currentUser?.username || null,
+          created_at_local: getLocalDateTimeString()
         });
         createdAppointmentMeta = {
           appointmentId: newAppointment.data?.id,
@@ -1618,7 +1641,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
         // Это позволяет сразу записать еще одного клиента
         setSelectedTime(null);
         setSelectedEndTime(null);
-        setDuration(30);
+        setDuration(SLOT_INTERVAL_MINUTES);
         setManualTimeMode(false);
         setManualStartTime('');
         setManualEndTime('');
@@ -1722,7 +1745,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
     setNotes('');
     setSelectedTime(null);
     setSelectedEndTime(null);
-    setDuration(30);
+    setDuration(SLOT_INTERVAL_MINUTES);
     setManualTimeMode(false);
     setManualStartTime('');
     setManualEndTime('');
@@ -2422,7 +2445,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                           const startMinutes = timeToMinutes(selectedTime);
                           const endMinutes = startMinutes + opt.value;
                           if (endMinutes <= 24 * 60) {
-                            setSelectedEndTime(minutesToTime(endMinutes - 30)); // -30 потому что конечный слот включается
+                            setSelectedEndTime(minutesToTime(endMinutes - SLOT_INTERVAL_MINUTES));
                           }
                         }
                       }}
@@ -2538,7 +2561,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                     ⏰ {manualTimeMode 
                       ? `${manualStartTime} - ${manualEndTime}` 
                       : selectedEndTime 
-                        ? `${selectedTime} - ${minutesToTime(timeToMinutes(selectedEndTime) + 30)}`
+                        ? `${selectedTime} - ${minutesToTime(timeToMinutes(selectedEndTime) + SLOT_INTERVAL_MINUTES)}`
                         : `${selectedTime} - ${minutesToTime(timeToMinutes(selectedTime) + duration)}`
                     }
                   </div>
@@ -2731,7 +2754,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                       const slotMinutes = timeToMinutes(slot.time);
                                       const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
                                       const endMinutes = selectedEndTime 
-                                        ? timeToMinutes(selectedEndTime) + 30 
+                                        ? timeToMinutes(selectedEndTime) + SLOT_INTERVAL_MINUTES 
                                         : (selectedTime ? startMinutes + duration : null);
                                       
                                       const isInSelectedRange = !manualTimeMode && selectedTime && isThisDoctorSelected &&
@@ -2740,7 +2763,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                       
                                       // Информация о записи для занятого слота
                                       const appointmentDuration = slot.appointment?.duration || 30;
-                                      const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                                      const isMultiSlotAppointment = slot.isBooked && appointmentDuration > SLOT_INTERVAL_MINUTES;
                                       const appointmentId = slot.appointment?.id;
                                       
                                       // Для многослотовых записей - показываем только один объединённый блок
@@ -2756,7 +2779,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                         const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
                                         const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
                                         const endTime = minutesToTime(endMinutesCalc);
-                                        const slotsCount = Math.ceil(appointmentDuration / 30);
+                                        const slotsCount = Math.ceil(appointmentDuration / SLOT_INTERVAL_MINUTES);
                                         
                                         // Проверяем оплачена ли запись
                                         const isPaidAppointment = slot.appointment.paid === true || 
@@ -2981,7 +3004,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                   const slotMinutes = timeToMinutes(slot.time);
                                   const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
                                   const endMinutes = selectedEndTime 
-                                    ? timeToMinutes(selectedEndTime) + 30 
+                                    ? timeToMinutes(selectedEndTime) + SLOT_INTERVAL_MINUTES 
                                     : (selectedTime ? startMinutes + duration : null);
                                   
                                   const isInSelectedRange = !manualTimeMode && selectedTime && 
@@ -2989,7 +3012,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                   const isStartSlot = selectedTime === slot.time;
                                   
                                   const appointmentDuration = slot.appointment?.duration || 30;
-                                  const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                                  const isMultiSlotAppointment = slot.isBooked && appointmentDuration > SLOT_INTERVAL_MINUTES;
                                   const appointmentId = slot.appointment?.id;
                                   
                                   // Для многослотовых записей - показываем только один объединённый блок
@@ -3003,7 +3026,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                                     const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
                                     const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
                                     const endTime = minutesToTime(endMinutesCalc);
-                                    const slotsCount = Math.ceil(appointmentDuration / 30);
+                                    const slotsCount = Math.ceil(appointmentDuration / SLOT_INTERVAL_MINUTES);
                                     
                                     // Проверяем оплачена ли запись
                                     const isPaidAppointment = slot.appointment.paid === true || 
@@ -3163,7 +3186,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                           const slotMinutes = timeToMinutes(slot.time);
                           const startMinutes = selectedTime ? timeToMinutes(selectedTime) : null;
                           const endMinutes = selectedEndTime 
-                            ? timeToMinutes(selectedEndTime) + 30 
+                            ? timeToMinutes(selectedEndTime) + SLOT_INTERVAL_MINUTES 
                             : (selectedTime ? startMinutes + duration : null);
                           
                           const isInSelectedRange = !manualTimeMode && selectedTime && 
@@ -3172,7 +3195,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                           
                           // Определяем информацию о записи для занятого слота
                           const appointmentDuration = slot.appointment?.duration || 30;
-                          const isMultiSlotAppointment = slot.isBooked && appointmentDuration > 30;
+                          const isMultiSlotAppointment = slot.isBooked && appointmentDuration > SLOT_INTERVAL_MINUTES;
                           const appointmentId = slot.appointment?.id;
                           
                           // Для многослотовых записей - показываем только один объединённый блок
@@ -3188,7 +3211,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
                             const startTime = `${String(aptTime.hours).padStart(2, '0')}:${String(aptTime.minutes).padStart(2, '0')}`;
                             const endMinutesCalc = aptTime.hours * 60 + aptTime.minutes + appointmentDuration;
                             const endTime = minutesToTime(endMinutesCalc);
-                            const slotsCount = Math.ceil(appointmentDuration / 30);
+                            const slotsCount = Math.ceil(appointmentDuration / SLOT_INTERVAL_MINUTES);
                             
                             // Проверяем оплачена ли запись
                             const isPaidAppointment = slot.appointment.paid === true || 

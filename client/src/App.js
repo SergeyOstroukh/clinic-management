@@ -68,6 +68,17 @@ const getLocalDateKey = (dateTimeStr) => {
   return `${y}-${m}-${day}`;
 };
 
+const getLocalDateTimeString = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const mi = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${mi}:${s}`;
+};
+
 function App() {
   // Toast уведомления
   const toast = useToast();
@@ -428,9 +439,40 @@ function App() {
   // Обновление статуса записи
   const updateAppointmentStatus = async (appointmentId, status) => {
     try {
-      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, { status });
+      const payload = { status };
+
+      if (status === 'cancelled') {
+        const cancellationReason = window.prompt('Укажите причину отмены записи:');
+        if (cancellationReason === null) {
+          return;
+        }
+        const trimmedReason = cancellationReason.trim();
+        if (!trimmedReason) {
+          toast.warning('Причина отмены обязательна');
+          return;
+        }
+
+        payload.cancelled_by_user_id = currentUser?.id || null;
+        payload.cancelled_by_user_name = currentUser?.full_name || currentUser?.username || null;
+        payload.cancellation_reason = trimmedReason;
+        payload.cancelled_at_local = getLocalDateTimeString();
+      }
+
+      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, payload);
+      const nowForUi = new Date();
+      const nowString = `${nowForUi.getFullYear()}-${String(nowForUi.getMonth() + 1).padStart(2, '0')}-${String(nowForUi.getDate()).padStart(2, '0')} ${String(nowForUi.getHours()).padStart(2, '0')}:${String(nowForUi.getMinutes()).padStart(2, '0')}:${String(nowForUi.getSeconds()).padStart(2, '0')}`;
       setAppointments(appointments.map(apt =>
-        apt.id === appointmentId ? { ...apt, status } : apt
+        apt.id === appointmentId ? {
+          ...apt,
+          status,
+          ...(status === 'cancelled' ? {
+            cancelled_at: nowString,
+            cancelled_at_local: payload.cancelled_at_local || nowString,
+            cancelled_by_user_id: payload.cancelled_by_user_id || null,
+            cancelled_by_user_name: payload.cancelled_by_user_name || null,
+            cancellation_reason: payload.cancellation_reason || null
+          } : {})
+        } : apt
       ));
       
       // Если запись отменена, отправляем событие для обновления календаря
@@ -445,7 +487,23 @@ function App() {
   // Отмена записи
   const handleCancelAppointment = async (appointmentId) => {
     try {
-      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, { status: 'cancelled' });
+      const cancellationReason = window.prompt('Укажите причину отмены записи:');
+      if (cancellationReason === null) {
+        return;
+      }
+      const trimmedReason = cancellationReason.trim();
+      if (!trimmedReason) {
+        toast.warning('Причина отмены обязательна');
+        return;
+      }
+
+      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, {
+        status: 'cancelled',
+        cancelled_by_user_id: currentUser?.id || null,
+        cancelled_by_user_name: currentUser?.full_name || currentUser?.username || null,
+        cancellation_reason: trimmedReason,
+        cancelled_at_local: getLocalDateTimeString()
+      });
       
       // Обновляем локальное состояние
       setAppointments(appointments.map(apt =>
@@ -731,7 +789,10 @@ function App() {
       
       const appointmentData = {
         ...appointmentForm,
-        appointment_date: localDateTime
+        appointment_date: localDateTime,
+        created_by_user_id: currentUser?.id || null,
+        created_by_user_name: currentUser?.full_name || currentUser?.username || null,
+        created_at_local: getLocalDateTimeString()
       };
       
       await axios.post(`${API_URL}/appointments`, appointmentData);

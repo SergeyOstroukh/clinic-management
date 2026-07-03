@@ -73,19 +73,16 @@ const AppointmentTableByDoctor = ({
   // Функция для форматирования диапазона времени
   const formatTimeRange = (appointmentDate, duration) => {
     const startTime = formatTime(appointmentDate);
-    if (!duration || duration <= 30) {
-      return startTime;
-    }
-    
-    // Парсим время начала
+    const appointmentDuration = duration || 30;
+
     const [hours, minutes] = startTime.split(':').map(Number);
     const startMinutes = hours * 60 + minutes;
-    const endMinutes = startMinutes + duration;
+    const endMinutes = startMinutes + appointmentDuration;
     const endHours = Math.floor(endMinutes / 60);
     const endMins = endMinutes % 60;
     const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
-    
-    return `${startTime}—${endTime}`;
+
+    return `${startTime} — ${endTime}`;
   };
 
   // Группируем записи по врачам

@@ -18,6 +18,8 @@ const MONTHS = [
 
 const DAYS_OF_WEEK = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
+const SLOT_INTERVAL_MINUTES = 15;
+
 const formatDate = (year, month, day) => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
@@ -182,6 +184,117 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
     return `${String(time.hours).padStart(2, '0')}:${String(time.minutes).padStart(2, '0')}`;
   };
 
+  const timeToMinutes = (timeStr) => {
+    const [hours, minutes] = String(timeStr).split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const minutesToTime = (totalMinutes) => {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  };
+
+  const generateTimeSlots = (startTime, endTime) => {
+    const slots = [];
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+
+    let currentH = startH;
+    let currentM = startM;
+
+    while (currentH < endH || (currentH === endH && currentM < endM)) {
+      slots.push(`${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
+      currentM += SLOT_INTERVAL_MINUTES;
+      if (currentM >= 60) {
+        currentM = 0;
+        currentH += 1;
+      }
+    }
+
+    return slots;
+  };
+
+  const isSlotBlockedByAppointment = (slotTimeStr, dayAppointments) => {
+    const slotMinutes = timeToMinutes(slotTimeStr);
+
+    for (const apt of dayAppointments) {
+      if (apt.status === 'cancelled') continue;
+
+      const aptTime = parseTime(apt.appointment_date);
+      const aptMinutes = aptTime.hours * 60 + aptTime.minutes;
+      const aptDuration = apt.duration || 30;
+
+      if (slotMinutes >= aptMinutes && slotMinutes < aptMinutes + aptDuration) {
+        return {
+          blocked: true,
+          appointment: apt,
+          isAppointmentStart: slotMinutes === aptMinutes
+        };
+      }
+    }
+
+    return { blocked: false, appointment: null, isAppointmentStart: false };
+  };
+
+  const formatAppointmentTimeRange = (appointment) => {
+    const startTime = formatTime(appointment.appointment_date);
+    const duration = appointment.duration || 30;
+    const endTime = minutesToTime(timeToMinutes(startTime) + duration);
+    return `${startTime} — ${endTime}`;
+  };
+
+  const getDayTimeline = (year, month, day) => {
+    const schedule = getDaySchedule(year, month, day);
+    if (schedule.length === 0) {
+      return { hasSchedule: false, items: [] };
+    }
+
+    const dayAppointments = getDayAppointments(year, month, day);
+    const slotSet = new Set();
+
+    schedule.forEach((range) => {
+      generateTimeSlots(range.start_time, range.end_time).forEach((time) => slotSet.add(time));
+    });
+
+    const allSlots = Array.from(slotSet).sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+    const now = new Date();
+    const items = [];
+
+    allSlots.forEach((slotTime) => {
+      const [slotHour, slotMinute] = slotTime.split(':').map(Number);
+      const slotDateTime = new Date(year, month - 1, day, slotHour, slotMinute, 0, 0);
+      const isPast = slotDateTime.getTime() < now.getTime();
+      const blockCheck = isSlotBlockedByAppointment(slotTime, dayAppointments);
+
+      if (blockCheck.blocked) {
+        if (!blockCheck.isAppointmentStart) return;
+
+        const detailedAppointment = selectedDayAppointments.find((apt) => apt.id === blockCheck.appointment.id)
+          || blockCheck.appointment;
+
+        items.push({
+          type: 'appointment',
+          key: `apt-${detailedAppointment.id}`,
+          time: slotTime,
+          appointment: detailedAppointment,
+          isPast
+        });
+        return;
+      }
+
+      items.push({
+        type: 'free',
+        key: `free-${slotTime}`,
+        time: slotTime,
+        endTime: minutesToTime(timeToMinutes(slotTime) + SLOT_INTERVAL_MINUTES),
+        isPast
+      });
+    });
+
+    return { hasSchedule: true, items };
+  };
+
   const handleDayClick = (year, month, day) => {
     setSelectedDate({ year, month, day });
   };
@@ -239,6 +352,10 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
            month === today.getMonth() + 1 && 
            day === today.getDate();
   };
+
+  const selectedDayTimeline = selectedDate
+    ? getDayTimeline(selectedDate.year, selectedDate.month, selectedDate.day)
+    : { hasSchedule: false, items: [] };
 
   if (loading) {
     return <div className="doctor-calendar-loading">Загрузка...</div>;
@@ -309,63 +426,88 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
               <button className="btn-close" onClick={() => setSelectedDate(null)}>×</button>
             </div>
 
-            {selectedDayAppointments.length === 0 ? (
-              <div className="no-appointments">
-                <p>Нет записей на этот день</p>
-              </div>
-            ) : (
-              <div className="appointments-list">
-                {selectedDayAppointments.map(apt => (
-                  <div 
-                    key={apt.id} 
-                    className={`appointment-card status-${apt.status}`}
-                    onClick={() => onAppointmentClick && onAppointmentClick(apt)}
-                  >
-                    <div className="appointment-time">{formatTime(apt.appointment_date)}</div>
-                    <div className="appointment-client">
-                      <strong>
-                        {apt.client?.lastName || apt.client_lastName} {apt.client?.firstName || apt.client_firstName}
-                        {apt.client?.middleName && ` ${apt.client.middleName}`}
-                      </strong>
-                      {apt.client?.phone && (
-                        <div className="client-phone">📞 {apt.client.phone}</div>
-                      )}
-                    </div>
-                    <div className="appointment-services">
-                      {apt.services && apt.services.length > 0 ? (
-                        <div>
-                          <strong>Услуги:</strong>
-                          <ul>
-                            {apt.services.map((service, idx) => (
-                              <li key={idx}>
-                                {service.name} {service.quantity > 1 && `(x${service.quantity})`}
-                                {service.price && ` - ${service.price} ₽`}
-                              </li>
-                            ))}
-                          </ul>
+            {selectedDayTimeline.hasSchedule ? (
+              selectedDayTimeline.items.length === 0 ? (
+                <div className="no-appointments">
+                  <p>Нет слотов на этот день</p>
+                </div>
+              ) : (
+                <div className="appointments-list day-timeline-list">
+                  {selectedDayTimeline.items.map((item) => {
+                    if (item.type === 'free') {
+                      return (
+                        <div
+                          key={item.key}
+                          className={`free-slot-card ${item.isPast ? 'past' : ''}`}
+                        >
+                          <div className="free-slot-time">
+                            {item.time} — {item.endTime}
+                          </div>
+                          <div className="free-slot-label">Свободное время</div>
                         </div>
-                      ) : (
-                        <div className="no-services">Услуги не указаны</div>
-                      )}
-                    </div>
-                    <div className="appointment-status">
-                      {apt.status === 'scheduled' && '📅 Запланировано'}
-                      {apt.status === 'completed' && '✅ Завершено'}
-                      {apt.status === 'ready_for_payment' && '💰 Готово к оплате'}
-                      {apt.status === 'cancelled' && '❌ Отменено'}
-                    </div>
-                    {apt.notes && (
-                      <div className="appointment-notes">
-                        <strong>Примечания:</strong> {apt.notes}
+                      );
+                    }
+
+                    const apt = item.appointment;
+                    return (
+                      <div
+                        key={item.key}
+                        className={`appointment-card status-${apt.status} ${item.isPast ? 'past' : ''}`}
+                        onClick={() => onAppointmentClick && onAppointmentClick(apt)}
+                      >
+                        <div className="appointment-time">{formatAppointmentTimeRange(apt)}</div>
+                        <div className="appointment-client">
+                          <strong>
+                            {apt.client?.lastName || apt.client_lastName} {apt.client?.firstName || apt.client_firstName}
+                            {apt.client?.middleName && ` ${apt.client.middleName}`}
+                          </strong>
+                          {apt.client?.phone && (
+                            <div className="client-phone">📞 {apt.client.phone}</div>
+                          )}
+                        </div>
+                        <div className="appointment-services">
+                          {apt.services && apt.services.length > 0 ? (
+                            <div>
+                              <strong>Услуги:</strong>
+                              <ul>
+                                {apt.services.map((service, idx) => (
+                                  <li key={idx}>
+                                    {service.name} {service.quantity > 1 && `(x${service.quantity})`}
+                                    {service.price && ` - ${service.price} ₽`}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <div className="no-services">Услуги не указаны</div>
+                          )}
+                        </div>
+                        <div className="appointment-status">
+                          {apt.status === 'scheduled' && '📅 Запланировано'}
+                          {apt.status === 'waiting' && '⏳ Ожидает'}
+                          {apt.status === 'in-progress' && '🔄 На приеме'}
+                          {apt.status === 'completed' && '✅ Завершено'}
+                          {apt.status === 'ready_for_payment' && '💰 Готово к оплате'}
+                          {apt.status === 'cancelled' && '❌ Отменено'}
+                        </div>
+                        {apt.notes && (
+                          <div className="appointment-notes">
+                            <strong>Примечания:</strong> {apt.notes}
+                          </div>
+                        )}
+                        {apt.diagnosis && (
+                          <div className="appointment-diagnosis">
+                            <strong>Диагноз:</strong> {apt.diagnosis}
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {apt.diagnosis && (
-                      <div className="appointment-diagnosis">
-                        <strong>Диагноз:</strong> {apt.diagnosis}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
+              )
+            ) : (
+              <div className="no-appointments">
+                <p>Нет расписания на этот день</p>
               </div>
             )}
           </div>
@@ -385,6 +527,10 @@ const DoctorCalendar = ({ currentUser, onAppointmentClick }) => {
         <div className="legend-item">
           <div className="legend-color has-appointments"></div>
           <span>Есть записи</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-color free-slot"></div>
+          <span>Свободный слот</span>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { formatTime, getStatusColor, getStatusText } from '../../shared/lib';
 import './AppointmentTable.css';
 
@@ -18,6 +18,8 @@ const AppointmentTable = ({
   showPrice = true,
   currentUser
 }) => {
+  const [selectedAuditAppointment, setSelectedAuditAppointment] = useState(null);
+
   const getClientName = (clientId) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return 'Неизвестный';
@@ -29,21 +31,46 @@ const AppointmentTable = ({
     return client?.phone || '-';
   };
 
+  const formatAuditDateTime = (dateTime) => {
+    if (!dateTime) return '—';
+
+    const raw = String(dateTime).trim();
+    const normalized = raw.replace('T', ' ').replace('Z', '').trim();
+    const localMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?::\d{2})?/);
+    if (localMatch) {
+      const [, datePart, hours, minutes] = localMatch;
+      return `${datePart} ${hours}:${minutes}`;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      return raw.length >= 16 ? raw.substring(0, 16) : raw;
+    }
+
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const hours = String(parsed.getHours()).padStart(2, '0');
+    const minutes = String(parsed.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  };
+
+  const getAuditCreatedAt = (appointment) => appointment.created_at_local;
+
+  const getAuditCancelledAt = (appointment) => appointment.cancelled_at_local;
+
   // Функция для форматирования диапазона времени
   const formatTimeRange = (appointmentDate, duration) => {
     const startTime = formatTime(appointmentDate);
-    if (!duration || duration <= 30) {
-      return startTime;
-    }
-    
-    // Парсим время начала
+    const appointmentDuration = duration || 30;
+
     const [hours, minutes] = startTime.split(':').map(Number);
     const startMinutes = hours * 60 + minutes;
-    const endMinutes = startMinutes + duration;
+    const endMinutes = startMinutes + appointmentDuration;
     const endHours = Math.floor(endMinutes / 60);
     const endMins = endMinutes % 60;
     const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
-    
+
     return `${startTime} — ${endTime}`;
   };
 
@@ -189,6 +216,20 @@ const AppointmentTable = ({
                         ✏️
                       </span>
                     )}
+                    <span
+                      className="info-icon"
+                      onClick={() => setSelectedAuditAppointment(apt)}
+                      title="Информация по записи"
+                      style={{
+                        cursor: 'pointer',
+                        fontSize: '18px',
+                        padding: '5px',
+                        display: 'inline-block',
+                        color: '#3f51b5'
+                      }}
+                    >
+                      ℹ️
+                    </span>
                     {apt.status !== 'cancelled' && apt.status !== 'completed' && (
                       <span
                         className="cancel-icon"
@@ -216,6 +257,56 @@ const AppointmentTable = ({
           ))}
         </tbody>
       </table>
+
+      {selectedAuditAppointment && (
+        <div className="audit-modal-overlay" onClick={() => setSelectedAuditAppointment(null)}>
+          <div className="audit-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="audit-modal-header">
+              <h3>Информация по записи</h3>
+              <button
+                type="button"
+                className="audit-modal-close"
+                onClick={() => setSelectedAuditAppointment(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            <table className="audit-info-table">
+              <tbody>
+                <tr>
+                  <th>Дата/время записи</th>
+                  <td>{formatTimeRange(selectedAuditAppointment.appointment_date, selectedAuditAppointment.duration)}</td>
+                </tr>
+                <tr>
+                  <th>Кто создал</th>
+                  <td>{selectedAuditAppointment.created_by_user_name || '—'}</td>
+                </tr>
+                <tr>
+                  <th>Когда создана</th>
+                  <td>{formatAuditDateTime(getAuditCreatedAt(selectedAuditAppointment))}</td>
+                </tr>
+                <tr>
+                  <th>Статус</th>
+                  <td>{getStatusText(selectedAuditAppointment.status)}</td>
+                </tr>
+                <tr>
+                  <th>Кто отменил</th>
+                  <td>{selectedAuditAppointment.cancelled_by_user_name || '—'}</td>
+                </tr>
+                <tr>
+                  <th>Когда отменена</th>
+                  <td>{formatAuditDateTime(getAuditCancelledAt(selectedAuditAppointment))}</td>
+                </tr>
+                <tr>
+                  <th>Причина отмены</th>
+                  <td>{selectedAuditAppointment.cancellation_reason || '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -225,6 +225,77 @@
   transform: scale(1.1);
 }
 
+.info-icon {
+  transition: all 0.2s ease;
+  opacity: 0.8;
+}
+
+.info-icon:hover {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.audit-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.audit-modal {
+  width: min(640px, 92vw);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.audit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #ececec;
+}
+
+.audit-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.audit-modal-close {
+  border: none;
+  background: transparent;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  color: #666;
+}
+
+.audit-info-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.audit-info-table th,
+.audit-info-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+  font-size: 0.9rem;
+  vertical-align: top;
+}
+
+.audit-info-table th {
+  width: 38%;
+  color: #4a4a4a;
+  background: #fafafa;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .appointments-table th,
   .appointments-table td {

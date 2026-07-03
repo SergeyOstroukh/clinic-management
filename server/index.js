@@ -74,6 +74,21 @@ const formatLocalDateTime = (dateObj) => {
   return `${y}-${m}-${d} ${h}:${mi}:${s}`;
 };
 
+const CLINIC_TIMEZONE = process.env.CLINIC_TIMEZONE || 'Europe/Minsk';
+
+const getClinicLocalDateTimeString = async () => {
+  if (usePostgres) {
+    const row = await db.get(
+      `SELECT TO_CHAR(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI:SS') as ts`,
+      [CLINIC_TIMEZONE]
+    );
+    if (row?.ts) {
+      return String(row.ts);
+    }
+  }
+  return formatLocalDateTime(new Date());
+};
+
 // Нормализация формата даты: YYYY-MM-DD HH:MM:SS (локальное время)
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
@@ -1241,20 +1256,38 @@ app.get('/api/appointments', async (req, res) => {
             a.paid,
             a.called_today,
             a.created_at,
+            a.created_at_local,
             COALESCE(a.duration, 30) as duration,
+            a.created_by_user_id,
+            COALESCE(a.created_by_user_name, creator.full_name, creator.username) as created_by_user_name,
+            TO_CHAR(a.cancelled_at::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as cancelled_at,
+            a.cancelled_at_local,
+            a.cancelled_by_user_id,
+            COALESCE(a.cancelled_by_user_name, canceller.full_name, canceller.username) as cancelled_by_user_name,
+            a.cancellation_reason,
             d."lastName" as doctor_lastName,
             d."firstName" as doctor_firstName,
             d."middleName" as doctor_middleName,
             d.specialization as doctor_specialization
           FROM appointments a
           LEFT JOIN doctors d ON a.doctor_id = d.id
+          LEFT JOIN users creator ON a.created_by_user_id = creator.id
+          LEFT JOIN users canceller ON a.cancelled_by_user_id = canceller.id
           ORDER BY a.id ASC`
         : `SELECT 
             a.*,
             d.lastName as doctor_lastName,
             d.firstName as doctor_firstName,
             d.middleName as doctor_middleName,
-            d.specialization as doctor_specialization
+            d.specialization as doctor_specialization,
+            a.created_by_user_id,
+            a.created_by_user_name,
+            a.created_at_local,
+            a.cancelled_at,
+            a.cancelled_at_local,
+            a.cancelled_by_user_id,
+            a.cancelled_by_user_name,
+            a.cancellation_reason
           FROM appointments a
           LEFT JOIN doctors d ON a.doctor_id = d.id
           ORDER BY a.id ASC`
@@ -1514,9 +1547,19 @@ app.get('/api/appointments/:id', async (req, res) => {
 
 // Создать запись
 app.post('/api/appointments', async (req, res) => {
-  const { client_id, appointment_date, doctor_id, services, notes, duration = 30 } = req.body;
+  const {
+    client_id,
+    appointment_date,
+    doctor_id,
+    services,
+    notes,
+    duration = 30,
+    created_by_user_id = null,
+    created_by_user_name = null
+  } = req.body;
   
   try {
+    const createdAtLocal = await getClinicLocalDateTimeString();
     // Строгая валидация входных данных — без этого запись может "теряться" из списков
     if (!client_id || Number.isNaN(parseInt(client_id, 10))) {
       return res.status(400).json({ error: 'Не выбран клиент для записи' });
@@ -1584,8 +1627,8 @@ app.post('/api/appointments', async (req, res) => {
       try {
         await client.query('BEGIN');
         const result = await client.query(
-          'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-          [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration]
+          'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration, created_by_user_id, created_by_user_name, created_at_local) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
+          [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration, created_by_user_id, created_by_user_name, createdAtLocal]
         );
         appointmentId = result.rows[0].id;
         
@@ -1619,8 +1662,8 @@ app.post('/api/appointments', async (req, res) => {
       }
     } else {
       const result = await db.run(
-        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration) VALUES (?, ?, ?, ?, ?, ?)',
-        [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration]
+        'INSERT INTO appointments (client_id, appointment_date, doctor_id, notes, status, duration, created_by_user_id, created_by_user_name, created_at_local) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [client_id, dateToSave, doctor_id, notes, 'scheduled', normalizedDuration, created_by_user_id, created_by_user_name, createdAtLocal]
       );
       appointmentId = result.lastID;
       // Добавляем услуги (SQLite путь)
@@ -1668,7 +1711,10 @@ app.post('/api/appointments', async (req, res) => {
       doctor_id,
       services,
       notes,
-      duration: normalizedDuration
+      duration: normalizedDuration,
+      created_by_user_id,
+      created_by_user_name,
+      created_at_local: createdAtLocal
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1831,9 +1877,19 @@ app.patch('/api/appointments/:id/call-status', async (req, res) => {
 
 // Обновить статус записи
 app.patch('/api/appointments/:id/status', async (req, res) => {
-  const { status, discount_amount } = req.body;
+  const {
+    status,
+    discount_amount,
+    cancelled_by_user_id,
+    cancelled_by_user_name,
+    cancellation_reason
+  } = req.body;
   
   try {
+    let cancelledAtLocal = null;
+    if (status === 'cancelled') {
+      cancelledAtLocal = await getClinicLocalDateTimeString();
+    }
     const updateFields = [];
     const updateValues = [];
     let paramIndex = 1;
@@ -1845,6 +1901,22 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
     if (discount_amount !== undefined) {
       updateFields.push(usePostgres ? `discount_amount = $${paramIndex}` : 'discount_amount = ?');
       updateValues.push(discount_amount);
+      paramIndex++;
+    }
+
+    if (status === 'cancelled') {
+      updateFields.push(usePostgres ? 'cancelled_at = CURRENT_TIMESTAMP' : "cancelled_at = datetime('now')");
+      updateFields.push(usePostgres ? `cancelled_by_user_id = $${paramIndex}` : 'cancelled_by_user_id = ?');
+      updateValues.push(cancelled_by_user_id || null);
+      paramIndex++;
+      updateFields.push(usePostgres ? `cancelled_by_user_name = $${paramIndex}` : 'cancelled_by_user_name = ?');
+      updateValues.push(cancelled_by_user_name || null);
+      paramIndex++;
+      updateFields.push(usePostgres ? `cancellation_reason = $${paramIndex}` : 'cancellation_reason = ?');
+      updateValues.push(cancellation_reason || null);
+      paramIndex++;
+      updateFields.push(usePostgres ? `cancelled_at_local = $${paramIndex}` : 'cancelled_at_local = ?');
+      updateValues.push(cancelledAtLocal);
       paramIndex++;
     }
     

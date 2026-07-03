@@ -38,6 +38,9 @@ async function initializeDatabase() {
     await migrateAppointmentDuration();
     console.log('✅ Миграция duration в appointments проверена');
 
+    await migrateAppointmentAuditFields();
+    console.log('✅ Миграция полей аудита записей проверена');
+
     await migrateAppointmentUnitPrices();
     console.log('✅ Миграция unit_price в appointment_services/materials проверена');
     
@@ -937,6 +940,57 @@ async function migrateAppointmentDuration() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции duration:', error.message);
+  }
+}
+
+// Миграция: добавление полей аудита записи/отмены в appointments
+async function migrateAppointmentAuditFields() {
+  try {
+    const { usePostgres } = require('./database');
+
+    const fields = [
+      { column: 'created_by_user_id', type: 'INTEGER', desc: 'ID создателя записи' },
+      { column: 'created_by_user_name', type: 'TEXT', desc: 'имени создателя записи' },
+      { column: 'created_at_local', type: 'TEXT', desc: 'локальной даты и времени создания' },
+      { column: 'cancelled_at', type: usePostgres ? 'TIMESTAMP' : 'TEXT', desc: 'даты и времени отмены' },
+      { column: 'cancelled_at_local', type: 'TEXT', desc: 'локальной даты и времени отмены' },
+      { column: 'cancelled_by_user_id', type: 'INTEGER', desc: 'ID отменившего запись' },
+      { column: 'cancelled_by_user_name', type: 'TEXT', desc: 'имени отменившего запись' },
+      { column: 'cancellation_reason', type: 'TEXT', desc: 'причины отмены' }
+    ];
+
+    if (usePostgres) {
+      for (const { column, type, desc } of fields) {
+        const exists = await db.all(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_name = 'appointments' AND column_name = $1
+        `, [column]);
+
+        if (exists.length === 0) {
+          console.log(`   🔄 Добавление поля ${column} в appointments...`);
+          await db.run(`ALTER TABLE appointments ADD COLUMN ${column} ${type}`);
+          console.log(`   ✅ Поле ${desc} добавлено`);
+        } else {
+          console.log(`   ✅ Поле ${desc} уже существует`);
+        }
+      }
+    } else {
+      const tableInfo = await db.all(`PRAGMA table_info(appointments)`);
+      const existingNames = new Set(tableInfo.map(col => col.name));
+
+      for (const { column, type, desc } of fields) {
+        if (!existingNames.has(column)) {
+          console.log(`   🔄 Добавление поля ${column} в appointments...`);
+          await db.run(`ALTER TABLE appointments ADD COLUMN ${column} ${type}`);
+          console.log(`   ✅ Поле ${desc} добавлено`);
+        } else {
+          console.log(`   ✅ Поле ${desc} уже существует`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции полей аудита записей:', error.message);
   }
 }
 
