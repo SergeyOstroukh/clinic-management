@@ -49,6 +49,9 @@ async function initializeDatabase() {
     
     await migrateClientCitizenship();
     console.log('✅ Миграция citizenship_data в clients проверена');
+
+    await migrateClientIdentityDocumentFields();
+    console.log('✅ Миграция полей документа клиента проверена');
     
     await migrateAppointmentFormFields();
     console.log('✅ Миграция полей формы 037/у в appointments проверена');
@@ -1152,6 +1155,53 @@ async function migrateDoctorWorkRecords() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции doctor_work_records:', error.message);
+  }
+}
+
+// Миграция: поля документа для согласия на обработку персональных данных
+async function migrateClientIdentityDocumentFields() {
+  try {
+    const { usePostgres } = require('./database');
+
+    const fields = [
+      { column: 'identity_document_type', type: 'TEXT', desc: 'типа документа, удостоверяющего личность' },
+      { column: 'passport_series', type: 'TEXT', desc: 'серии паспорта' },
+      { column: 'passport_issued_by', type: 'TEXT', desc: 'органа, выдавшего документ' },
+      { column: 'passport_issued_date', type: 'DATE', desc: 'даты выдачи документа' },
+      { column: 'identification_number', type: 'TEXT', desc: 'идентификационного номера' },
+    ];
+
+    if (usePostgres) {
+      for (const { column, type, desc } of fields) {
+        const columnExists = await db.all(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_name = 'clients' AND column_name = $1
+        `, [column]);
+
+        if (columnExists.length === 0) {
+          console.log(`   🔄 Добавление поля ${column} в таблицу clients...`);
+          await db.run(`ALTER TABLE clients ADD COLUMN ${column} ${type}`);
+          console.log(`   ✅ Поле ${desc} добавлено`);
+        } else {
+          console.log(`   ✅ Поле ${desc} уже существует`);
+        }
+      }
+    } else {
+      const tableInfo = await db.all(`PRAGMA table_info(clients)`);
+      for (const { column, type, desc } of fields) {
+        const hasColumn = tableInfo.some((col) => col.name === column);
+        if (!hasColumn) {
+          console.log(`   🔄 Добавление поля ${column} в таблицу clients...`);
+          await db.run(`ALTER TABLE clients ADD COLUMN ${column} ${type}`);
+          console.log(`   ✅ Поле ${desc} добавлено`);
+        } else {
+          console.log(`   ✅ Поле ${desc} уже существует`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции полей документа клиента:', error.message);
   }
 }
 

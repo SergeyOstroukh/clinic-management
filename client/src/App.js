@@ -3,7 +3,7 @@ import './App.css';
 import axios from 'axios';
 
 // FSD imports
-import { getTodayDateString, getFullName, formatTime } from './shared/lib';
+import { getTodayDateString, getFullName, formatTime, formatClientDateInput } from './shared/lib';
 import { AppointmentTable, AppointmentTableByDoctor, ClientCard, ClientHistoryCard, NavigationCards } from './widgets';
 import { DoctorsPage } from './pages/DoctorsPage';
 import { AdministratorsPage } from './pages/AdministratorsPage';
@@ -33,6 +33,44 @@ const getApiUrl = () => {
 };
 
 const API_URL = getApiUrl();
+
+const EMPTY_CLIENT_FORM = {
+  lastName: '',
+  firstName: '',
+  middleName: '',
+  phone: '',
+  address: '',
+  email: '',
+  notes: '',
+  date_of_birth: '',
+  identity_document_type: 'Паспорт',
+  passport_series: '',
+  passport_number: '',
+  passport_issued_by: '',
+  passport_issued_date: '',
+  identification_number: '',
+  citizenship_data: '',
+  population_type: 'city'
+};
+
+const mapClientToForm = (client) => ({
+  lastName: client.lastName || '',
+  firstName: client.firstName || '',
+  middleName: client.middleName || '',
+  phone: client.phone || '',
+  address: client.address || '',
+  email: client.email || '',
+  notes: client.notes || '',
+  date_of_birth: formatClientDateInput(client.date_of_birth),
+  identity_document_type: client.identity_document_type || 'Паспорт',
+  passport_series: client.passport_series || '',
+  passport_number: client.passport_number || '',
+  passport_issued_by: client.passport_issued_by || '',
+  passport_issued_date: formatClientDateInput(client.passport_issued_date),
+  identification_number: client.identification_number || '',
+  citizenship_data: client.citizenship_data || '',
+  population_type: client.population_type || 'city'
+});
 
 // Разбор "YYYY-MM-DD HH:MM:SS" без UTC-сдвигов браузера
 const parseLocalDateTime = (dateTimeStr) => {
@@ -96,6 +134,7 @@ function App() {
   // Навигация
   const [currentView, setCurrentView] = useState('home');
   const [editingAppointmentData, setEditingAppointmentData] = useState(null);
+  const [rebookingFromAppointment, setRebookingFromAppointment] = useState(null);
   const [returnToClientId, setReturnToClientId] = useState(null);
   
   // Данные
@@ -163,9 +202,7 @@ function App() {
   const [deferredFormsCount, setDeferredFormsCount] = useState(0);
 
   // Формы
-  const [clientForm, setClientForm] = useState({ 
-    lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city'
-  });
+  const [clientForm, setClientForm] = useState({ ...EMPTY_CLIENT_FORM });
   const [appointmentForm, setAppointmentForm] = useState({
     client_id: '', appointment_date: new Date().toISOString().slice(0, 16), doctor_id: '', services: [], notes: ''
   });
@@ -755,7 +792,7 @@ function App() {
       await loadData();
       
       // Очищаем форму и закрываем модалку
-      setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
+      setClientForm({ ...EMPTY_CLIENT_FORM });
       setEditingClient(null);
       setShowClientModal(false);
     } catch (error) {
@@ -823,8 +860,22 @@ function App() {
     }
   };
 
+  // Записать клиента на следующий приём (новая запись, не редактирование текущей)
+  const handleRebookAppointment = (appointment) => {
+    setEditingAppointmentData(null);
+    setRebookingFromAppointment(appointment);
+    setCurrentView('booking');
+  };
+
+  const handleRebookComplete = () => {
+    setRebookingFromAppointment(null);
+    setCurrentView('home');
+    loadData();
+  };
+
   // Открыть редактирование записи
   const handleEditAppointment = (appointment) => {
+    setRebookingFromAppointment(null);
     // Сохраняем данные записи для редактирования
     setEditingAppointmentData(appointment);
     // Сохраняем ID клиента для возврата в карточку
@@ -1149,6 +1200,7 @@ function App() {
             onCallStatusToggle={toggleCallStatus}
             onStatusChange={updateAppointmentStatus}
             onEditAppointment={handleEditAppointment}
+            onRebookAppointment={handleRebookAppointment}
             onCancelAppointment={handleCancelAppointment}
             getServiceNames={getServiceNames}
             calculateTotal={calculateAppointmentTotal}
@@ -1162,6 +1214,7 @@ function App() {
             onCallStatusToggle={toggleCallStatus}
             onStatusChange={updateAppointmentStatus}
             onEditAppointment={handleEditAppointment}
+            onRebookAppointment={handleRebookAppointment}
             onCancelAppointment={handleCancelAppointment}
             getServiceNames={getServiceNames}
             getDoctorName={getDoctorName}
@@ -1241,7 +1294,7 @@ function App() {
                 <button className="btn" onClick={() => setCurrentView('home')}>← Назад</button>
                 <button className="btn btn-primary" onClick={() => {
                   setEditingClient(null);
-                  setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
+                  setClientForm({ ...EMPTY_CLIENT_FORM });
                   setShowClientModal(true);
                 }}>+ Добавить клиента</button>
               </div>
@@ -1340,25 +1393,7 @@ function App() {
                                   className="btn btn-small"
                                   onClick={() => {
                                     setEditingClient(client);
-                                    setClientForm({
-                                      lastName: client.lastName || '',
-                                      firstName: client.firstName || '',
-                                      middleName: client.middleName || '',
-                                      phone: client.phone || '',
-                                      address: client.address || '',
-                                      email: client.email || '',
-                                      notes: client.notes || '',
-                                      date_of_birth: (() => {
-                                        const v = client.date_of_birth;
-                                        if (!v) return '';
-                                        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
-                                        if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-                                        return String(v).slice(0, 10);
-                                      })(),
-                                      passport_number: client.passport_number || '',
-                                      citizenship_data: client.citizenship_data || '',
-                                      population_type: client.population_type || 'city'
-                                    });
+                                    setClientForm(mapClientToForm(client));
                                     setShowClientModal(true);
                                   }}
                                   title="Редактировать клиента"
@@ -1727,8 +1762,10 @@ function App() {
                 setCurrentView('home');
               }
               setEditingAppointmentData(null);
+              setRebookingFromAppointment(null);
             }}
             editingAppointment={editingAppointmentData}
+            rebookingFromAppointment={rebookingFromAppointment}
             onEditComplete={() => {
               setEditingAppointmentData(null);
               loadData();
@@ -1739,6 +1776,7 @@ function App() {
                 setReturnToClientId(null);
               }
             }}
+            onRebookComplete={handleRebookComplete}
           />
         )}
       </div>
@@ -1863,7 +1901,7 @@ function App() {
                   className="btn btn-small"
                   onClick={() => {
                     setEditingClient(null);
-                    setClientForm({ lastName: '', firstName: '', middleName: '', phone: '', address: '', email: '', notes: '', date_of_birth: '', passport_number: '', citizenship_data: '', population_type: 'city' });
+                    setClientForm({ ...EMPTY_CLIENT_FORM });
                     setShowClientModal(true);
                   }}
                 >
@@ -2457,12 +2495,53 @@ function App() {
                 onChange={(e) => setClientForm({ ...clientForm, date_of_birth: e.target.value })}
               />
 
-              <label>Номер паспорта</label>
+              <h3 style={{ margin: '16px 0 8px', fontSize: '1rem' }}>Документ, удостоверяющий личность</h3>
+
+              <label>Тип документа</label>
               <input
                 type="text"
-                placeholder="Номер паспорта"
+                placeholder="Например: Паспорт"
+                value={clientForm.identity_document_type}
+                onChange={(e) => setClientForm({ ...clientForm, identity_document_type: e.target.value })}
+              />
+
+              <label>Серия</label>
+              <input
+                type="text"
+                placeholder="Серия"
+                value={clientForm.passport_series}
+                onChange={(e) => setClientForm({ ...clientForm, passport_series: e.target.value })}
+              />
+
+              <label>Номер</label>
+              <input
+                type="text"
+                placeholder="Номер документа"
                 value={clientForm.passport_number}
                 onChange={(e) => setClientForm({ ...clientForm, passport_number: e.target.value })}
+              />
+
+              <label>Кем выдан</label>
+              <input
+                type="text"
+                placeholder="Орган, выдавший документ"
+                value={clientForm.passport_issued_by}
+                onChange={(e) => setClientForm({ ...clientForm, passport_issued_by: e.target.value })}
+              />
+
+              <label>Дата выдачи</label>
+              <input
+                type="date"
+                value={clientForm.passport_issued_date}
+                onChange={(e) => setClientForm({ ...clientForm, passport_issued_date: e.target.value })}
+              />
+
+              <label>Идентификационный номер</label>
+              <input
+                type="text"
+                placeholder="XXXXXXXXXXXXX"
+                value={clientForm.identification_number}
+                onChange={(e) => setClientForm({ ...clientForm, identification_number: e.target.value })}
               />
 
               <label>Гражданство (для иностранных граждан)</label>

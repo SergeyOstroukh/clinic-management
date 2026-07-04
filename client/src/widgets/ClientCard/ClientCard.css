@@ -528,6 +528,11 @@
   border-left: 3px solid #667eea;
 }
 
+.info-item-full .info-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .info-label {
   font-weight: 600;
   color: #666;

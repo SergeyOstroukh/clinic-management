@@ -243,7 +243,7 @@ const calculateDuration = (startTime, endTime) => {
   return endMinutes - startMinutes;
 };
 
-const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComplete, toast, showConfirm: externalShowConfirm }) => {
+const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, rebookingFromAppointment, onEditComplete, onRebookComplete, toast, showConfirm: externalShowConfirm }) => {
   // Используем внешний showConfirm или создаем свой
   const { confirmModal, showConfirm: internalShowConfirm } = useConfirmModal();
   const showConfirm = externalShowConfirm || internalShowConfirm;
@@ -302,6 +302,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
   // Защита от гонок: применяем только самый свежий ответ загрузки
   const appointmentsRequestIdRef = useRef(0);
   const allDoctorsRequestIdRef = useRef(0);
+  const rebookingInitializedRef = useRef(null);
 
   useEffect(() => {
     loadDoctors();
@@ -310,11 +311,45 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
   // Загружаем ближайшие свободные слоты только если нужно показать
   useEffect(() => {
-    if (showNearestSlots && doctors.length > 0) {
+    if (showNearestSlots && doctors.length > 0 && !showAllDoctorsMode) {
       loadNearestSlots();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showNearestSlots, doctors]);
+  }, [showNearestSlots, doctors, showAllDoctorsMode]);
+
+  // Запись на следующий приём из таблицы — подставляем только клиента, все врачи
+  useEffect(() => {
+    if (!rebookingFromAppointment || doctors.length === 0 || clients.length === 0) {
+      return;
+    }
+
+    if (rebookingInitializedRef.current === rebookingFromAppointment.id) {
+      return;
+    }
+
+    rebookingInitializedRef.current = rebookingFromAppointment.id;
+
+    const today = new Date();
+    setCurrentYear(today.getFullYear());
+    setCurrentMonth(today.getMonth() + 1);
+    setShowAllDoctorsMode(true);
+    setSelectedDoctor(null);
+    setEditingAppointmentId(null);
+    setSelectedServices([]);
+    setNotes('');
+    setSelectedTime(null);
+    setSelectedEndTime(null);
+    setDuration(SLOT_INTERVAL_MINUTES);
+    setShowModal(false);
+    setShowNearestSlots(false);
+
+    const client = clients.find((c) => c.id === rebookingFromAppointment.client_id);
+    if (client) {
+      setSelectedClient(client);
+      setClientSearch(`${client.lastName} ${client.firstName}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rebookingFromAppointment, doctors, clients]);
 
   // Обработка редактирования записи - открываем календарь с нужной датой
   useEffect(() => {
@@ -452,8 +487,14 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
 
 
   // Загрузка ближайших свободных слотов для всех врачей
-  const loadNearestSlots = async () => {
+  const loadNearestSlots = async (filterDoctorId = null) => {
     if (doctors.length === 0) return;
+
+    const doctorsToCheck = filterDoctorId
+      ? doctors.filter((doctor) => String(doctor.id) === String(filterDoctorId))
+      : doctors;
+
+    if (doctorsToCheck.length === 0) return;
     
     setLoadingSlots(true);
     try {
@@ -462,7 +503,7 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
       const daysToCheck = 30; // Проверяем на 30 дней вперед
       
       // Загружаем расписания и записи для каждого врача
-      for (const doctor of doctors) {
+      for (const doctor of doctorsToCheck) {
         try {
           // Загружаем расписание врача
           const [schedulesRes, datesRes] = await Promise.all([
@@ -1637,6 +1678,15 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           return;
         }
 
+        if (rebookingFromAppointment && onRebookComplete) {
+          setShowModal(false);
+          resetForm();
+          rebookingInitializedRef.current = null;
+          if (toast) toast.success('✅ Следующий приём записан!');
+          onRebookComplete();
+          return;
+        }
+
         // Сбрасываем только выбранное время и форму, но НЕ закрываем модалку
         // Это позволяет сразу записать еще одного клиента
         setSelectedTime(null);
@@ -1866,6 +1916,29 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, onEditComp
           ← Назад
         </button>
       </div>
+
+      {rebookingFromAppointment && (
+        <div style={{
+          marginBottom: '20px',
+          padding: '14px 18px',
+          background: 'linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%)',
+          border: '2px solid #4caf50',
+          borderRadius: '10px',
+          color: '#1b5e20'
+        }}>
+          <div style={{ fontWeight: '700', fontSize: '1.05rem', marginBottom: '4px' }}>
+            🗓️ Запись на следующий приём
+          </div>
+          <div style={{ fontSize: '0.95rem' }}>
+            Клиент: {selectedClient
+              ? `${selectedClient.lastName} ${selectedClient.firstName}`
+              : 'загрузка...'}
+          </div>
+          <div style={{ fontSize: '0.85rem', marginTop: '6px', opacity: 0.9 }}>
+            Выберите свободный слот у любого врача в календаре ниже
+          </div>
+        </div>
+      )}
 
       {/* Выбор врача карточками */}
       {!showAllDoctorsMode && !selectedDoctor && (

@@ -1,6 +1,77 @@
 import { format } from 'date-fns';
 import ru from 'date-fns/locale/ru';
 
+const MONTHS_GENITIVE = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+];
+
+/** Разбор календарной даты (DATE из БД / input type=date) без UTC-сдвига на день */
+export const parseClientDateOnly = (value) => {
+  if (value == null || value === '') return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return {
+      year: value.getFullYear(),
+      month: value.getMonth(),
+      day: value.getDate(),
+    };
+  }
+
+  const normalized = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const [y, m, d] = normalized.split('-').map((part) => parseInt(part, 10));
+    return { year: y, month: m - 1, day: d };
+  }
+
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) {
+    return {
+      year: parsed.getFullYear(),
+      month: parsed.getMonth(),
+      day: parsed.getDate(),
+    };
+  }
+
+  return null;
+};
+
+/** YYYY-MM-DD для input type="date" */
+export const formatClientDateInput = (value) => {
+  const parts = parseClientDateOnly(value);
+  if (!parts) return '';
+  return `${parts.year}-${String(parts.month + 1).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+};
+
+/** «29 июля 1992 г.» — для печатных форм */
+export const formatClientDateRuGenitive = (value) => {
+  const parts = parseClientDateOnly(value);
+  if (!parts) return '';
+  return `${parts.day} ${MONTHS_GENITIVE[parts.month]} ${parts.year} г.`;
+};
+
+export const formatDateRu = (value) => {
+  const parts = parseClientDateOnly(value);
+  if (!parts) return '';
+  return `${String(parts.day).padStart(2, '0')}.${String(parts.month + 1).padStart(2, '0')}.${parts.year}`;
+};
+
+/** «4» июля 2026 г. — дата в шапке договора */
+export const formatContractHeaderDate = () => {
+  const today = new Date();
+  return `«${today.getDate()}» ${MONTHS_GENITIVE[today.getMonth()]} ${today.getFullYear()} г.`;
+};
+
+/** О. С. Бируля — подпись пациента инициалами */
+export const formatClientInitialsSignature = (lastName, firstName, middleName) => {
+  const initials = [firstName, middleName]
+    .filter(Boolean)
+    .map((name) => `${String(name).trim().charAt(0).toUpperCase()}.`)
+    .join(' ');
+  return [initials, lastName].filter(Boolean).join(' ').trim();
+};
+
 export const formatDate = (date, formatStr = 'd MMMM yyyy HH:mm') => {
   return format(new Date(date), formatStr, { locale: ru });
 };

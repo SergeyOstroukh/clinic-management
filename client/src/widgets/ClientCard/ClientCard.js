@@ -1136,7 +1136,22 @@ const ClientCard = ({
                         <span className="info-value">{new Date(client.date_of_birth).toLocaleDateString('ru-RU')}</span>
                       </div>
                     )}
-                    {client.passport_number && (
+                    {(client.identity_document_type || client.passport_series || client.passport_number || client.passport_issued_by || client.passport_issued_date || client.identification_number) && (
+                      <div className="info-item info-item-full">
+                        <span className="info-label">Документ:</span>
+                        <span className="info-value">
+                          {[
+                            client.identity_document_type || 'Документ',
+                            client.passport_series && `серия ${client.passport_series}`,
+                            client.passport_number && `№ ${client.passport_number}`,
+                            client.passport_issued_by && `выдан ${client.passport_issued_by}`,
+                            client.passport_issued_date && `${new Date(client.passport_issued_date).toLocaleDateString('ru-RU')}`,
+                            client.identification_number && `ID ${client.identification_number}`
+                          ].filter(Boolean).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {client.passport_number && !client.identity_document_type && !client.passport_series && (
                       <div className="info-item">
                         <span className="info-label">Номер паспорта:</span>
                         <span className="info-value">{client.passport_number}</span>

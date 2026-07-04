@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatTime, getStatusColor, getStatusText } from '../../shared/lib';
+import { formatTime, getStatusColor, getStatusText, printPersonalDataConsent, printTherapyContract } from '../../shared/lib';
 import './AppointmentTable.css';
 
 const AppointmentTable = ({ 
@@ -9,6 +9,7 @@ const AppointmentTable = ({
   onCallStatusToggle,
   onStatusChange,
   onEditAppointment,
+  onRebookAppointment,
   onCancelAppointment,
   getServiceNames,
   getDoctorName,
@@ -29,6 +30,26 @@ const AppointmentTable = ({
   const getClientPhone = (clientId) => {
     const client = clients.find(c => c.id === clientId);
     return client?.phone || '-';
+  };
+
+  const getClientById = (clientId) => clients.find((c) => c.id === clientId);
+
+  const handlePrintConsent = (apt) => {
+    const client = getClientById(apt.client_id);
+    if (!client) {
+      window.alert('Клиент не найден. Обновите страницу и попробуйте снова.');
+      return;
+    }
+    printPersonalDataConsent(client);
+  };
+
+  const handlePrintTherapyContract = (apt) => {
+    const client = getClientById(apt.client_id);
+    if (!client) {
+      window.alert('Клиент не найден. Обновите страницу и попробуйте снова.');
+      return;
+    }
+    printTherapyContract(client);
   };
 
   const formatAuditDateTime = (dateTime) => {
@@ -201,6 +222,22 @@ const AppointmentTable = ({
               {currentUser && (currentUser.role === 'administrator' || currentUser.role === 'superadmin') && (
                 <td className="actions-cell" style={{ textAlign: 'center' }}>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                    {apt.status !== 'cancelled' && (
+                      <span
+                        className="rebook-icon"
+                        onClick={() => onRebookAppointment && onRebookAppointment(apt)}
+                        title="Записать на следующий приём"
+                        style={{
+                          cursor: 'pointer',
+                          fontSize: '18px',
+                          padding: '5px',
+                          display: 'inline-block',
+                          color: '#2e7d32'
+                        }}
+                      >
+                        🗓️
+                      </span>
+                    )}
                     {(apt.paid !== true && apt.paid !== 1) && (
                       <span
                         className="edit-icon"
@@ -216,6 +253,34 @@ const AppointmentTable = ({
                         ✏️
                       </span>
                     )}
+                    <span
+                      className="consent-print-icon"
+                      onClick={() => handlePrintConsent(apt)}
+                      title="Печать согласия на обработку персональных данных"
+                      style={{
+                        cursor: 'pointer',
+                        fontSize: '18px',
+                        padding: '5px',
+                        display: 'inline-block',
+                        color: '#795548'
+                      }}
+                    >
+                      🖨️
+                    </span>
+                    <span
+                      className="contract-print-icon"
+                      onClick={() => handlePrintTherapyContract(apt)}
+                      title="Печать договора на терапевтические услуги"
+                      style={{
+                        cursor: 'pointer',
+                        fontSize: '18px',
+                        padding: '5px',
+                        display: 'inline-block',
+                        color: '#1565c0'
+                      }}
+                    >
+                      📄
+                    </span>
                     <span
                       className="info-icon"
                       onClick={() => setSelectedAuditAppointment(apt)}

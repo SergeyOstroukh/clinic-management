@@ -182,14 +182,34 @@ app.get('/api/clients', async (req, res) => {
 
 // Создать клиента
 app.post('/api/clients', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, date_of_birth, passport_number, citizenship_data, population_type } = req.body;
+  const {
+    lastName, firstName, middleName, phone, address, email, notes,
+    date_of_birth, passport_number, citizenship_data, population_type,
+    identity_document_type, passport_series, passport_issued_by, passport_issued_date, identification_number
+  } = req.body;
   
   try {
     const result = await db.query(
-      'INSERT INTO clients ("lastName", "firstName", "middleName", phone, address, email, notes, date_of_birth, passport_number, citizenship_data, population_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id',
-      [lastName, firstName, middleName, phone, address, email, notes, date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city']
+      `INSERT INTO clients (
+        "lastName", "firstName", "middleName", phone, address, email, notes,
+        date_of_birth, passport_number, citizenship_data, population_type,
+        identity_document_type, passport_series, passport_issued_by, passport_issued_date, identification_number
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+      [
+        lastName, firstName, middleName, phone, address, email, notes,
+        date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city',
+        identity_document_type || null, passport_series || null, passport_issued_by || null,
+        passport_issued_date || null, identification_number || null
+      ]
     );
-    res.json({ id: result[0].id, lastName, firstName, middleName, phone, address, email, notes, date_of_birth: date_of_birth || null, passport_number: passport_number || null, citizenship_data: citizenship_data || null, population_type: population_type || 'city' });
+    res.json({
+      id: result[0].id, lastName, firstName, middleName, phone, address, email, notes,
+      date_of_birth: date_of_birth || null, passport_number: passport_number || null,
+      citizenship_data: citizenship_data || null, population_type: population_type || 'city',
+      identity_document_type: identity_document_type || null, passport_series: passport_series || null,
+      passport_issued_by: passport_issued_by || null, passport_issued_date: passport_issued_date || null,
+      identification_number: identification_number || null
+    });
   } catch (error) {
     console.error('Ошибка создания клиента:', error);
     res.status(500).json({ error: error.message });
@@ -219,7 +239,11 @@ app.get('/api/clients/:id', async (req, res) => {
 
 // Обновить клиента (только для главного админа или для обновления treatment_plan врачом)
 app.put('/api/clients/:id', async (req, res) => {
-  const { lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser, date_of_birth, passport_number, citizenship_data, population_type } = req.body;
+  const {
+    lastName, firstName, middleName, phone, address, email, notes, treatment_plan, currentUser,
+    date_of_birth, passport_number, citizenship_data, population_type,
+    identity_document_type, passport_series, passport_issued_by, passport_issued_date, identification_number
+  } = req.body;
   
   try {
     if (!currentUser) {
@@ -248,12 +272,27 @@ app.put('/api/clients/:id', async (req, res) => {
       
       res.json({ message: 'План лечения обновлен', changes: result.changes });
     } else {
-      // Полное обновление (только для superadmin), включая date_of_birth, passport_number, citizenship_data и population_type
+      // Полное обновление (только для superadmin)
       const result = await db.run(
         usePostgres
-          ? 'UPDATE clients SET "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7, treatment_plan = $8, date_of_birth = $9, passport_number = $10, citizenship_data = $11, population_type = $12 WHERE id = $13'
-          : 'UPDATE clients SET "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?, treatment_plan = ?, date_of_birth = ?, passport_number = ?, citizenship_data = ?, population_type = ? WHERE id = ?',
-        [lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null, date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city', req.params.id]
+          ? `UPDATE clients SET
+              "lastName" = $1, "firstName" = $2, "middleName" = $3, phone = $4, address = $5, email = $6, notes = $7,
+              treatment_plan = $8, date_of_birth = $9, passport_number = $10, citizenship_data = $11, population_type = $12,
+              identity_document_type = $13, passport_series = $14, passport_issued_by = $15, passport_issued_date = $16,
+              identification_number = $17
+            WHERE id = $18`
+          : `UPDATE clients SET
+              "lastName" = ?, "firstName" = ?, "middleName" = ?, phone = ?, address = ?, email = ?, notes = ?,
+              treatment_plan = ?, date_of_birth = ?, passport_number = ?, citizenship_data = ?, population_type = ?,
+              identity_document_type = ?, passport_series = ?, passport_issued_by = ?, passport_issued_date = ?,
+              identification_number = ?
+            WHERE id = ?`,
+        [
+          lastName, firstName, middleName, phone, address, email, notes, treatment_plan || null,
+          date_of_birth || null, passport_number || null, citizenship_data || null, population_type || 'city',
+          identity_document_type || null, passport_series || null, passport_issued_by || null,
+          passport_issued_date || null, identification_number || null, req.params.id
+        ]
       );
       
       if (result.changes === 0) {
