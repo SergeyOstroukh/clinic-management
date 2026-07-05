@@ -9,6 +9,8 @@ import { THERAPY_CONTRACT_BODY } from './therapyContractBody';
 
 const REQUISITES_SECTION_MARKER = '7. РЕКВИЗИТЫ И ПОДПИСИ СТОРОН';
 
+const DIRECTOR_SIGNATURE_URL = `${process.env.PUBLIC_URL || ''}/assets/director-signature.png`;
+
 const EXECUTOR_REQUISITES = `ООО «Дантист Клиник»
 Юридический адрес: Республика Беларусь, г. Минск, ул. Нововиленская, 45-84. 220053
 Почтовый адрес: Республика Беларусь, г. Минск, ул. Нововиленская, 45-84. 220053
@@ -20,14 +22,9 @@ const normalizeContractText = (text) =>
   text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
 const buildClientIdLine = (client) => {
-  if (client.identification_number) {
-    return `МР ${client.identification_number}`;
-  }
-  if (client.passport_number) {
-    const series = client.passport_series ? `${client.passport_series} ` : '';
-    return `${series}${client.passport_number}`.trim();
-  }
-  return '';
+  if (!client.passport_number) return '';
+  const series = client.passport_series ? `${client.passport_series} ` : '';
+  return `${series}${client.passport_number}`.trim();
 };
 
 const buildCustomerRequisitesLines = (client) => {
@@ -193,7 +190,7 @@ const buildRequisitesSectionHtml = (client) => {
             <div class="requisites-header">ИСПОЛНИТЕЛЬ:</div>
             <div class="requisites-body">${executorHtml}</div>
             <div class="requisites-signature">
-              <span>Директор</span><span class="sig-line"></span><span>С.В. Остроух</span>
+              <span>Директор</span><span class="sig-image-wrap"><img class="sig-image" src="${escapeHtml(DIRECTOR_SIGNATURE_URL)}" alt="" /></span><span>С.В. Остроух</span>
             </div>
           </td>
           <td class="requisites-col">
@@ -356,6 +353,22 @@ const buildTherapyContractHtml = (client) => {
       border-bottom: 1px solid #000;
       height: 1em;
       margin-bottom: 1px;
+    }
+    .requisites-signature .sig-image-wrap {
+      flex: 1 1 60px;
+      min-width: 48px;
+      max-width: 100%;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 1px;
+    }
+    .requisites-signature .sig-image {
+      max-width: 100%;
+      max-height: 2.4em;
+      height: auto;
+      display: block;
+      object-fit: contain;
     }
     @media print {
       html, body {

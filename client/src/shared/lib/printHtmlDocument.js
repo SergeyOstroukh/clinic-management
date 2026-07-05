@@ -31,18 +31,40 @@ export const printHtmlDocument = (html, title = 'Печать') => {
     window.focus();
   };
 
-  const triggerPrint = () => {
-    try {
-      printWindow.focus();
-      printWindow.print();
-    } catch (error) {
-      console.error('Ошибка печати:', error);
-      cleanup();
-      return;
-    }
+  const waitForImages = () => {
+    const images = Array.from(printDocument.images || []);
+    if (images.length === 0) return Promise.resolve();
+    return Promise.all(
+      images.map(
+        (img) =>
+          new Promise((resolve) => {
+            if (img.complete) {
+              resolve();
+              return;
+            }
+            img.onload = resolve;
+            img.onerror = resolve;
+          })
+      )
+    );
+  };
 
-    printWindow.onafterprint = cleanup;
-    setTimeout(cleanup, 2000);
+  const triggerPrint = () => {
+    waitForImages()
+      .then(() => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch (error) {
+          console.error('Ошибка печати:', error);
+          cleanup();
+          return;
+        }
+
+        printWindow.onafterprint = cleanup;
+        setTimeout(cleanup, 2000);
+      })
+      .catch(() => cleanup());
   };
 
   if (printDocument.readyState === 'complete') {
