@@ -252,7 +252,7 @@ const buildTherapyContractHtml = (client) => {
     }
     .doc-section-title {
       font-weight: bold;
-      text-align: left;
+      text-align: center;
       margin: 6px 0 2px;
     }
     p { margin: 0; }
