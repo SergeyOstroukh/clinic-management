@@ -48,37 +48,79 @@ const highlightFilled = (html, value) => {
   return html.split(escaped).join(`<span class="filled">${escaped}</span>`);
 };
 
-const formatContractLine = (line) => {
-  const match = line.match(/^([\s\t]*)(.*)$/);
-  const leading = (match[1] || '')
-    .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')
-    .replace(/ /g, '&nbsp;');
-  return `${leading}${escapeHtml(match[2] || '')}`;
+/** Подпункт: 1.1, 3.1.2, 4.1.2.1 и т.д. */
+const isSubPointStart = (trimmed) => /^\d+(?:\.\d+)+\.?\s/.test(trimmed);
+
+const isMainSectionTitle = (trimmed) =>
+  /^\d+\.\s+[А-ЯЁ]/.test(trimmed) && !/^\d+\.\d+/.test(trimmed);
+
+const isClauseHeader = (trimmed) => {
+  const match = trimmed.match(/^(\d+(?:\.\d+)+)\.\s+(.+)$/);
+  if (!match) return false;
+  const title = match[2].replace(/:$/, '').trim();
+  return title.length >= 8 && title === title.toUpperCase();
 };
 
-/** Строки из Word — мягкий перенос; склеиваем в абзац, <br/> только для подписей/пояснений */
-const joinBufferLines = (lines) => {
-  let html = '';
+const isNewClauseStart = (trimmed, prevTrimmed) =>
+  isSubPointStart(trimmed) ||
+  trimmed.startsWith('-') ||
+  trimmed.startsWith('•') ||
+  /^\d+\)\s?/.test(trimmed) ||
+  trimmed.startsWith('(') ||
+  trimmed.startsWith('сообщать') ||
+  (trimmed.startsWith('гражданин') && prevTrimmed?.startsWith('Общество'));
 
-  lines.forEach((line, index) => {
-    const formatted = formatContractLine(line);
-    if (index === 0) {
-      html = formatted;
+/** Мягкие переносы Word → отдельные логические пункты */
+const mergeLinesToClauses = (lines) => {
+  const clauses = [];
+  let current = [];
+
+  const flush = () => {
+    if (current.length === 0) return;
+    const text = current
+      .map((line) => line.trim().replace(/\s+/g, ' '))
+      .join(' ')
+      .trim();
+    if (text) clauses.push(text);
+    current = [];
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flush();
       return;
     }
 
-    const trimmed = line.trim();
-    const prevTrimmed = lines[index - 1].trim();
-    const needsBreak =
-      trimmed.startsWith('(') ||
-      trimmed.startsWith('•') ||
-      /^\d+\)\s/.test(trimmed) ||
-      (trimmed.startsWith('сообщать') && prevTrimmed.startsWith('('));
-
-    html += needsBreak ? `<br/>${formatted}` : ` ${formatted}`;
+    if (current.length > 0 && isNewClauseStart(trimmed, current[0].trim())) {
+      flush();
+    }
+    current.push(line);
   });
 
-  return html;
+  flush();
+  return clauses;
+};
+
+const renderClause = (text) => {
+  const trimmed = text.trim();
+
+  if (trimmed.startsWith('Общество') || trimmed.startsWith('гражданин')) {
+    return `<p class="doc-preamble">${escapeHtml(trimmed)}</p>`;
+  }
+
+  if (trimmed.startsWith('(')) {
+    return `<p class="doc-line-center">${escapeHtml(trimmed)}</p>`;
+  }
+
+  const classes = ['doc-line'];
+  if (isClauseHeader(trimmed)) classes.push('clause-header');
+  return `<p class="${classes.join(' ')}">${escapeHtml(trimmed)}</p>`;
+};
+
+const renderClauses = (lines) => {
+  const clauses = mergeLinesToClauses(lines);
+  return clauses.map((clause) => renderClause(clause)).join('\n');
 };
 
 /** Рендер тела договора с сохранением структуры Word/PDF */
@@ -100,34 +142,29 @@ const contractTextToHtml = (text) => {
     `<div class="doc-date-row"><span>г. Минск</span><span class="doc-date">${escapeHtml(datePart)}</span></div>`,
   ];
 
-  let buffer = [];
+  let sectionBuffer = [];
 
-  const flushParagraph = () => {
-    if (buffer.length === 0) return;
-    const isPreamble = buffer.some((line) => line.trimStart().startsWith('Общество'));
-    const className = isPreamble ? 'doc-preamble' : 'doc-paragraph';
-    parts.push(`<p class="${className}">${joinBufferLines(buffer)}</p>`);
-    buffer = [];
+  const flushSection = () => {
+    if (sectionBuffer.length === 0) return;
+    parts.push(renderClauses(sectionBuffer));
+    sectionBuffer = [];
   };
 
   for (; index < lines.length; index += 1) {
     const line = lines[index];
-    if (line.trim() === '') {
-      flushParagraph();
-      continue;
-    }
+    if (line.trim() === '') continue;
 
     const trimmed = line.trim();
-    if (/^\d+\.\s+[А-ЯЁ]/.test(trimmed) && !/^\d+\.\d+/.test(trimmed)) {
-      flushParagraph();
+    if (isMainSectionTitle(trimmed)) {
+      flushSection();
       parts.push(`<p class="doc-section-title">${escapeHtml(trimmed)}</p>`);
       continue;
     }
 
-    buffer.push(line);
+    sectionBuffer.push(line);
   }
 
-  flushParagraph();
+  flushSection();
   return parts.join('\n');
 };
 
@@ -216,7 +253,7 @@ const buildTherapyContractHtml = (client) => {
     html, body {
       font-family: 'Times New Roman', Times, serif;
       font-size: 11pt;
-      line-height: 1.08;
+      line-height: 1.05;
       color: #000;
       margin: 0;
       padding: 0;
@@ -243,17 +280,27 @@ const buildTherapyContractHtml = (client) => {
     .doc-date { white-space: nowrap; }
     .doc-preamble {
       text-align: justify;
-      margin: 0 0 4px;
-      padding-left: 28px;
+      margin: 0;
+      /* PDF: первая строка 79pt, переносы 43.7pt → ~1.25cm */
+      text-indent: 1.25cm;
     }
-    .doc-paragraph {
+    /* PDF: все пункты (1.1, 3.1.1, -, 1), •) начинаются с 57.8pt */
+    .doc-line {
+      margin: 0;
       text-align: justify;
-      margin: 0 0 3px;
+      text-indent: 0.5cm;
+    }
+    .doc-line.clause-header {
+      font-weight: bold;
+    }
+    .doc-line-center {
+      margin: 0;
+      text-align: center;
     }
     .doc-section-title {
       font-weight: bold;
       text-align: center;
-      margin: 6px 0 2px;
+      margin: 3px 0 1px;
     }
     p { margin: 0; }
     .filled {
@@ -313,11 +360,11 @@ const buildTherapyContractHtml = (client) => {
     @media print {
       html, body {
         font-size: 11pt;
-        line-height: 1.08;
+        line-height: 1.05;
       }
       @page {
         size: A4;
-        margin: 15mm 12mm 15mm 18mm;
+        margin: 15mm 15mm 15mm 15mm;
       }
     }
   </style>
