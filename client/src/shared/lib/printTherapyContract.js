@@ -48,18 +48,87 @@ const highlightFilled = (html, value) => {
   return html.split(escaped).join(`<span class="filled">${escaped}</span>`);
 };
 
+const formatContractLine = (line) => {
+  const match = line.match(/^([\s\t]*)(.*)$/);
+  const leading = (match[1] || '')
+    .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')
+    .replace(/ /g, '&nbsp;');
+  return `${leading}${escapeHtml(match[2] || '')}`;
+};
+
+/** Строки из Word — мягкий перенос; склеиваем в абзац, <br/> только для подписей/пояснений */
+const joinBufferLines = (lines) => {
+  let html = '';
+
+  lines.forEach((line, index) => {
+    const formatted = formatContractLine(line);
+    if (index === 0) {
+      html = formatted;
+      return;
+    }
+
+    const trimmed = line.trim();
+    const prevTrimmed = lines[index - 1].trim();
+    const needsBreak =
+      trimmed.startsWith('(') ||
+      trimmed.startsWith('•') ||
+      /^\d+\)\s/.test(trimmed) ||
+      (trimmed.startsWith('сообщать') && prevTrimmed.startsWith('('));
+
+    html += needsBreak ? `<br/>${formatted}` : ` ${formatted}`;
+  });
+
+  return html;
+};
+
+/** Рендер тела договора с сохранением структуры Word/PDF */
 const contractTextToHtml = (text) => {
-  return text
-    .split(/\n\n+/)
-    .map((paragraph) => {
-      const content = escapeHtml(paragraph)
-        .replace(/\n/g, '<br/>')
-        .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
-      if (!content.trim()) return '';
-      return `<p>${content}</p>`;
-    })
-    .filter(Boolean)
-    .join('\n');
+  const lines = text.split('\n');
+  if (lines.length < 4) return '';
+
+  let index = 0;
+  const title = lines[index++];
+  const subtitle = lines[index++];
+  while (index < lines.length && lines[index].trim() === '') index += 1;
+
+  const dateLine = lines[index++] || '';
+  const datePart = dateLine.replace(/^г\.\s*Минск[\t\s]+/i, '').trim();
+
+  const parts = [
+    `<div class="doc-title">${escapeHtml(title)}</div>`,
+    `<div class="doc-subtitle">${escapeHtml(subtitle)}</div>`,
+    `<div class="doc-date-row"><span>г. Минск</span><span class="doc-date">${escapeHtml(datePart)}</span></div>`,
+  ];
+
+  let buffer = [];
+
+  const flushParagraph = () => {
+    if (buffer.length === 0) return;
+    const isPreamble = buffer.some((line) => line.trimStart().startsWith('Общество'));
+    const className = isPreamble ? 'doc-preamble' : 'doc-paragraph';
+    parts.push(`<p class="${className}">${joinBufferLines(buffer)}</p>`);
+    buffer = [];
+  };
+
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === '') {
+      flushParagraph();
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (/^\d+\.\s+[А-ЯЁ]/.test(trimmed) && !/^\d+\.\d+/.test(trimmed)) {
+      flushParagraph();
+      parts.push(`<p class="doc-section-title">${escapeHtml(trimmed)}</p>`);
+      continue;
+    }
+
+    buffer.push(line);
+  }
+
+  flushParagraph();
+  return parts.join('\n');
 };
 
 const buildRequisitesSectionHtml = (client) => {
@@ -144,71 +213,112 @@ const buildTherapyContractHtml = (client) => {
   <title>Договор на терапевтические услуги — ${escapeHtml(clientName)}</title>
   <style>
     * { box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Times New Roman', Times, serif;
-      font-size: 12pt;
-      line-height: 1.35;
+      font-size: 11pt;
+      line-height: 1.08;
       color: #000;
       margin: 0;
-      padding: 15mm 12mm;
+      padding: 0;
     }
-    p { margin: 0 0 8px; text-align: justify; }
+    body { padding: 0; }
+    .doc-title {
+      text-align: center;
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 12pt;
+      margin: 0 0 2px;
+    }
+    .doc-subtitle {
+      text-align: center;
+      font-size: 11pt;
+      margin: 0 0 8px;
+    }
+    .doc-date-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin: 0 0 6px;
+    }
+    .doc-date { white-space: nowrap; }
+    .doc-preamble {
+      text-align: justify;
+      margin: 0 0 4px;
+      padding-left: 28px;
+    }
+    .doc-paragraph {
+      text-align: justify;
+      margin: 0 0 3px;
+    }
+    .doc-section-title {
+      font-weight: bold;
+      text-align: left;
+      margin: 6px 0 2px;
+    }
+    p { margin: 0; }
     .filled {
       border-bottom: 1px solid #000;
-      padding: 0 2px 1px;
+      padding: 0 1px;
       font-weight: normal;
     }
-    .requisites-section { margin-top: 12px; }
+    .requisites-section { margin-top: 6px; }
     .requisites-title {
       text-align: center;
       font-weight: bold;
-      margin: 0 0 8px;
+      margin: 0 0 4px;
     }
     .requisites-table {
       width: 100%;
       border: 1px solid #000;
       border-collapse: collapse;
       table-layout: fixed;
+      font-size: 10pt;
+      line-height: 1.12;
     }
     .requisites-col {
       width: 50%;
       vertical-align: top;
-      padding: 10px 12px;
+      padding: 6px 8px;
       border: 1px solid #000;
       overflow: hidden;
       word-wrap: break-word;
       overflow-wrap: break-word;
-      word-break: break-word;
     }
     .requisites-header {
       font-weight: bold;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .requisites-body div {
-      margin-bottom: 2px;
-      line-height: 1.4;
+      margin-bottom: 1px;
+      line-height: 1.12;
       overflow-wrap: anywhere;
     }
     .requisites-signature {
-      margin-top: 48px;
+      margin-top: 28px;
       display: flex;
       flex-wrap: wrap;
       align-items: flex-end;
-      gap: 4px;
+      gap: 3px;
       max-width: 100%;
-      line-height: 1.2;
+      line-height: 1.1;
     }
     .requisites-signature .sig-line {
-      flex: 1 1 72px;
-      min-width: 48px;
+      flex: 1 1 60px;
+      min-width: 40px;
       max-width: 100%;
       border-bottom: 1px solid #000;
-      height: 1.05em;
-      margin-bottom: 2px;
+      height: 1em;
+      margin-bottom: 1px;
     }
     @media print {
-      body { padding: 12mm 10mm; }
-      @page { margin: 10mm; }
+      html, body {
+        font-size: 11pt;
+        line-height: 1.08;
+      }
+      @page {
+        size: A4;
+        margin: 15mm 12mm 15mm 18mm;
+      }
     }
   </style>
 </head>
