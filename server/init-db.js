@@ -44,6 +44,9 @@ async function initializeDatabase() {
     await migrateAppointmentAuditEventsTable();
     console.log('✅ Миграция журнала истории записей проверена');
 
+    await migrateUserPasswordUpdatedAt();
+    console.log('✅ Миграция password_updated_at в users проверена');
+
     await migrateAppointmentUnitPrices();
     console.log('✅ Миграция unit_price в appointment_services/materials проверена');
     
@@ -1137,6 +1140,50 @@ async function migrateAppointmentAuditEventsTable() {
     console.log('   ✅ Таблица appointment_audit_events готова');
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции журнала истории записей:', error.message);
+  }
+}
+
+// Миграция: password_updated_at — для инвалидации сохранённых сессий после смены пароля
+async function migrateUserPasswordUpdatedAt() {
+  try {
+    const { usePostgres } = require('./database');
+
+    if (usePostgres) {
+      const exists = await db.all(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = $1
+      `, ['password_updated_at']);
+
+      if (exists.length === 0) {
+        console.log('   🔄 Добавление поля password_updated_at в users...');
+        await db.run(`ALTER TABLE users ADD COLUMN password_updated_at TIMESTAMP`);
+        console.log('   ✅ Поле password_updated_at добавлено');
+      } else {
+        console.log('   ✅ Поле password_updated_at уже существует');
+      }
+
+      await db.run(`
+        UPDATE users
+        SET password_updated_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+        WHERE password_updated_at IS NULL
+      `);
+    } else {
+      const tableInfo = await db.all(`PRAGMA table_info(users)`);
+      const hasColumn = tableInfo.some(col => col.name === 'password_updated_at');
+      if (!hasColumn) {
+        console.log('   🔄 Добавление поля password_updated_at в users...');
+        await db.run(`ALTER TABLE users ADD COLUMN password_updated_at TEXT`);
+        console.log('   ✅ Поле password_updated_at добавлено');
+      }
+      await db.run(`
+        UPDATE users
+        SET password_updated_at = COALESCE(created_at, datetime('now'))
+        WHERE password_updated_at IS NULL
+      `);
+    }
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции password_updated_at:', error.message);
   }
 }
 

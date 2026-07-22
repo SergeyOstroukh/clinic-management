@@ -85,10 +85,10 @@ const ChangePassword = ({ currentUser, targetUser, isOpen, onClose, onSuccess })
         confirmPassword: ''
       });
 
-      alert('✅ Пароль успешно изменен');
+      alert('✅ Пароль успешно изменен. Войдите снова с новым паролем.');
       
       if (onSuccess) {
-        onSuccess();
+        onSuccess({ requireRelogin: true, changedOwnPassword: isChangingOwnPassword });
       }
       
       onClose();

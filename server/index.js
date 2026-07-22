@@ -89,6 +89,26 @@ const getClinicLocalDateTimeString = async () => {
   return formatLocalDateTime(new Date());
 };
 
+const normalizeAuthTimestamp = (value) => {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+  return raw.replace('T', ' ').replace('Z', '').trim();
+};
+
+const buildAuthUserPayload = (user) => ({
+  id: user.id,
+  username: user.username,
+  role: user.role,
+  doctor_id: user.doctor_id,
+  full_name: user.full_name,
+  password_updated_at: normalizeAuthTimestamp(user.password_updated_at)
+});
+
 const addAppointmentAuditEvent = async ({
   appointmentId,
   eventType,
@@ -643,7 +663,7 @@ app.post('/api/doctors', async (req, res) => {
         
         // Создаем пользователя
         await db.query(
-          'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5)',
+          'INSERT INTO users (username, password, role, doctor_id, full_name, password_updated_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)',
           [username, hashedPassword, 'doctor', doctorId, fullName]
         );
       }
@@ -4108,15 +4128,49 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
     }
     
-    res.json({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      doctor_id: user.doctor_id,
-      full_name: user.full_name
-    });
+    res.json(buildAuthUserPayload(user));
   } catch (error) {
     console.error('Ошибка входа:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Проверка сохранённой сессии (localStorage) — без пароля, но с проверкой версии пароля
+app.post('/api/auth/validate', async (req, res) => {
+  const { id, password_updated_at } = req.body || {};
+
+  try {
+    if (!id) {
+      return res.status(401).json({ error: 'Сессия недействительна' });
+    }
+
+    const user = await db.get(
+      usePostgres
+        ? 'SELECT id, username, role, doctor_id, full_name, password_updated_at FROM users WHERE id = $1'
+        : 'SELECT id, username, role, doctor_id, full_name, password_updated_at FROM users WHERE id = ?',
+      [id]
+    );
+
+    if (!user) {
+      return res.status(401).json({ error: 'Пользователь не найден. Войдите заново.' });
+    }
+
+    const storedVersion = normalizeAuthTimestamp(password_updated_at);
+    const currentVersion = normalizeAuthTimestamp(user.password_updated_at);
+
+    // Если пароль меняли после сохранения сессии — требуем повторный вход
+    if (storedVersion && currentVersion && storedVersion !== currentVersion) {
+      return res.status(401).json({ error: 'Пароль был изменён. Войдите заново.' });
+    }
+
+    // Старые сессии без password_updated_at — тоже просим войти заново
+    if (!storedVersion) {
+      return res.status(401).json({ error: 'Сессия устарела. Войдите заново.' });
+    }
+
+    res.json(buildAuthUserPayload(user));
+  } catch (error) {
+    console.error('Ошибка проверки сессии:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -4174,7 +4228,7 @@ app.post('/api/setup/first-admin', async (req, res) => {
     // Создаем главного администратора
     if (usePostgres) {
       const result = await db.query(
-        'INSERT INTO users (username, password, role, full_name) VALUES ($1, $2, $3, $4) RETURNING id, username, role, full_name',
+        'INSERT INTO users (username, password, role, full_name, password_updated_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) RETURNING id, username, role, full_name, password_updated_at',
         [username, hashedPassword, 'superadmin', full_name || 'Главный администратор']
       );
       console.log(`✅ Первый главный администратор "${username}" создан через API`);
@@ -4184,7 +4238,7 @@ app.post('/api/setup/first-admin', async (req, res) => {
       });
     } else {
       const result = await db.run(
-        'INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)',
+        "INSERT INTO users (username, password, role, full_name, password_updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
         [username, hashedPassword, 'superadmin', full_name || 'Главный администратор']
       );
       console.log(`✅ Первый главный администратор "${username}" создан через API`);
@@ -4258,17 +4312,17 @@ app.post('/api/users/change-password', async (req, res) => {
     // Хешируем новый пароль
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
-    // Обновляем пароль
+    // Обновляем пароль и версию сессии (инвалидирует сохранённые входы)
     await db.run(
       usePostgres
-        ? 'UPDATE users SET password = $1 WHERE id = $2'
-        : 'UPDATE users SET password = ? WHERE id = ?',
+        ? 'UPDATE users SET password = $1, password_updated_at = CURRENT_TIMESTAMP WHERE id = $2'
+        : "UPDATE users SET password = ?, password_updated_at = datetime('now') WHERE id = ?",
       [hashedPassword, userId]
     );
     
     console.log(`✅ Пароль пользователя #${userId} изменен`);
     
-    res.json({ message: 'Пароль успешно изменен' });
+    res.json({ message: 'Пароль успешно изменен', require_relogin: true });
   } catch (error) {
     console.error('Ошибка смены пароля:', error);
     res.status(500).json({ error: error.message });
@@ -4409,7 +4463,7 @@ app.post('/api/users', async (req, res) => {
     // Создаем пользователя
     if (usePostgres) {
       const result = await db.query(
-        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, role, doctor_id, full_name',
+        'INSERT INTO users (username, password, role, doctor_id, full_name, password_updated_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING id, username, role, doctor_id, full_name, password_updated_at',
         [username, hashedPassword, role, doctor_id || null, full_name || null]
       );
       res.json({ 
@@ -4418,7 +4472,7 @@ app.post('/api/users', async (req, res) => {
       });
     } else {
       const result = await db.run(
-        'INSERT INTO users (username, password, role, doctor_id, full_name) VALUES (?, ?, ?, ?, ?)',
+        "INSERT INTO users (username, password, role, doctor_id, full_name, password_updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
         [username, hashedPassword, role, doctor_id || null, full_name || null]
       );
       res.json({ 

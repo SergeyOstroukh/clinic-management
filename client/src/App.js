@@ -214,16 +214,28 @@ function App() {
 
   // Проверка авторизации при загрузке
   useEffect(() => {
-    const user = localStorage.getItem('user');
-    if (user) {
+    const restoreSession = async () => {
+      const user = localStorage.getItem('user');
+      if (!user) return;
+
       try {
         const parsedUser = JSON.parse(user);
-        setCurrentUser(parsedUser);
+        const response = await axios.post(`${API_URL}/auth/validate`, {
+          id: parsedUser.id,
+          password_updated_at: parsedUser.password_updated_at || null
+        });
+
+        localStorage.setItem('user', JSON.stringify(response.data));
+        setCurrentUser(response.data);
         setIsAuthenticated(true);
       } catch (error) {
         localStorage.removeItem('user');
+        setCurrentUser(null);
+        setIsAuthenticated(false);
       }
-    }
+    };
+
+    restoreSession();
   }, []);
 
   useEffect(() => {
@@ -2700,7 +2712,8 @@ function App() {
         isOpen={showChangePasswordModal}
         onClose={() => setShowChangePasswordModal(false)}
         onSuccess={() => {
-          // Можно добавить дополнительную логику после успешной смены пароля
+          // После смены пароля всегда выходим — нужен вход с новым паролем
+          handleLogout();
         }}
       />
     </div>
