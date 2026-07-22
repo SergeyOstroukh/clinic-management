@@ -1387,7 +1387,9 @@ const BookingCalendarV2 = ({ currentUser, onBack, editingAppointment, rebookingF
         cancelled_by_user_id: currentUser?.id || null,
         cancelled_by_user_name: currentUser?.full_name || currentUser?.username || null,
         cancellation_reason: trimmedReason,
-        cancelled_at_local: getLocalDateTimeString()
+        cancelled_at_local: getLocalDateTimeString(),
+        actor_user_id: currentUser?.id || null,
+        actor_user_name: currentUser?.full_name || currentUser?.username || null
       });
       
       // Сбрасываем выбранное время

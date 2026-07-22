@@ -11,7 +11,7 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
-const CompositeServicesPage = ({ onNavigate, services, materials }) => {
+const CompositeServicesPage = ({ onNavigate, services, materials, currentUser }) => {
   const [compositeServices, setCompositeServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -19,6 +19,7 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
   const [selectedServiceForDetails, setSelectedServiceForDetails] = useState(null);
   const [editingService, setEditingService] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const canEdit = currentUser?.role === 'superadmin';
   
   // Форма составной услуги
   const [formData, setFormData] = useState({
@@ -113,6 +114,7 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
   };
 
   const handleOpenModal = (service = null) => {
+    if (!canEdit) return;
     if (service) {
       setEditingService(service);
       // Нормализуем данные при загрузке - убеждаемся, что есть service_id и material_id
@@ -227,6 +229,7 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEdit) return;
     
     if (!formData.name.trim()) {
       alert('Введите название составной услуги');
@@ -261,7 +264,8 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
     const dataToSend = {
       ...formData,
       services: normalizedServices,
-      materials: normalizedMaterials
+      materials: normalizedMaterials,
+      currentUser
     };
     
     try {
@@ -280,14 +284,17 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
   };
 
   const handleDelete = async (id) => {
+    if (!canEdit) return;
     if (!window.confirm('Удалить составную услугу?')) return;
     
     try {
-      await axios.delete(`${API_URL}/composite-services/${id}`);
+      await axios.delete(`${API_URL}/composite-services/${id}`, {
+        data: { currentUser }
+      });
       loadCompositeServices();
     } catch (error) {
       console.error('Ошибка удаления:', error);
-      alert('Ошибка удаления составной услуги');
+      alert(error.response?.data?.error || 'Ошибка удаления составной услуги');
     }
   };
 
@@ -307,9 +314,11 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
         <h2>🔧 Конструктор составных услуг ({filteredServices.length})</h2>
         <div>
           <button className="btn" onClick={() => onNavigate('home')}>← Назад</button>
-          <button className="btn btn-primary" onClick={() => handleOpenModal()}>
-            + Создать составную услугу
-          </button>
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => handleOpenModal()}>
+              + Создать составную услугу
+            </button>
+          )}
         </div>
       </div>
 
@@ -391,12 +400,16 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
                   }}>
                     👁️ Просмотр
                   </button>
-                  <button className="btn btn-small" onClick={() => handleOpenModal(cs)}>
-                    ✏️ Редактировать
-                  </button>
-                  <button className="btn btn-small btn-danger" onClick={() => handleDelete(cs.id)}>
-                    🗑️ Удалить
-                  </button>
+                  {canEdit && (
+                    <>
+                      <button className="btn btn-small" onClick={() => handleOpenModal(cs)}>
+                        ✏️ Редактировать
+                      </button>
+                      <button className="btn btn-small btn-danger" onClick={() => handleDelete(cs.id)}>
+                        🗑️ Удалить
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -405,7 +418,7 @@ const CompositeServicesPage = ({ onNavigate, services, materials }) => {
       </div>
 
       {/* Модальное окно создания/редактирования */}
-      {showModal && (
+      {showModal && canEdit && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal-content composite-service-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-details">

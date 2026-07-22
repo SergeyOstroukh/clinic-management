@@ -51,7 +51,8 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedMultipleDates, setSelectedMultipleDates] = useState([]);
 
-  const isSuperAdmin = currentUser.role === 'superadmin';
+  const isAdministrator = currentUser.role === 'administrator';
+  const canManageSchedule = currentUser.role === 'superadmin' || isAdministrator;
   const isDoctor = currentUser.role === 'doctor';
 
   const loadSchedules = async () => {
@@ -406,7 +407,7 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
               {selectedDoctor.specialization} • Время работы: {getDoctorTodaySchedule(selectedDoctor.id)}
             </p>
           </div>
-          {isSuperAdmin && (
+          {canManageSchedule && (
             <button 
               className="btn btn-primary" 
               onClick={() => setShowScheduleModal(true)}
@@ -501,18 +502,18 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
             <p style={{ color: '#667eea', fontSize: '0.95rem', margin: '5px 0 0 0' }}>
               {selectedDoctor.specialization}
             </p>
-            {isSuperAdmin && !multiSelectMode && (
+            {canManageSchedule && !multiSelectMode && (
               <p style={{ color: '#999', fontSize: '0.85rem', margin: '10px 0 0 0' }}>
                 💡 Кликните на день в календаре, чтобы установить время приема
               </p>
             )}
-            {isSuperAdmin && multiSelectMode && (
+            {canManageSchedule && multiSelectMode && (
               <p style={{ color: '#9c27b0', fontSize: '0.9rem', margin: '10px 0 0 0', fontWeight: '600' }}>
                 🔸 Выбрано дней: {selectedMultipleDates.length}. Кликайте на дни для выбора.
               </p>
             )}
           </div>
-          {isSuperAdmin && (
+          {canManageSchedule && (
             <div style={{ display: 'flex', gap: '10px' }}>
               {!multiSelectMode ? (
                 <button 
@@ -569,7 +570,7 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
             });
             setShowAddModal(true);
           }}
-          canEdit={isSuperAdmin}
+          canEdit={canManageSchedule}
           multiSelectMode={multiSelectMode}
           selectedDates={selectedMultipleDates}
           onDateSelect={handleDateSelect}
@@ -670,7 +671,7 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
                     {currentDaySchedule.times.map((time, idx) => (
                       <div key={currentDaySchedule.ids[idx]} className="existing-time-badge">
                         📍 {time}
-                        {isSuperAdmin && (
+                        {canManageSchedule && (
                           <button
                             type="button"
                             className="btn btn-danger btn-small"
@@ -746,7 +747,7 @@ const DoctorSchedule = ({ currentUser, doctors }) => {
     <div className="doctor-schedule-container">
       <div className="schedule-header">
         <h2>👨‍⚕️ Врачи, работающие сегодня ({new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })})</h2>
-        {isSuperAdmin && (
+        {canManageSchedule && (
           <div className="header-actions">
             <span style={{ color: '#999', fontSize: '0.9rem', marginRight: '10px' }}>
               Работает: {workingToday.length} из {doctors.length}

@@ -1,6 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { formatTime, getStatusColor, getStatusText, printPersonalDataConsent, printTherapyContract } from '../../shared/lib';
 import './AppointmentTable.css';
+
+const getApiUrl = () => {
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+  if (process.env.NODE_ENV === 'production') return '/api';
+  return 'http://localhost:3001/api';
+};
+
+const API_URL = getApiUrl();
 
 const AppointmentTable = ({ 
   appointments, 
@@ -20,6 +29,8 @@ const AppointmentTable = ({
   currentUser
 }) => {
   const [selectedAuditAppointment, setSelectedAuditAppointment] = useState(null);
+  const [auditHistory, setAuditHistory] = useState([]);
+  const [auditHistoryLoading, setAuditHistoryLoading] = useState(false);
 
   const getClientName = (clientId) => {
     const client = clients.find(c => c.id === clientId);
@@ -76,9 +87,51 @@ const AppointmentTable = ({
     return `${year}-${month}-${day} ${hours}:${minutes}`;
   };
 
-  const getAuditCreatedAt = (appointment) => appointment.created_at_local;
+  const getAuditEventLabel = (eventType) => {
+    switch (eventType) {
+      case 'created': return 'Создана';
+      case 'cancelled': return 'Отменена';
+      case 'resumed': return 'Возобновлена';
+      case 'status_changed': return 'Смена статуса';
+      default: return eventType || 'Событие';
+    }
+  };
 
-  const getAuditCancelledAt = (appointment) => appointment.cancelled_at_local;
+  const openAuditModal = (apt) => {
+    setSelectedAuditAppointment(apt);
+  };
+
+  useEffect(() => {
+    if (!selectedAuditAppointment?.id) {
+      setAuditHistory([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadHistory = async () => {
+      setAuditHistoryLoading(true);
+      try {
+        const response = await axios.get(`${API_URL}/appointments/${selectedAuditAppointment.id}/audit-history`);
+        if (!cancelled) {
+          setAuditHistory(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки истории записи:', error);
+        if (!cancelled) {
+          setAuditHistory([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuditHistoryLoading(false);
+        }
+      }
+    };
+
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAuditAppointment?.id]);
 
   // Функция для форматирования диапазона времени
   const formatTimeRange = (appointmentDate, duration) => {
@@ -283,7 +336,7 @@ const AppointmentTable = ({
                     </span>
                     <span
                       className="info-icon"
-                      onClick={() => setSelectedAuditAppointment(apt)}
+                      onClick={() => openAuditModal(apt)}
                       title="Информация по записи"
                       style={{
                         cursor: 'pointer',
@@ -344,31 +397,44 @@ const AppointmentTable = ({
                   <td>{formatTimeRange(selectedAuditAppointment.appointment_date, selectedAuditAppointment.duration)}</td>
                 </tr>
                 <tr>
-                  <th>Кто создал</th>
-                  <td>{selectedAuditAppointment.created_by_user_name || '—'}</td>
-                </tr>
-                <tr>
-                  <th>Когда создана</th>
-                  <td>{formatAuditDateTime(getAuditCreatedAt(selectedAuditAppointment))}</td>
-                </tr>
-                <tr>
-                  <th>Статус</th>
+                  <th>Текущий статус</th>
                   <td>{getStatusText(selectedAuditAppointment.status)}</td>
-                </tr>
-                <tr>
-                  <th>Кто отменил</th>
-                  <td>{selectedAuditAppointment.cancelled_by_user_name || '—'}</td>
-                </tr>
-                <tr>
-                  <th>Когда отменена</th>
-                  <td>{formatAuditDateTime(getAuditCancelledAt(selectedAuditAppointment))}</td>
-                </tr>
-                <tr>
-                  <th>Причина отмены</th>
-                  <td>{selectedAuditAppointment.cancellation_reason || '—'}</td>
                 </tr>
               </tbody>
             </table>
+
+            <h4 className="audit-history-title">История по записи</h4>
+            {auditHistoryLoading ? (
+              <p className="audit-history-empty">Загрузка истории...</p>
+            ) : auditHistory.length === 0 ? (
+              <p className="audit-history-empty">История пока пуста</p>
+            ) : (
+              <div className="audit-history-list">
+                {auditHistory.map((event) => (
+                  <div key={event.id} className={`audit-history-item audit-history-${event.event_type}`}>
+                    <div className="audit-history-main">
+                      <strong>{getAuditEventLabel(event.event_type)}</strong>
+                      <span>{formatAuditDateTime(event.event_at_local || event.event_at)}</span>
+                    </div>
+                    <div className="audit-history-meta">
+                      Кто: {event.user_name || '—'}
+                    </div>
+                    {(event.from_status || event.to_status) && (
+                      <div className="audit-history-meta">
+                        Статус: {event.from_status ? getStatusText(event.from_status) : '—'}
+                        {' → '}
+                        {event.to_status ? getStatusText(event.to_status) : '—'}
+                      </div>
+                    )}
+                    {event.reason && (
+                      <div className="audit-history-meta">
+                        Причина: {event.reason}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

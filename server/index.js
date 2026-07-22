@@ -89,6 +89,38 @@ const getClinicLocalDateTimeString = async () => {
   return formatLocalDateTime(new Date());
 };
 
+const addAppointmentAuditEvent = async ({
+  appointmentId,
+  eventType,
+  fromStatus = null,
+  toStatus = null,
+  userId = null,
+  userName = null,
+  reason = null,
+  eventAtLocal = null
+}) => {
+  const localTs = eventAtLocal || await getClinicLocalDateTimeString();
+  await db.run(
+    usePostgres
+      ? `INSERT INTO appointment_audit_events
+         (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+      : `INSERT INTO appointment_audit_events
+         (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      appointmentId,
+      eventType,
+      fromStatus,
+      toStatus,
+      userId || null,
+      userName || null,
+      reason || null,
+      localTs
+    ]
+  );
+};
+
 // Нормализация формата даты: YYYY-MM-DD HH:MM:SS (локальное время)
 function normalizeAppointmentDate(dateString) {
   if (!dateString) return dateString;
@@ -253,8 +285,10 @@ app.put('/api/clients/:id', async (req, res) => {
     // Если обновляется только treatment_plan, разрешаем врачам
     const isOnlyTreatmentPlanUpdate = !lastName && !firstName && !middleName && !phone && !address && !email && !notes && treatment_plan !== undefined;
     
-    if (!isOnlyTreatmentPlanUpdate && currentUser.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Доступ запрещен. Только главный администратор может редактировать клиентов.' });
+    // Полное редактирование: главный админ и простой администратор
+    // Удаление клиентов по-прежнему только у superadmin
+    if (!isOnlyTreatmentPlanUpdate && currentUser.role !== 'superadmin' && currentUser.role !== 'administrator') {
+      return res.status(403).json({ error: 'Доступ запрещен. Только администратор может редактировать клиентов.' });
     }
     
     if (isOnlyTreatmentPlanUpdate) {
@@ -272,7 +306,7 @@ app.put('/api/clients/:id', async (req, res) => {
       
       res.json({ message: 'План лечения обновлен', changes: result.changes });
     } else {
-      // Полное обновление (только для superadmin)
+      // Полное обновление (superadmin и administrator)
       const result = await db.run(
         usePostgres
           ? `UPDATE clients SET
@@ -1099,9 +1133,13 @@ app.get('/api/composite-services/:id', async (req, res) => {
 
 // Создать составную услугу
 app.post('/api/composite-services', async (req, res) => {
-  const { name, description, category, services, materials, is_active } = req.body;
-  
+  const { name, description, category, services, materials, is_active, currentUser } = req.body;
+
   try {
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Создавать составные услуги может только главный администратор.' });
+    }
+
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Название обязательно' });
     }
@@ -1174,9 +1212,13 @@ app.post('/api/composite-services', async (req, res) => {
 
 // Обновить составную услугу
 app.put('/api/composite-services/:id', async (req, res) => {
-  const { name, description, category, services, materials, is_active } = req.body;
+  const { name, description, category, services, materials, is_active, currentUser } = req.body;
   
   try {
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Редактировать составные услуги может только главный администратор.' });
+    }
+
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Название обязательно' });
     }
@@ -1258,6 +1300,11 @@ app.put('/api/composite-services/:id', async (req, res) => {
 // Удалить составную услугу
 app.delete('/api/composite-services/:id', async (req, res) => {
   try {
+    const currentUser = req.body?.currentUser;
+    if (!currentUser || currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Доступ запрещен. Удалять составные услуги может только главный администратор.' });
+    }
+
     const result = await db.run(
       'DELETE FROM composite_services WHERE id = $1',
       [req.params.id]
@@ -1304,6 +1351,10 @@ app.get('/api/appointments', async (req, res) => {
             a.cancelled_by_user_id,
             COALESCE(a.cancelled_by_user_name, canceller.full_name, canceller.username) as cancelled_by_user_name,
             a.cancellation_reason,
+            TO_CHAR(a.resumed_at::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as resumed_at,
+            a.resumed_at_local,
+            a.resumed_by_user_id,
+            COALESCE(a.resumed_by_user_name, resumer.full_name, resumer.username) as resumed_by_user_name,
             d."lastName" as doctor_lastName,
             d."firstName" as doctor_firstName,
             d."middleName" as doctor_middleName,
@@ -1312,6 +1363,7 @@ app.get('/api/appointments', async (req, res) => {
           LEFT JOIN doctors d ON a.doctor_id = d.id
           LEFT JOIN users creator ON a.created_by_user_id = creator.id
           LEFT JOIN users canceller ON a.cancelled_by_user_id = canceller.id
+          LEFT JOIN users resumer ON a.resumed_by_user_id = resumer.id
           ORDER BY a.id ASC`
         : `SELECT 
             a.*,
@@ -1326,7 +1378,11 @@ app.get('/api/appointments', async (req, res) => {
             a.cancelled_at_local,
             a.cancelled_by_user_id,
             a.cancelled_by_user_name,
-            a.cancellation_reason
+            a.cancellation_reason,
+            a.resumed_at,
+            a.resumed_at_local,
+            a.resumed_by_user_id,
+            a.resumed_by_user_name
           FROM appointments a
           LEFT JOIN doctors d ON a.doctor_id = d.id
           ORDER BY a.id ASC`
@@ -1742,6 +1798,20 @@ app.post('/api/appointments', async (req, res) => {
       doctor_id,
       type: 'new_appointment'
     });
+
+    try {
+      await addAppointmentAuditEvent({
+        appointmentId,
+        eventType: 'created',
+        fromStatus: null,
+        toStatus: 'scheduled',
+        userId: created_by_user_id,
+        userName: created_by_user_name,
+        eventAtLocal: createdAtLocal
+      });
+    } catch (auditError) {
+      console.error('Не удалось записать событие создания в журнал:', auditError.message);
+    }
     
     res.json({
       id: appointmentId,
@@ -1921,14 +1991,39 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
     discount_amount,
     cancelled_by_user_id,
     cancelled_by_user_name,
-    cancellation_reason
+    cancellation_reason,
+    resumed_by_user_id,
+    resumed_by_user_name,
+    actor_user_id,
+    actor_user_name
   } = req.body;
   
   try {
+    const existing = await db.get(
+      usePostgres
+        ? 'SELECT status FROM appointments WHERE id = $1'
+        : 'SELECT status FROM appointments WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Запись не найдена' });
+    }
+
+    const previousStatus = existing.status;
+    const isResuming = previousStatus === 'cancelled' && status !== 'cancelled';
+    const isCancelling = status === 'cancelled' && previousStatus !== 'cancelled';
+    const isStatusChange = previousStatus !== status;
+
     let cancelledAtLocal = null;
-    if (status === 'cancelled') {
+    let resumedAtLocal = null;
+    if (isCancelling) {
       cancelledAtLocal = await getClinicLocalDateTimeString();
     }
+    if (isResuming) {
+      resumedAtLocal = await getClinicLocalDateTimeString();
+    }
+
     const updateFields = [];
     const updateValues = [];
     let paramIndex = 1;
@@ -1943,7 +2038,8 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
       paramIndex++;
     }
 
-    if (status === 'cancelled') {
+    // Последняя отмена (для быстрого просмотра) — история при этом копится в журнале
+    if (isCancelling) {
       updateFields.push(usePostgres ? 'cancelled_at = CURRENT_TIMESTAMP' : "cancelled_at = datetime('now')");
       updateFields.push(usePostgres ? `cancelled_by_user_id = $${paramIndex}` : 'cancelled_by_user_id = ?');
       updateValues.push(cancelled_by_user_id || null);
@@ -1958,6 +2054,20 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
       updateValues.push(cancelledAtLocal);
       paramIndex++;
     }
+
+    // Последнее возобновление (для быстрого просмотра) — история копится в журнале
+    if (isResuming) {
+      updateFields.push(usePostgres ? 'resumed_at = CURRENT_TIMESTAMP' : "resumed_at = datetime('now')");
+      updateFields.push(usePostgres ? `resumed_by_user_id = $${paramIndex}` : 'resumed_by_user_id = ?');
+      updateValues.push(resumed_by_user_id || null);
+      paramIndex++;
+      updateFields.push(usePostgres ? `resumed_by_user_name = $${paramIndex}` : 'resumed_by_user_name = ?');
+      updateValues.push(resumed_by_user_name || null);
+      paramIndex++;
+      updateFields.push(usePostgres ? `resumed_at_local = $${paramIndex}` : 'resumed_at_local = ?');
+      updateValues.push(resumedAtLocal);
+      paramIndex++;
+    }
     
     updateValues.push(req.params.id);
     
@@ -1965,6 +2075,46 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
       `UPDATE appointments SET ${updateFields.join(', ')} WHERE id = ${usePostgres ? `$${paramIndex}` : '?'}`,
       updateValues
     );
+
+    if (isStatusChange) {
+      try {
+        let eventType = 'status_changed';
+        let userId = null;
+        let userName = null;
+        let reason = null;
+        let eventAtLocal = null;
+
+        if (isCancelling) {
+          eventType = 'cancelled';
+          userId = cancelled_by_user_id || actor_user_id;
+          userName = cancelled_by_user_name || actor_user_name;
+          reason = cancellation_reason;
+          eventAtLocal = cancelledAtLocal;
+        } else if (isResuming) {
+          eventType = 'resumed';
+          userId = resumed_by_user_id || actor_user_id;
+          userName = resumed_by_user_name || actor_user_name;
+          eventAtLocal = resumedAtLocal;
+        } else {
+          userId = actor_user_id || resumed_by_user_id || cancelled_by_user_id || null;
+          userName = actor_user_name || resumed_by_user_name || cancelled_by_user_name || null;
+          eventAtLocal = await getClinicLocalDateTimeString();
+        }
+
+        await addAppointmentAuditEvent({
+          appointmentId: parseInt(req.params.id, 10),
+          eventType,
+          fromStatus: previousStatus,
+          toStatus: status,
+          userId,
+          userName,
+          reason,
+          eventAtLocal
+        });
+      } catch (auditError) {
+        console.error('Не удалось записать событие статуса в журнал:', auditError.message);
+      }
+    }
     
     // Real-time: уведомляем все подключенные клиенты
     io.emit('appointmentUpdated', { 
@@ -1973,8 +2123,47 @@ app.patch('/api/appointments/:id/status', async (req, res) => {
       type: 'status_change'
     });
     
-    res.json({ message: 'Статус обновлен', status, changes: result.changes });
+    res.json({
+      message: 'Статус обновлен',
+      status,
+      resumed: isResuming,
+      resumed_at_local: resumedAtLocal,
+      changes: result.changes
+    });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Полная история по записи (создание / отмены / возобновления / смены статусов)
+app.get('/api/appointments/:id/audit-history', async (req, res) => {
+  try {
+    const events = await db.all(
+      usePostgres
+        ? `SELECT
+             id,
+             appointment_id,
+             event_type,
+             from_status,
+             to_status,
+             user_id,
+             user_name,
+             reason,
+             TO_CHAR(event_at::timestamp, 'YYYY-MM-DD HH24:MI:SS')::text as event_at,
+             event_at_local
+           FROM appointment_audit_events
+           WHERE appointment_id = $1
+           ORDER BY COALESCE(event_at_local, TO_CHAR(event_at::timestamp, 'YYYY-MM-DD HH24:MI:SS')), id ASC`
+        : `SELECT *
+           FROM appointment_audit_events
+           WHERE appointment_id = ?
+           ORDER BY COALESCE(event_at_local, event_at), id ASC`,
+      [req.params.id]
+    );
+
+    res.json(events);
+  } catch (error) {
+    console.error('Ошибка получения истории записи:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -41,6 +41,9 @@ async function initializeDatabase() {
     await migrateAppointmentAuditFields();
     console.log('✅ Миграция полей аудита записей проверена');
 
+    await migrateAppointmentAuditEventsTable();
+    console.log('✅ Миграция журнала истории записей проверена');
+
     await migrateAppointmentUnitPrices();
     console.log('✅ Миграция unit_price в appointment_services/materials проверена');
     
@@ -959,7 +962,11 @@ async function migrateAppointmentAuditFields() {
       { column: 'cancelled_at_local', type: 'TEXT', desc: 'локальной даты и времени отмены' },
       { column: 'cancelled_by_user_id', type: 'INTEGER', desc: 'ID отменившего запись' },
       { column: 'cancelled_by_user_name', type: 'TEXT', desc: 'имени отменившего запись' },
-      { column: 'cancellation_reason', type: 'TEXT', desc: 'причины отмены' }
+      { column: 'cancellation_reason', type: 'TEXT', desc: 'причины отмены' },
+      { column: 'resumed_at', type: usePostgres ? 'TIMESTAMP' : 'TEXT', desc: 'даты и времени возобновления' },
+      { column: 'resumed_at_local', type: 'TEXT', desc: 'локальной даты и времени возобновления' },
+      { column: 'resumed_by_user_id', type: 'INTEGER', desc: 'ID возобновившего запись' },
+      { column: 'resumed_by_user_name', type: 'TEXT', desc: 'имени возобновившего запись' }
     ];
 
     if (usePostgres) {
@@ -994,6 +1001,142 @@ async function migrateAppointmentAuditFields() {
     }
   } catch (error) {
     console.error('   ⚠️  Ошибка миграции полей аудита записей:', error.message);
+  }
+}
+
+// Журнал всех событий по записи (создание / отмена / возобновление / смена статуса)
+async function migrateAppointmentAuditEventsTable() {
+  try {
+    const { usePostgres } = require('./database');
+
+    if (usePostgres) {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS appointment_audit_events (
+          id SERIAL PRIMARY KEY,
+          appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+          event_type TEXT NOT NULL,
+          from_status TEXT,
+          to_status TEXT,
+          user_id INTEGER,
+          user_name TEXT,
+          reason TEXT,
+          event_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          event_at_local TEXT
+        )
+      `);
+      await db.run(`
+        CREATE INDEX IF NOT EXISTS idx_appointment_audit_events_appointment_id
+        ON appointment_audit_events(appointment_id)
+      `);
+    } else {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS appointment_audit_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          appointment_id INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          from_status TEXT,
+          to_status TEXT,
+          user_id INTEGER,
+          user_name TEXT,
+          reason TEXT,
+          event_at TEXT DEFAULT (datetime('now')),
+          event_at_local TEXT,
+          FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
+        )
+      `);
+    }
+
+    // Разовый перенос уже существующих данных в журнал (если для записи ещё нет событий)
+    const appointmentsWithAudit = await db.all(`
+      SELECT
+        id,
+        status,
+        created_by_user_id,
+        created_by_user_name,
+        created_at_local,
+        created_at,
+        cancelled_by_user_id,
+        cancelled_by_user_name,
+        cancelled_at_local,
+        cancelled_at,
+        cancellation_reason,
+        resumed_by_user_id,
+        resumed_by_user_name,
+        resumed_at_local,
+        resumed_at
+      FROM appointments
+      WHERE created_by_user_id IS NOT NULL
+         OR created_by_user_name IS NOT NULL
+         OR cancelled_by_user_id IS NOT NULL
+         OR cancelled_by_user_name IS NOT NULL
+         OR resumed_by_user_id IS NOT NULL
+         OR resumed_by_user_name IS NOT NULL
+    `);
+
+    for (const apt of appointmentsWithAudit) {
+      const existingCount = await db.get(
+        usePostgres
+          ? 'SELECT COUNT(*)::int as cnt FROM appointment_audit_events WHERE appointment_id = $1'
+          : 'SELECT COUNT(*) as cnt FROM appointment_audit_events WHERE appointment_id = ?',
+        [apt.id]
+      );
+      if ((existingCount?.cnt || 0) > 0) continue;
+
+      if (apt.created_by_user_id || apt.created_by_user_name || apt.created_at_local) {
+        await db.run(
+          usePostgres
+            ? `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES ($1, 'created', NULL, 'scheduled', $2, $3, NULL, $4)`
+            : `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES (?, 'created', NULL, 'scheduled', ?, ?, NULL, ?)`,
+          [apt.id, apt.created_by_user_id || null, apt.created_by_user_name || null, apt.created_at_local || null]
+        );
+      }
+
+      if (apt.cancelled_by_user_id || apt.cancelled_by_user_name || apt.cancelled_at_local || apt.cancellation_reason) {
+        await db.run(
+          usePostgres
+            ? `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES ($1, 'cancelled', NULL, 'cancelled', $2, $3, $4, $5)`
+            : `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES (?, 'cancelled', NULL, 'cancelled', ?, ?, ?, ?)`,
+          [
+            apt.id,
+            apt.cancelled_by_user_id || null,
+            apt.cancelled_by_user_name || null,
+            apt.cancellation_reason || null,
+            apt.cancelled_at_local || null
+          ]
+        );
+      }
+
+      if (apt.resumed_by_user_id || apt.resumed_by_user_name || apt.resumed_at_local) {
+        await db.run(
+          usePostgres
+            ? `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES ($1, 'resumed', 'cancelled', $2, $3, $4, NULL, $5)`
+            : `INSERT INTO appointment_audit_events
+               (appointment_id, event_type, from_status, to_status, user_id, user_name, reason, event_at_local)
+               VALUES (?, 'resumed', 'cancelled', ?, ?, ?, NULL, ?)`,
+          [
+            apt.id,
+            apt.status && apt.status !== 'cancelled' ? apt.status : 'scheduled',
+            apt.resumed_by_user_id || null,
+            apt.resumed_by_user_name || null,
+            apt.resumed_at_local || null
+          ]
+        );
+      }
+    }
+
+    console.log('   ✅ Таблица appointment_audit_events готова');
+  } catch (error) {
+    console.error('   ⚠️  Ошибка миграции журнала истории записей:', error.message);
   }
 }
 

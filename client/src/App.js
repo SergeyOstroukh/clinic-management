@@ -476,7 +476,17 @@ function App() {
   // Обновление статуса записи
   const updateAppointmentStatus = async (appointmentId, status) => {
     try {
-      const payload = { status };
+      const currentAppointment = appointments.find(apt => apt.id === appointmentId);
+      const previousStatus = currentAppointment?.status;
+      const isResuming = previousStatus === 'cancelled' && status !== 'cancelled';
+      const actorUserId = currentUser?.id || null;
+      const actorUserName = currentUser?.full_name || currentUser?.username || null;
+
+      const payload = {
+        status,
+        actor_user_id: actorUserId,
+        actor_user_name: actorUserName
+      };
 
       if (status === 'cancelled') {
         const cancellationReason = window.prompt('Укажите причину отмены записи:');
@@ -489,10 +499,16 @@ function App() {
           return;
         }
 
-        payload.cancelled_by_user_id = currentUser?.id || null;
-        payload.cancelled_by_user_name = currentUser?.full_name || currentUser?.username || null;
+        payload.cancelled_by_user_id = actorUserId;
+        payload.cancelled_by_user_name = actorUserName;
         payload.cancellation_reason = trimmedReason;
         payload.cancelled_at_local = getLocalDateTimeString();
+      }
+
+      if (isResuming) {
+        payload.resumed_by_user_id = actorUserId;
+        payload.resumed_by_user_name = actorUserName;
+        payload.resumed_at_local = getLocalDateTimeString();
       }
 
       await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, payload);
@@ -508,12 +524,18 @@ function App() {
             cancelled_by_user_id: payload.cancelled_by_user_id || null,
             cancelled_by_user_name: payload.cancelled_by_user_name || null,
             cancellation_reason: payload.cancellation_reason || null
+          } : {}),
+          ...(isResuming ? {
+            resumed_at: nowString,
+            resumed_at_local: payload.resumed_at_local || nowString,
+            resumed_by_user_id: payload.resumed_by_user_id || null,
+            resumed_by_user_name: payload.resumed_by_user_name || null
           } : {})
         } : apt
       ));
       
-      // Если запись отменена, отправляем событие для обновления календаря
-      if (status === 'cancelled') {
+      // Если запись отменена или возобновлена, обновляем календарь
+      if (status === 'cancelled' || isResuming) {
         window.dispatchEvent(new Event('appointmentCreated'));
       }
     } catch (error) {
@@ -539,7 +561,9 @@ function App() {
         cancelled_by_user_id: currentUser?.id || null,
         cancelled_by_user_name: currentUser?.full_name || currentUser?.username || null,
         cancellation_reason: trimmedReason,
-        cancelled_at_local: getLocalDateTimeString()
+        cancelled_at_local: getLocalDateTimeString(),
+        actor_user_id: currentUser?.id || null,
+        actor_user_name: currentUser?.full_name || currentUser?.username || null
       });
       
       // Обновляем локальное состояние
@@ -1387,27 +1411,27 @@ function App() {
                             >
                               📋 Карточка
                             </button>
+                            {(currentUser.role === 'superadmin' || currentUser.role === 'administrator') && (
+                              <button 
+                                className="btn btn-small"
+                                onClick={() => {
+                                  setEditingClient(client);
+                                  setClientForm(mapClientToForm(client));
+                                  setShowClientModal(true);
+                                }}
+                                title="Редактировать клиента"
+                              >
+                                ✏️ Редактировать
+                              </button>
+                            )}
                             {currentUser.role === 'superadmin' && (
-                              <>
-                                <button 
-                                  className="btn btn-small"
-                                  onClick={() => {
-                                    setEditingClient(client);
-                                    setClientForm(mapClientToForm(client));
-                                    setShowClientModal(true);
-                                  }}
-                                  title="Редактировать клиента"
-                                >
-                                  ✏️ Редактировать
-                                </button>
-                                <button 
-                                  className="btn btn-small btn-danger"
-                                  onClick={() => handleDeleteClient(client.id)}
-                                  title="Удалить клиента"
-                                >
-                                  🗑️ Удалить
-                                </button>
-                              </>
+                              <button 
+                                className="btn btn-small btn-danger"
+                                onClick={() => handleDeleteClient(client.id)}
+                                title="Удалить клиента"
+                              >
+                                🗑️ Удалить
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1715,12 +1739,13 @@ function App() {
           <StatisticsPage onNavigate={setCurrentView} currentUser={currentUser} />
         )}
         
-        {/* Конструктор составных услуг - только для superadmin */}
-        {currentView === 'composite-services' && currentUser.role === 'superadmin' && (
+        {/* Конструктор составных услуг — просмотр для administrator, полное управление для superadmin */}
+        {currentView === 'composite-services' && (currentUser.role === 'superadmin' || currentUser.role === 'administrator') && (
           <CompositeServicesPage 
             onNavigate={setCurrentView} 
             services={services}
             materials={materials}
+            currentUser={currentUser}
           />
         )}
 
